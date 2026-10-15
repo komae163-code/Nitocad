@@ -640,6 +640,7 @@ async def get_chain_config():
         "pack_10000_price_bot": float(botchain_pay.PACK_10000_PRICE_BOT),
         "pack_10000_credits": settings.BOTCHAIN_PACK_10000_CREDITS,
         "bulk_tier_credit_threshold": settings.BULK_TIER_CREDIT_THRESHOLD,
+        "anchor_enabled": _anchor_enabled(),
     }
 
 @app.get("/", response_class=HTMLResponse)
@@ -1807,7 +1808,36 @@ def _anchor_enabled() -> bool:
         import design_registry
         return design_registry.anchoring_available()
     except Exception:  # noqa: BLE001
+        logger.exception("anchoring check failed (is web3 installed?)")
         return False
+
+
+def _anchor_disabled_reason() -> str:
+    """Server-side detail for logs; the client only gets a friendly line."""
+    try:
+        import design_registry
+        return ", ".join(design_registry.anchoring_missing()) or "unknown"
+    except Exception as exc:  # noqa: BLE001
+        return f"design_registry could not load: {exc}"
+
+
+@app.get("/api/anchor/status")
+async def anchor_status():
+    """Public, booleans only (no secrets): is wallet anchoring usable on
+    this server? Open it in a browser to debug a 'not enabled' error."""
+    try:
+        import design_registry
+        st = design_registry.anchoring_status()
+        return {
+            "enabled": design_registry.anchoring_available(),
+            "registry_address_set": st["registry_address"],
+            "registry_address_valid": st["registry_address_valid"],
+            "rpc_configured": st["rpc_url"],
+            "environment": st["environment"],
+        }
+    except Exception:  # noqa: BLE001
+        logger.exception("anchor status failed")
+        return {"enabled": False, "error": "design_registry failed to load"}
 
 
 def _anchor_info(job: dict) -> tuple[str | None, str | None]:
@@ -1952,7 +1982,11 @@ async def anchor_prepare(
     `submitter` and pays the gas."""
     job = _owned_job_or_404(job_id, wallet)
     if not _anchor_enabled():
-        raise HTTPException(status_code=503, detail="On-chain anchoring is not enabled")
+        logger.warning("anchor/prepare refused, anchoring off: %s", _anchor_disabled_reason())
+        raise HTTPException(
+            status_code=503,
+            detail="On-chain anchoring is not set up on the server yet (registry contract not configured).",
+        )
     if job.get("anchor_tx"):
         anchor_tx, explorer_url = _anchor_info(job)
         return {"already_anchored": True, "anchor_tx": anchor_tx, "explorer_url": explorer_url}

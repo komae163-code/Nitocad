@@ -132,9 +132,15 @@ def _load_abi():
     return _abi_cache
 
 
+def _registry_address() -> str:
+    """Registry address with stray whitespace removed (a pasted Railway
+    env value often carries a trailing space/newline)."""
+    return (settings.DESIGN_REGISTRY_ADDRESS or "").strip()
+
+
 def anchoring_status() -> dict:
     """Which pieces are configured. Never exposes secret values."""
-    addr = settings.DESIGN_REGISTRY_ADDRESS
+    addr = _registry_address()
     return {
         "registry_address": bool(addr),
         "registry_address_valid": bool(addr) and Web3.is_address(addr),
@@ -154,16 +160,29 @@ def log_anchoring_status() -> None:
         logger.info("anchoring ENABLED on %s", st["environment"], extra=st)
 
 
+def anchoring_missing() -> list[str]:
+    """Names of the server settings that stop anchoring from working
+    (empty list == anchoring is available). Names only, never values."""
+    st = anchoring_status()
+    missing = []
+    if not st["registry_address"]:
+        missing.append("DESIGN_REGISTRY_ADDRESS")
+    elif not st["registry_address_valid"]:
+        missing.append("DESIGN_REGISTRY_ADDRESS (not a valid 0x address)")
+    if not st["rpc_url"]:
+        missing.append("BOTCHAIN_*_RPC_URL")
+    return missing
+
+
 def anchoring_available() -> bool:
     """True when registry address and RPC URL are set. No server key is
     needed - users sign with their own wallets. The ABI is embedded."""
-    st = anchoring_status()
-    return st["registry_address_valid"] and st["rpc_url"]
+    return not anchoring_missing()
 
 
 def _contract(w3):
     return w3.eth.contract(
-        address=Web3.to_checksum_address(settings.DESIGN_REGISTRY_ADDRESS),
+        address=Web3.to_checksum_address(_registry_address()),
         abi=_load_abi(),
     )
 
@@ -196,7 +215,7 @@ def build_anchor_tx(
     )
     return {
         "from": Web3.to_checksum_address(from_address),
-        "to": Web3.to_checksum_address(settings.DESIGN_REGISTRY_ADDRESS),
+        "to": Web3.to_checksum_address(_registry_address()),
         "data": fn._encode_transaction_data(),
         "value": "0x0",
         "chainId": settings.botchain_chain_id_hex,
@@ -222,7 +241,7 @@ def verify_anchor_tx(
 
         if str(tx["from"]).lower() != wallet_address.lower():
             return "invalid", "Transaction was not sent by your wallet"
-        if not tx.get("to") or str(tx["to"]).lower() != settings.DESIGN_REGISTRY_ADDRESS.lower():
+        if not tx.get("to") or str(tx["to"]).lower() != _registry_address().lower():
             return "invalid", "Transaction is not a call to the DesignRegistry"
 
         contract = _contract(w3)

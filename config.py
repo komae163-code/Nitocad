@@ -172,6 +172,13 @@ class Settings(BaseSettings):
     # so existing env files that still set it don't fail validation.
     ANCHOR_WALLET_PRIVATE_KEY: str | None = None
 
+    # The deployed DesignRegistry contract (env: DESIGN_REGISTRY_ADDRESS).
+    # This field MUST exist: Settings uses extra="ignore", so without it
+    # the Railway env var is silently dropped and design_registry.py /
+    # web_app.py hit AttributeError on settings.DESIGN_REGISTRY_ADDRESS,
+    # which made anchoring report "not enabled" even with the var set.
+    DESIGN_REGISTRY_ADDRESS: str | None = None
+
     # --- Wallet sign-in (wallet_auth.py) ------------------------------------
     # Replaces the old "API key bought via a 5 BOT payment, cached in one
     # browser" identity model with a free signature-based login: connect
