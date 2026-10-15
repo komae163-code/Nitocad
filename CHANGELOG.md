@@ -1,0 +1,581 @@
+# Changelog
+
+All notable changes to this project are documented here. Format loosely
+follows [Keep a Changelog](https://keepachangelog.com/).
+
+## [3.2.0] — Security audit fixes, subscriptions, Google sign-in, Paystack replaces Stripe
+
+### Fixed
+- **`design_registry.py`** — `anchor_design()` was missing the PoA
+  middleware `scripts/deploy_design_registry.py` itself documents as
+  required for `build_transaction()` on BOT Chain's proof-of-authority
+  chain. Every anchor call was likely failing silently on both testnet
+  and mainnet, swallowed by the function's own by-design broad
+  `except` (anchoring failures must never break a paid export). Fixed
+  by injecting `ExtraDataToPOAMiddleware`/`geth_poa_middleware`, same
+  as the deploy script already does. New `scripts/test_anchor_e2e.py`
+  validates the fix end-to-end on testnet (two distinct jobs anchored
+  back to back to actually exercise nonce handling, receipts and
+  `isAnchored`/`getDesign` read back from chain state, not app logs) —
+  written, **not yet run**; needs a real RPC connection this
+  environment didn't have.
+- **`GET /download/{fmt}/{filename}`** — all five routes were fully
+  unauthenticated (path-traversal-safe via `file_safety.py`, but no
+  ownership check at all), unlike `GET /export/{fmt}/{job_id}` which
+  already required the requesting wallet to own the job. A leaked URL
+  (browser history, a referrer header, a screen share) gave permanent,
+  un-revocable access to a paid job's files with no session needed.
+  Fixed via `db.find_job_owner()` (parses `job_id` out of on-demand
+  export filenames; falls back to a `stl_url`/`step_url` table lookup
+  for `/generate`'s inline-STL filenames, which use a different,
+  non-`job_id` uuid) and `wallet_auth.get_current_wallet_optional()` —
+  anonymous `/preview` output stays public on purpose (free,
+  regenerable, no wallet to own it), everything else now 404s for
+  anyone but the owning wallet.
+
+### Changed
+- **Pricing repriced** — BOT was trading around $9.73 when the
+  original 0.05/5/50 BOT tiers were set, pricing a single generation
+  at roughly $0.49. Repriced to 0.01/1/10 BOT (same credit counts,
+  same bulk-rate ratio), bringing a single generation to roughly
+  $0.10. `frontend/index.html`'s pricing copy was hardcoded rather
+  than reading `/config/chain` live and had drifted from the real
+  price even before this — fixed to read live values everywhere.
+- **Subscriptions replace the single flat-rate model, and now run on
+  Paystack, not Stripe.** Three tiers (`config.py`'s
+  `settings.subscription_tiers`): **Starter** ($5/mo, 100 subscription
+  credits/period — a pool that resets and does not roll over, also
+  throttled to 10 generations/rolling-24h so the pool can't be spent
+  in one sitting), **Engineer** ($10/mo, no credit pool at all, 30
+  free generations/rolling-24h), **Professional** ($50/mo, same shape
+  as Engineer, 150/rolling-24h, plus an `advanced_engineering`
+  entitlement that is a named placeholder only — no scope defined,
+  nothing checks it). `db.charge_generation` is the full per-tier
+  spend policy — subscription pool/allowance first, purchased credits
+  second, an explicit and easy-to-flip choice over hard-blocking a
+  subscriber who exceeds their daily cap. Daily tracking is a rolling
+  24 hours from each request (`db.count_generations_last_24h`, reusing
+  the existing `jobs` table), not a UTC-midnight or per-wallet-local-
+  timezone reset — no timezone column needed, no reset-cliff, at the
+  cost of being a `COUNT` query rather than an O(1) counter compare.
+  **Team ($500/5 seats) and Enterprise (custom) are explicitly not
+  built** — a seat/organization model doesn't exist anywhere in this
+  app, and Enterprise is normally manual invoicing, neither is a
+  config tweak.
+  Switched off Stripe onto **Paystack** mid-build (see `paystack_pay.py`'s
+  module docstring for what was independently verified against
+  Paystack's live docs before writing any of it, rather than assumed
+  from Stripe's shape): no separate webhook-signing secret (Paystack
+  signs with the same secret key used for API calls, HMAC-SHA512 of
+  the raw body), no Checkout Session object (`POST /transaction/initialize`
+  with a plan code returns an `authorization_url` directly), and a
+  **required real customer email** — Paystack has no concept of a
+  wallet, so `POST /subscribe/checkout` now takes an `email` field, and
+  the frontend asks for it at subscribe time. The wallet stays the
+  actual NitoCAD identity throughout: `subscriptions.provider`
+  distinguishes which rail wrote a row, `paystack_customer_code`/
+  `paystack_subscription_code` exist only for reconciliation, a webhook
+  is resolved back to a wallet via the customer code, never by
+  re-deriving one from an email. USD pricing on Paystack is **not**
+  assumed enabled — `PAYSTACK_CURRENCY` must be explicitly set to
+  `"USD"` by someone who confirmed that in the Paystack dashboard, or
+  every subscription route refuses to run at all rather than silently
+  billing NGN amounts equal to the USD figures. `stripe_pay.py` and its
+  `STRIPE_*` settings are left in place, unused, not deleted — a cheap
+  rollback path, no data loss risk.
+- BOT Chain USDT payments remain **explicitly blocked** — not
+  "no verified address yet," but not to be built at all right now
+  regardless of address availability, per an explicit decision not to
+  guess a contract address from a web search result.
+- File Exports (the subscription entitlement) remains **explicitly
+  undefined** — every credit type, purchased or subscription, already
+  gets free STEP/IGES/DXF/PDF export after the 1-credit generation
+  spend, so the perk has no content until a real definition is chosen.
+  Recorded as a named-but-unimplemented entitlement on purpose.
+
+### Added
+- **Google sign-in** (`google_auth.py`, `POST /auth/google`,
+  `GET /config/auth`) — a SECOND, independent identity path alongside
+  wallet sign-in, not a replacement. Stripe/Paystack-only (an email
+  account has no wallet to pay BOT/USDT from), 1 free credit granted
+  immediately on first sign-in (not gated on a first payment, unlike
+  the wallet flow's 10 — a real Google account has more inherent
+  friction than a free Ethereum keypair). Implementation trick that
+  kept this cheap: nothing in the existing schema actually validates
+  that `wallet_address` is a real Ethereum address, it's just a `TEXT`
+  primary key everywhere, so a Google account gets identifier
+  `"email:{google_sub}"` and every existing credit/subscription/
+  ownership/session function works on it completely unchanged.
+- BOT Chain co-branding in `frontend/index.html`'s footer — logo, name,
+  links to `botchain.ai` and `scan.botchain.ai`, plus a link to
+  `x.com/nitocad_agent`.
+
+## [3.1.0] — MCP agents migrated to wallet sessions, standalone free preview page, CDN fix
+
+### Changed
+- **`a2mcp_botchain/server.py`** — `generate_cad_part` and `export_format`
+  now take a `session_id` instead of a per-call `tx_hash`, matching the
+  web app's wallet-session + credits model from 3.0.0. This closes the
+  gap that blocked migrating it earlier: it never had an
+  API-key-equivalent identity to fall back on, since the payment
+  transaction itself used to *be* the identity proof. A wallet session
+  solves that without needing a payment at all - signing a message
+  (`POST /auth/nonce` → sign → `POST /auth/verify`, all plain HTTP, no
+  browser needed) is strictly simpler than sending a transaction, and
+  any agent calling these tools already holds a private key capable of
+  the latter. `generate_cad_part` spends 1 credit; `export_format` is
+  free, same reasoning as `GET /export/{fmt}/{job_id}`.
+- **`wallet_auth.py`** — session lookup factored out into
+  `resolve_session()`, a plain function with no FastAPI dependency
+  machinery. `get_current_wallet` (HTTP routes) now wraps it; the MCP
+  tools above call it directly, since MCP tool functions take explicit
+  arguments, not dependency injection.
+
+### Added
+- **`frontend/preview.html`** — a standalone, no-wallet-required version
+  of the free preview: a bigger space to iterate on a description, see
+  the free STL update, and tweak it as many times as wanted, separate
+  from the paid demo section's conversion-focused layout. Saves the
+  description to `localStorage` on each successful preview so
+  `index.html#demo`'s form can offer to pick up where this page left
+  off, without duplicating any server-side state (free previews stay
+  anonymous and unclaimable, unchanged from 2.x).
+- `tests/test_a2mcp_botchain.py` — covers the migrated MCP tools:
+  invalid/expired session handling, insufficient-credits failures (and
+  that they don't themselves consume anything), ownership privacy (a
+  wallet that doesn't own a job gets the same "not found" a nonexistent
+  job would, not a distinguishable error), and - CadQuery permitting -
+  that generation spends exactly 1 credit and export doesn't spend a
+  second one.
+
+### Fixed
+- **Three.js loaded from unpkg is CORS-unreliable for ES module
+  imports** - a real, externally documented problem (multiple long-
+  standing GitHub issues against unpkg, including one for this exact
+  package), not something introduced by this release, but surfaced
+  while building `preview.html` against the same pattern
+  `frontend/index.html` already used. `<script type="module">` imports
+  are fetched in CORS mode by the browser itself (unlike a classic
+  `<script src="...">` tag, which isn't subject to CORS at all) - when
+  the CDN doesn't consistently send `Access-Control-Allow-Origin`, the
+  whole module fails to instantiate, silently, with no exception the
+  page's own error handling can catch. Both `index.html` and
+  `preview.html` now load `three` from `cdn.jsdelivr.net/npm/` instead,
+  which does reliably send that header. **Not independently verified
+  end-to-end against either CDN in this project's own test environment**
+  - its outbound network access is blocked entirely, uniformly, for any
+  external domain, which made it impossible to distinguish "unpkg
+  specifically fails here" from "nothing external loads here." The
+  business logic around the CDN load (the `/preview` call, response
+  handling, parameter/warning rendering, the `localStorage` handoff) was
+  verified directly, with the CDN import stubbed out - see this
+  release's test notes. Worth a real-browser smoke test of both pages
+  after deploying.
+
+## [3.0.0] — Wallet sign-in + prepaid credits replace API keys
+
+Breaking change to the auth and payment model, not an additive feature.
+Anyone integrating against the old `X-API-Key`/per-call-payment flow
+needs to migrate - there is no compatibility shim and no conversion
+path for existing keys, per the project's own "going forward only"
+decision.
+
+### Added
+- **`wallet_auth.py`** — Sign-In-With-Wallet: `POST /auth/nonce` issues
+  a one-time challenge, the wallet signs it for free (no gas, nothing
+  on-chain), `POST /auth/verify` checks the signature and issues a
+  session. Sessions are opaque server-side tokens (revocable via
+  `POST /auth/logout`), not JWTs.
+- **`db.py`** — `nonces` and `sessions` tables backing the above, plus
+  `wallet_credits`: a prepaid-generation balance per wallet.
+  `consume_credit` is a single atomic `UPDATE ... WHERE balance >= ?` -
+  tested under 20 real concurrent threads against a wallet holding
+  exactly 1 credit in `tests/test_wallet_auth.py`, confirming exactly
+  one winner and zero overdraft.
+- **`POST /credits/purchase`** — three tiers: `single`
+  (`BOTCHAIN_CREDIT_PRICE_BOT`, 1 credit), `pack_1000`, `pack_10000`.
+  The two packs share the same per-credit rate; `single` pays a 10x
+  premium for not committing to volume - see `config.py`'s comment on
+  these three numbers.
+- **`GET /credits/balance`** — current balance for the signed-in wallet.
+- `tests/test_wallet_auth.py` — unit tests for nonce/session/credit
+  storage, including the concurrency test above.
+
+### Changed
+- **`POST /generate`** now authenticates via
+  `Authorization: Bearer <session_id>` (wallet session) instead of
+  `X-API-Key`, and spends 1 credit (`db.consume_credit`) instead of
+  requiring a fresh on-chain payment on every call.
+- **`GET /export/{fmt}/{job_id}`** likewise moved to wallet-session
+  auth. Still free per job (unchanged from 2.x) - this fixes nothing
+  about pricing, only identity.
+- **`GET /api/jobs`, `GET /api/jobs/{job_id}`** moved to wallet-session
+  auth - same audit-history behavior, different identity mechanism.
+- **`frontend/index.html`** and **`web_app.py`**'s embedded demo both
+  rewritten: a persistent "Connect Wallet" control replaces the old
+  implicit "pay 5 BOT the first time you click Generate" flow, with
+  visible "Buy 1 / 1000 / 10000 credits" actions and a live balance/
+  cost note shown before anything is charged.
+- **`tests/conftest.py`** — `api_key` fixture replaced by
+  `wallet_session` (signs a real throwaway wallet in through the actual
+  HTTP endpoints) and `wallet_with_credits` (the same, pre-loaded with
+  1000 credits for tests that need to call `/generate`).
+- **`tests/test_api.py`** — rewritten against the new auth model, plus
+  new coverage: a 402 on zero credits, a regression test pinning down
+  that a rejected (422) request never spends a credit, and a regression
+  test for the exact bug this release also fixes (see below).
+
+### Fixed
+- Exports were briefly double-billed after the 2.x per-call pricing
+  model shipped - `GET /export/{fmt}/{job_id}` was charging its own
+  `BOTCHAIN_PER_CALL_PRICE_BOT` on top of the payment already made at
+  `/generate` time, for the same job. Fixed by removing the second
+  charge entirely (ownership already proves the caller paid once at
+  generation) rather than discounting it - the fix carried forward
+  into this release's credit-based model too:
+  `test_export_does_not_consume_an_additional_credit` guards it going
+  forward.
+
+### Removed
+- **`security.py`** — deleted. `X-API-Key` header auth is gone.
+- **`db.py`**'s `api_keys` table (no longer created on a fresh deploy;
+  not dropped from any already-deployed sqlite file, since that's
+  destructive and unnecessary for "stop reading it") and the
+  `create_api_key`/`validate_api_key` functions.
+- **`POST /api/keys/generate`** endpoint, and the `ApiKeyResponse`/
+  `KeyGenerateRequest` models.
+- `RATE_LIMIT_KEY_ISSUE` config setting (rate-limited the now-removed
+  endpoint above).
+
+### Not migrated (deliberately, see the project's own notes)
+- **`a2mcp_botchain/server.py`**'s `generate_cad_part`/`export_format`
+  MCP tools still use the old per-call BOT payment model. They have no
+  API-key-equivalent identity to fall back on (a payment transaction
+  *is* the identity proof there), so migrating them needs its own
+  design rather than copying the web app's change - tracked as
+  follow-up work, not an oversight.
+
+## [2.3.0] — Multi-view orthographic + multi-part DXF/PDF export
+
+`export_dxf`/`export_pdf` previously derived their entire drawing from
+one horizontal section through the part (`Workplane.section()` at
+Z=0) — correct for flat/plate-style parts, but blind to any geometry
+that didn't intersect that one cutting plane (a stepped shaft's
+diameter change along its axis, for example). Replaced with a real
+multi-view orthographic drawing.
+
+### Changed
+- **`exporters.py`** — `export_dxf`/`export_pdf` now generate front,
+  top, and right-side views, each via OCCT's `HLRBRep_Algo`
+  hidden-line-removal algorithm (through OCP — no new dependency),
+  separating visible edges (solid line) from hidden edges (dashed
+  line). Views are laid out in the standard third-angle drafting
+  arrangement (top above front, side beside front, shared-axis
+  registered — see `_layout_three_views`), with per-view labels and a
+  title block. This is the new default behavior, not an opt-in flag —
+  there is no `multi_view`/`view_mode` parameter.
+- DXF layers changed from the section-based `PIECE_OUTLINE` / `HOLES`
+  / `CENTERLINES` set to `VISIBLE` / `HIDDEN` / `LABELS` / `BORDER`,
+  since HLR classifies edges by visibility, not by section-wire
+  nesting/area.
+- **`export_all`** / **`export_dxf`** / **`export_pdf`** gained an
+  optional `parts: list[(name, shape)]` parameter. For assemblies,
+  passing `parts` draws one full front/top/side block per sub-part,
+  stacked on one sheet and individually labeled, instead of a single
+  block for the merged compound. step/stl/iges are unaffected.
+- **`assembly.py`** — added `get_assembly_parts(assy)`, which flattens
+  an `Assembly` into `(name, shape)` pairs with each part's geometry
+  already moved into its assembly-world location, feeding the `parts`
+  param above.
+- **`cad_generator.py`** — `_generate_assembly` now calls
+  `get_assembly_parts` and threads the result through to
+  `exporters.export_all` for the dxf/pdf formats.
+- `/generate`, the `/download/*` routes, `storage.upload_export`, and
+  the frontend format checkboxes needed no changes — they all operate
+  on format name, not view mode.
+
+### Verification status
+Same standing caveat as the rest of `exporters.py`: written and
+syntax-checked against the cadquery 2.3.1 / OCP API surface pinned in
+`requirements.txt`, but not executed against real OCCT geometry (no
+network access to install cadquery's native dependencies in this
+environment). View orientation in particular (which axis maps to
+which side of the page) was worked out algebraically against OCCT's
+`HLRAlgo_Projector` convention, not confirmed against a rendered
+drawing. Run `pytest tests/test_exporters.py` for real before shipping.
+
+---
+
+## [2.2.1] — Multi-format export is now the default
+
+`exporters.DEFAULT_FORMATS` was `("step", "stl")` — the 2.2.0 export
+matrix (IGES/DXF/PDF) was opt-in only, via an explicit `formats: [...]`
+list. That undersold the feature: a caller who didn't know the param
+existed still got the old two-format behavior. Changed the default to
+every supported format: `("step", "stl", "iges", "dxf", "pdf")`.
+
+### Changed
+- **`exporters.py`** — `DEFAULT_FORMATS` now lists all five supported
+  formats. `validate_formats([])` and `export_all(..., formats=None)`
+  both fall through to this constant, so the change is one line plus
+  updated comments — no new code paths.
+- **`web_app.py`** / **`cad_generator.py`** — docstrings/comments
+  describing the old `["step", "stl"]` default corrected to match.
+- A caller that wants the old, narrower behavior back still can, by
+  passing `formats: ["step", "stl"]` explicitly — nothing about the
+  opt-in mechanism changed, only what happens when it's omitted.
+
+### Fixed
+- **`tests/test_exporters.py`** — `TestValidateFormats` and
+  `TestExportAll.test_export_all_default_formats` asserted the old
+  two-format default; updated to expect all five, since they'd
+  otherwise fail against the new behavior.
+
+### Verification status
+Same standing caveat as the rest of `exporters.py`: this is a one-line
+constant change with no new logic, but still unverified against a real
+CadQuery/OCP install (no network access in this environment). The
+existing `tests/test_exporters.py` (updated above) covers it — run it
+for real before relying on this.
+
+---
+
+## [2.2.0] — Tier-1 export formats
+
+Adds the production export matrix on top of the existing STEP/STL
+pipeline: exact-geometry IGES, layer-classified DXF for 2D cutting, and
+1:1 scale vector PDF technical drawings.
+
+### Added
+- **`exporters.py`** — unified multi-format export module.
+  - `export_step` / `export_stl` — the existing exports, moved here
+    behind one interface (no behavior change).
+  - `export_iges` — true boundary-representation IGES via OCP's
+    `IGESControl_Writer`, called directly since cadquery 2.3.1's own
+    `exporters` module doesn't expose an IGES `ExportType`. No new
+    native dependency — OCP already ships with cadquery.
+  - `export_dxf` — layer-classified DXF (`PIECE_OUTLINE`, `HOLES`,
+    `CENTERLINES`) built from a real horizontal section through the
+    solid and written via `ezdxf`, with holes auto-classified from the
+    outer boundary by enclosed area.
+  - `export_pdf` — 1:1 scale vector PDF with a title block (part name,
+    material, scale, bounding-box size, date), built from the same
+    section geometry as the DXF export, via `reportlab`.
+  - `export_all` — orchestrator; validates the requested format list up
+    front (`UnsupportedFormatError`, 422) before doing any geometry
+    work.
+  - **Scope note**: DXF/PDF are derived from a single horizontal
+    section, not full multi-view orthographic projection — correct and
+    sufficient for the flat/plate/bracket-style parts this catalog is
+    dominated by, but a part whose relevant geometry isn't captured by
+    one horizontal cut will only export that one cross-section. See the
+    module docstring for the full scope discussion, including why GLTF
+    isn't included in this pass.
+- **`GenerateRequest.formats`** / **`GenerateResponse`** — `/generate`
+  now accepts an optional `formats: ["step", "stl", "iges", "dxf",
+  "pdf"]` list (defaults to `["step", "stl"]`, matching prior behavior
+  exactly when omitted). Response gains `iges_file`/`dxf_file`/
+  `pdf_file` and matching `_url` fields, populated only for formats that
+  were actually requested.
+- **`/download/iges/{filename}`**, **`/download/dxf/{filename}`**,
+  **`/download/pdf/{filename}`** — new download routes, same
+  path-traversal-safe resolution (`safe_output_path`) as the existing
+  `/download/step` and `/download/stl` routes.
+- **`storage.upload_export(local_path, fmt)`** — generic R2 upload for
+  any supported format, added alongside (not replacing)
+  `upload_step`/`upload_stl`.
+- **`exceptions.UnsupportedFormatError`** (422) — a bad/unknown format
+  name in the `formats` list fails fast, before any parse or geometry
+  work, with a clear client-fixable error.
+- Frontend (`web_app.py`'s inline HTML/JS) — format checkboxes next to
+  the existing DeepSeek toggle; download links render dynamically for
+  whichever formats come back in the response.
+- **`tests/test_exporters.py`** — covers format validation, each
+  exporter individually, `export_all`, and an end-to-end
+  `CADGenerator.generate_from_text(..., formats=[...])` call. Marked
+  `requires_cadquery` per the existing convention (`test_cad_templates.py`)
+  — written and reviewed against the pinned cadquery 2.3.1/OCP API
+  surface but **not executed against real OCCT geometry** in the
+  environment this was authored in (no network access to install
+  cadquery's native dependencies there). Run this file for real, in an
+  environment with the project's actual dependencies installed (the
+  existing Dockerfile/CI already has them), before relying on it.
+
+### Changed
+- `requirements.txt` / `pyproject.toml` — added `ezdxf==1.3.5` and
+  `reportlab==4.2.5`.
+- `cad_generator.py` — `_generate_single_part` and `_generate_assembly`
+  now return a `dict[str, Path]` keyed by format instead of a fixed
+  `(step_path, stl_path)` tuple. Assembly STEP export still goes through
+  `Assembly.save()` (preserves named sub-parts); every other
+  format — including STEP/STL/IGES/DXF/PDF for single parts — goes
+  through `exporters.export_all` on the built shape.
+
+---
+
+## [2.1.0] — Engine components: connecting_rod, crankshaft
+
+Two new CAD templates — the most geometrically complex in this project
+so far (multi-body boolean unions, not a single extrude+cut like most
+existing templates).
+
+### Added
+- **`cad_templates/connecting_rod.py`** — big-end/small-end bosses of
+  different diameters, a shank between them, an optional raised center
+  rib (the visual signature of a forged I-section rod), and
+  representative big-end cap bolt holes. See the module's own docstring
+  for exactly what's simplified (no true tapered I-beam cross-section,
+  no actual two-piece rod/cap split — a single STEP solid can't
+  represent a bolted joint between separate bodies).
+- **`cad_templates/crankshaft.py`** — configurable number of throws,
+  main journals, offset rod journals, webs with counterweight lobes,
+  optional front nose and rear flywheel flange. Default even throw
+  spacing (`360°/num_throws`); pass `phase_angles_deg` for a specific
+  engine's real firing-order spacing instead.
+- Both registered in `cad_templates/__init__.py`'s `TEMPLATES` dict,
+  wired into `smart_parser.py`'s keyword detection (`infer_part_type`)
+  ahead of the existing generic `shaft`/`rod` keywords they'd otherwise
+  be shadowed by, and given real validators
+  (`validate_connecting_rod`, `validate_crankshaft` in `validator.py`).
+- Test coverage in `tests/test_cad_templates.py` and
+  `tests/test_validator.py`, plus both added to `smoke_test.py`'s
+  real-pipeline test case list.
+
+### Fixed during development (not shipped bugs — caught before delivery)
+- An early `connecting_rod.py` draft used
+  `faces(">Z").workplane().moveTo(x, y).hole(d)` to cut the bores —
+  which centers its local coordinate system on the selected face's
+  center of mass, not the global origin. Harmless for a part symmetric
+  about the origin (which is why the existing `flat_plate.py` template
+  gets away with the same pattern), but silently wrong for this rod's
+  two off-origin, different-sized bosses: the holes would land at the
+  wrong location. Fixed by cutting with explicit cutter solids at known
+  global coordinates instead. `TestConnectingRod::test_big_end_bore_is_actually_at_the_big_end_not_the_origin`
+  regression-tests this directly.
+- An early `crankshaft.py` draft built one continuous full-length
+  cylinder at main-journal diameter as a "backbone" and unioned the
+  throws onto it — which left main-journal-diameter material running
+  straight through every throw region as well as the actual main
+  bearing surfaces, producing a fat cylinder with bumps instead of an
+  actual crank profile. Fixed by building each main journal as its own
+  discrete segment, with the offset rod journal/webs only present in
+  the gaps between them. `TestCrankshaft::test_main_journal_diameter_does_not_run_through_the_throw_region`
+  regression-tests this directly.
+
+### Verification status
+Same caveat as every CadQuery-dependent change in this file: written
+and syntax-checked, but **not run against a real CadQuery install** in
+the environment this was authored in (no native OCCT build available).
+Run `pytest -m requires_cadquery` (or the full `make test`) plus
+`python smoke_test.py` on your VPS before relying on either template.
+
+---
+
+## [2.0.0] — Professional hardening pass
+
+A structural pass on top of the existing generation engine (parser,
+templates, validator, CadQuery pipeline) — none of that logic changed,
+this is entirely infrastructure: config, error handling, observability,
+security, and testing. See sections below for what moved where.
+
+### Added
+- **`config.py`** — centralized `pydantic-settings` configuration.
+  Every environment variable the project reads (previously ~15 separate
+  `os.getenv` calls across `db.py`, `storage.py`, `deepseek_parser.py`,
+  `web_app.py`) is now declared, typed, and validated in one place. A
+  typo'd env var name now fails at startup instead of silently resolving
+  to "not configured."
+- **`logging_config.py`** — structured logging (JSON or console format,
+  `LOG_FORMAT` env var) with per-request correlation IDs, replacing
+  every `print()` call in the request path. `X-Request-ID` is echoed
+  back on every response and threaded through all log lines emitted
+  while handling that request.
+- **`exceptions.py`** — a real exception hierarchy (`ParseError`,
+  `GeometryValidationError`, `GenerationError`, `UnsupportedPartTypeError`,
+  `AssemblyError`, `StorageError`) instead of one bare `except Exception`
+  around the whole pipeline. FastAPI exception handlers map each to an
+  appropriate status code (422 for bad input, 500 for internal failures)
+  and never leak a Python traceback into an HTTP response body — full
+  detail goes to the logs only.
+- **`file_safety.py`** — fixes a real path-traversal vulnerability in
+  `/download/step/{filename}` and `/download/stl/{filename}`: the
+  filename from the URL is now resolved and confirmed to stay inside
+  the output directory before being served, instead of being joined
+  onto the output path unchecked.
+- **Rate limiting** (`slowapi`) on `/generate` (20/min per IP by
+  default) and `/api/keys/generate` (5/hour per IP) — each `/generate`
+  call does real OCCT geometry work, and unauthenticated key issuance
+  was previously uncapped.
+- **`/healthz`** (liveness) and **`/readyz`** (readiness, checks DB
+  connectivity) endpoints for container/orchestrator health checks.
+- **Pydantic response models** (`GenerateResponse`, `ApiKeyResponse`,
+  etc.) on every route — gives accurate OpenAPI docs at `/docs` instead
+  of untyped `dict` returns, and FastAPI now validates outgoing
+  responses match the documented shape.
+- **Test suite** (`tests/`) — previously the only test artifact was
+  `smoke_test.py`, a manual script not picked up by any test runner.
+  Now: unit tests for the validator and regex parser (no CadQuery
+  needed, run everywhere), API integration tests via `TestClient`
+  (auth, rate limiting, request validation, path-traversal protection),
+  and a CadQuery-gated suite (`pytest -m requires_cadquery`) covering
+  template geometry validity and the fillet-degradation / structural-beam
+  regressions called out in the "Fixed" sections below. **Written but
+  not run against a real CadQuery install** — no network/native-build
+  access in the environment this was authored in; run `pytest` on your
+  VPS to confirm, same caveat every prior DeepSeek/CadQuery change in
+  this file has carried.
+- **CI** (`.github/workflows/ci.yml`) — lint (ruff), type check (mypy,
+  informational for now), and two test jobs (with/without CadQuery) on
+  every push/PR.
+- **Tooling** — `pyproject.toml` (ruff + mypy + pytest + coverage
+  config), `.pre-commit-config.yaml`, `Makefile` with `make check` /
+  `make test` / `make fmt` etc.
+- **Non-root Docker user + HEALTHCHECK** in the `Dockerfile`.
+
+### Changed
+- `cad_generator.py` — every pipeline stage now raises a typed exception
+  on failure instead of falling through to a generic `except Exception`;
+  `generate_from_text()`'s external dict-return contract (used by
+  `cli.py` and `a2mcp/server.py`) is unchanged, but failures now include
+  a stable `error_type` field alongside `error`.
+  Also added: a cap on the number of chained `operations` per request
+  (`MAX_OPERATIONS_PER_REQUEST = 25`) — an unbounded `operations` list
+  was a cheap way to tie up the OCCT kernel for a long time on one
+  request.
+- `web_app.py` — CORS origins, rate limits, and docs visibility now come
+  from `config.settings` instead of hardcoded values; added a request
+  logging/correlation-id middleware.
+- `db.py` / `storage.py` — read configuration via `config.settings`
+  instead of scattered `os.getenv` calls; `db.py` gained
+  `check_connection()` for the readiness probe.
+- `deepseek_parser.py` — the DeepSeek client now has an explicit request
+  timeout (`DEEPSEEK_TIMEOUT_SECONDS`, default 20s). Previously a stalled
+  API call blocked the request indefinitely instead of falling back to
+  the regex parser the way every other DeepSeek failure mode already did.
+
+### Fixed
+- **Path traversal** on the download routes (see `file_safety.py` above)
+  — the one concrete security bug found in this pass, not something
+  discovered in production. Treat this as sensitive if reporting it.
+- **`assembly.py`** — an assembly part with an unsupported/typo'd
+  `part_type` previously vanished from the output with zero signal
+  anywhere; now logged as a warning so a shrinking assembly is
+  diagnosable.
+
+### Unchanged (deliberately)
+- Every CAD template (`cad_templates/`), the regex/keyword parser
+  (`smart_parser.py`), the DeepSeek prompt/extraction logic, the
+  validator's actual geometric rules, and the assembly/x402/MCP gateway
+  logic — this pass is infrastructure only. Prior fixes documented
+  further down this file (fillet degradation, i-beam/channel flange
+  overlap, etc.) still apply and now have regression tests in
+  `tests/test_cad_templates.py`.
+
+---
+
+## Prior history
+
+See the sections below this line for the pre-2.0.0 history (DeepSeek
+integration, R2/db/security hardening, the three-round fillet bug fix,
+the OKX A2MCP gateway) — carried over from the previous README, not
+reproduced twice.
