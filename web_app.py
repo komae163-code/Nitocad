@@ -1885,23 +1885,18 @@ async def export_link(
     needed, so it works as a plain download on iOS Safari / Android
     Chrome). Ownership is checked here; the token binds job + format +
     owner and expires after _DL_LINK_TTL_SECONDS."""
-    # The on-chain anchor is NOT submitted by the server: for STEP the
-    # customer's own wallet signs it via POST /api/jobs/{id}/anchor/prepare
-    # then /anchor/confirm.
+    # Downloads never anchor. Anchoring is a separate, optional action the
+    # customer's own wallet signs: POST /api/jobs/{id}/anchor/prepare then
+    # /anchor/confirm.
     file_path, job_after = _build_export(fmt, job_id, wallet["wallet_address"], anchor=False)
     token = _make_dl_token(job_id, fmt, wallet["wallet_address"])
     anchor_tx, explorer_url = _anchor_info(job_after)
-    anchor_required = fmt == "step" and not anchor_tx and _anchor_enabled()
     return {
         "url": f"/export/{fmt}/{job_id}/file?t={token}",
         "filename": file_path.name,
         "expires_in": _DL_LINK_TTL_SECONDS,
         "anchor_tx": anchor_tx,
         "explorer_url": explorer_url,
-        # True => the client should now ask the user's wallet to sign the
-        # anchor: POST /api/jobs/{job_id}/anchor/prepare, send the returned
-        # tx with the wallet, then POST .../anchor/confirm with the hash.
-        "anchor_required": anchor_required,
         "anchor_enabled": _anchor_enabled(),
     }
 
@@ -2065,12 +2060,12 @@ async def job_provenance(
             "explorer_url": explorer,
         },
         "note": (
-            "On-chain provenance is written when you export STEP for a paid job. "
+            "Anchored on BOT Chain by the wallet that signed it. "
             "The record includes part type, parameter hash, template version, "
             "and keccak256 of the STEP file. Full parameters are in the event log."
             if anchor_tx
             else (
-                "Not anchored yet. Generate a paid job, then export STEP. "
+                "Not anchored yet. Use the 'Anchor on BOT Chain' button on a paid job. "
                 "Free STL preview never writes on-chain."
             )
         ),
