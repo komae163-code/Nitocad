@@ -228,6 +228,14 @@ _VIEW_AXES: dict[str, tuple["cq.Vector", "cq.Vector"]] = {
 
 _VIEW_LABELS = {"front": "FRONT VIEW", "top": "TOP VIEW", "side": "RIGHT SIDE VIEW"}
 
+# View labels sit BELOW the width-dimension line (which is drawn 16mm under
+# the view, with extension lines running down to it). The old 6mm drop put
+# every label right across those extension lines. _LABEL_CLEARANCE is the
+# room callers must reserve under each view (passed to _combined_bbox) so
+# the sheet/title block still clears the lowered label.
+_VIEW_LABEL_DROP = 23.0
+_LABEL_CLEARANCE = 26.0
+
 # Orientation of each view's local axes was worked out algebraically
 # against OCCT's HLRAlgo_Projector convention (gp_Ax2(origin, direction,
 # x_dir), local-Y = direction x x_dir) rather than checked against a
@@ -293,6 +301,57 @@ def _hlr_edges(shape, direction: "cq.Vector", x_dir: "cq.Vector") -> tuple[list,
     return visible, hidden
 
 
+def _exact_projected_extents(shape, direction, x_dir):
+    """Exact (u_min, u_max, v_min, v_max) of the solid's projection in a
+    view's local frame, from the solid's true (non-tessellated) bounding
+    box, or None if it can't be determined. Views are axis-aligned, so
+    projecting the 8 corners of the exact axis-aligned box gives the exact
+    extents. useTriangulation=False on purpose: STL export meshes the same
+    shape earlier in export_all, and a mesh-based box can under-report
+    curved parts. Any failure returns None, which leaves the extents
+    derived from the HLR polylines exactly as before."""
+    try:
+        from OCP.Bnd import Bnd_Box
+        from OCP.BRepBndLib import BRepBndLib
+
+        occt_shape = shape.wrapped if hasattr(shape, "wrapped") else shape
+        box = Bnd_Box()
+        BRepBndLib.AddOptimal_s(occt_shape, box, False, False)
+        if box.IsVoid():
+            return None
+        x0, y0, z0, x1, y1, z1 = box.Get()
+        # view-local vertical axis = direction x x_dir (see _VIEW_AXES)
+        vx = direction.y * x_dir.z - direction.z * x_dir.y
+        vy = direction.z * x_dir.x - direction.x * x_dir.z
+        vz = direction.x * x_dir.y - direction.y * x_dir.x
+        us, vs = [], []
+        for x in (x0, x1):
+            for y in (y0, y1):
+                for z in (z0, z1):
+                    us.append(x * x_dir.x + y * x_dir.y + z * x_dir.z)
+                    vs.append(x * vx + y * vy + z * vz)
+        return min(us), max(us), min(vs), max(vs)
+    except Exception:
+        return None
+
+
+def _snap_extent(poly_lo: float, poly_hi: float, exact_lo: float, exact_hi: float) -> tuple[float, float]:
+    """HLR curves are discretized into polylines, so a circle's polyline
+    bbox is slightly smaller than the circle (a 10mm cylinder measured
+    9.97 / 9.99). Use the exact extents instead - but only when they agree
+    with the drawn geometry: the exact box must contain the polyline box
+    and exceed it by no more than 3% of the span. Anything else (a frame
+    mismatch, a mesh-derived box) keeps the polyline values unchanged."""
+    span = max(poly_hi - poly_lo, exact_hi - exact_lo)
+    eps = 1e-6 + 1e-6 * span
+    tol = 1e-6 + 0.03 * span
+    contains = exact_lo <= poly_lo + eps and exact_hi >= poly_hi - eps
+    close = (poly_lo - exact_lo) <= tol and (exact_hi - poly_hi) <= tol
+    if contains and close:
+        return round(exact_lo, 6), round(exact_hi, 6)
+    return poly_lo, poly_hi
+
+
 def _build_view(shape, name: str) -> _View:
     direction, x_dir = _VIEW_AXES[name]
     visible_edges, hidden_edges = _hlr_edges(shape, direction, x_dir)
@@ -308,15 +367,20 @@ def _build_view(shape, name: str) -> _View:
         )
     xs = [p[0] for p in all_pts]
     ys = [p[1] for p in all_pts]
+    u_min, u_max, v_min, v_max = min(xs), max(xs), min(ys), max(ys)
+    exact = _exact_projected_extents(shape, direction, x_dir)
+    if exact is not None:
+        u_min, u_max = _snap_extent(u_min, u_max, exact[0], exact[1])
+        v_min, v_max = _snap_extent(v_min, v_max, exact[2], exact[3])
     return _View(
         name=name,
         label=_VIEW_LABELS[name],
         visible=visible_polylines,
         hidden=hidden_polylines,
-        u_min=min(xs),
-        u_max=max(xs),
-        v_min=min(ys),
-        v_max=max(ys),
+        u_min=u_min,
+        u_max=u_max,
+        v_min=v_min,
+        v_max=v_max,
     )
 
 
@@ -343,10 +407,15 @@ def _layout_three_views(views: list[_View], gap: float = 28.0) -> dict[str, tupl
 
     offsets = {"front": (-front.u_min, -front.v_min)}
 
-    front_top_edge_y = -front.v_min + front.height
+    # Placed edges: the front view is shifted by (-u_min, -v_min), so its
+    # placed right/top edges are simply its width/height. (The old
+    # "-front.u_min + front.width" added the shift twice, which inflated the
+    # gap for origin-centered parts and, for parts sitting away from the
+    # origin, could drop the side/top view on top of the front view.)
+    front_top_edge_y = front.height
     offsets["top"] = (-front.u_min, front_top_edge_y + gap - top.v_min)
 
-    front_right_edge_x = -front.u_min + front.width
+    front_right_edge_x = front.width
     offsets["side"] = (front_right_edge_x + gap - side.u_min, -front.v_min)
 
     return offsets
@@ -464,7 +533,7 @@ def _build_part_block(obj: "ShapeLike") -> tuple[list[_View], dict[str, tuple[fl
 def _stack_part_blocks(
     parts: list[tuple[str, "ShapeLike"]],
     block_gap: float = 40.0,
-    label_clearance: float = 20.0,
+    label_clearance: float = _LABEL_CLEARANCE,
     left_clearance: float = 14.0,
 ) -> list[tuple[str, list[_View], dict[str, tuple[float, float]], float]]:
     """Lay out one front/top/side block per part, stacked vertically down
@@ -505,6 +574,60 @@ def _stack_part_blocks(
 # own DXF exporter doesn't expose per-edge visible/hidden classification).
 # --------------------------------------------------------------------
 
+def _clip(text: str, limit: int = 60) -> str:
+    """Cap very long free-text fields so one huge part name can't blow up
+    the title block width."""
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _split_columns(needs: list[float], total: float) -> list[float]:
+    """Column widths for a title block: each column gets at least what its
+    text needs, and any spare width (when the drawing is wider than the
+    text) is shared out in proportion. Returns widths summing to
+    max(total, sum(needs))."""
+    need_sum = sum(needs)
+    total = max(total, need_sum)
+    extra = total - need_sum
+    return [n + extra * (n / need_sum) for n in needs]
+
+
+# Average advance of capital letters / digits / spaces as a multiple of the
+# DXF TEXT height. Deliberately on the wide side: a little spare room in
+# the title block is harmless, overlapping text is not.
+_DXF_CHAR_WIDTH_FACTOR = 0.9
+
+
+def _dxf_text_width(text: str, height: float) -> float:
+    return len(text) * height * _DXF_CHAR_WIDTH_FACTOR
+
+
+def _title_block_text_dxf(part_name, material, part_type, size_mm) -> dict[str, str]:
+    # SIZE is the real (X, Y, Z) size of the solid itself, measured off
+    # the HLR views (_part_size_mm) - NOT the drawing sheet's own layout
+    # extent. Reporting sheet size here was the original bug: a plate's
+    # title block claimed it was 257mm wide because that's how much
+    # sheet space three tiled views + gaps took up, not because the
+    # part was actually that big.
+    size_text = f"SIZE: {size_mm[0]:.1f} x {size_mm[1]:.1f} x {size_mm[2]:.1f} mm" if size_mm else "SIZE: n/a"
+    return {
+        "part": f"PART: {_clip(part_name.upper())}",
+        "type": f"TYPE: {_clip((part_type or 'n/a').upper())}",
+        "size": size_text,
+        "material": f"MATERIAL: {_clip(material or 'n/a')}",
+        "date": f"DATE: {_dt.date.today().isoformat()}",
+    }
+
+
+def _title_block_columns_dxf(texts: dict[str, str], width: float) -> list[float]:
+    pad = 6.0
+    needs = [
+        max(_dxf_text_width(texts["part"], 3.5), _dxf_text_width(texts["type"], 2.5)) + pad,
+        max(_dxf_text_width(texts["size"], 2.5), _dxf_text_width(texts["material"], 2.5)) + pad,
+        _dxf_text_width(texts["date"], 2.5) + pad,
+    ]
+    return _split_columns(needs, width)
+
+
 def _dxf_layers(doc) -> None:
     doc.layers.add("VISIBLE", color=7)
     doc.layers.add("HIDDEN", color=8, linetype="DASHED" if "DASHED" in doc.linetypes else "CONTINUOUS")
@@ -524,7 +647,7 @@ def _draw_view_dxf(msp, view: _View, offset: tuple[float, float]) -> None:
         if len(pts) >= 2:
             msp.add_lwpolyline(pts, dxfattribs={"layer": "HIDDEN"})
     label_x = view.u_min + ox
-    label_y = view.v_min + oy - 6
+    label_y = view.v_min + oy - _VIEW_LABEL_DROP
     msp.add_text(view.label, dxfattribs={"layer": "LABELS", "height": 3.0}).set_placement((label_x, label_y))
 
 
@@ -574,36 +697,25 @@ def _draw_title_block_dxf(
     part_name: str, material: str | None, part_type: str | None,
     size_mm: tuple[float, float, float] | None = None,
 ) -> None:
+    texts = _title_block_text_dxf(part_name, material, part_type, size_mm)
+    cols = _title_block_columns_dxf(texts, width)
+    width = sum(cols)  # >= the requested width; grows only when the text needs it
+    d1 = x0 + cols[0]
+    d2 = x0 + cols[0] + cols[1]
+
     msp.add_lwpolyline(
         [(x0, y0), (x0 + width, y0), (x0 + width, y0 + height), (x0, y0 + height)],
         dxfattribs={"layer": "BORDER", "closed": True},
     )
     msp.add_line((x0, y0 + height / 2), (x0 + width, y0 + height / 2), dxfattribs={"layer": "BORDER"})
-    msp.add_line((x0 + width * 0.33, y0), (x0 + width * 0.33, y0 + height), dxfattribs={"layer": "BORDER"})
-    msp.add_line((x0 + width * 0.66, y0), (x0 + width * 0.66, y0 + height), dxfattribs={"layer": "BORDER"})
+    msp.add_line((d1, y0), (d1, y0 + height), dxfattribs={"layer": "BORDER"})
+    msp.add_line((d2, y0), (d2, y0 + height), dxfattribs={"layer": "BORDER"})
 
-    msp.add_text(
-        f"PART: {part_name.upper()}", dxfattribs={"layer": "LABELS", "height": 3.5}
-    ).set_placement((x0 + 3, y0 + height - 8))
-    msp.add_text(
-        f"TYPE: {(part_type or 'n/a').upper()}", dxfattribs={"layer": "LABELS", "height": 2.5}
-    ).set_placement((x0 + 3, y0 + 3))
-    # SIZE is the real (X, Y, Z) size of the solid itself, measured off
-    # the HLR views (_part_size_mm) - NOT the drawing sheet's own layout
-    # extent. Reporting sheet size here was the original bug: a plate's
-    # title block claimed it was 257mm wide because that's how much
-    # sheet space three tiled views + gaps took up, not because the
-    # part was actually that big.
-    size_text = f"SIZE: {size_mm[0]:.1f} x {size_mm[1]:.1f} x {size_mm[2]:.1f} mm" if size_mm else "SIZE: n/a"
-    msp.add_text(
-        size_text, dxfattribs={"layer": "LABELS", "height": 2.5}
-    ).set_placement((x0 + width * 0.33 + 3, y0 + height - 8))
-    msp.add_text(
-        f"MATERIAL: {material or 'n/a'}", dxfattribs={"layer": "LABELS", "height": 2.5}
-    ).set_placement((x0 + width * 0.33 + 3, y0 + 3))
-    msp.add_text(
-        f"DATE: {_dt.date.today().isoformat()}", dxfattribs={"layer": "LABELS", "height": 2.5}
-    ).set_placement((x0 + width * 0.66 + 3, y0 + height - 8))
+    msp.add_text(texts["part"], dxfattribs={"layer": "LABELS", "height": 3.5}).set_placement((x0 + 3, y0 + height - 8))
+    msp.add_text(texts["type"], dxfattribs={"layer": "LABELS", "height": 2.5}).set_placement((x0 + 3, y0 + 3))
+    msp.add_text(texts["size"], dxfattribs={"layer": "LABELS", "height": 2.5}).set_placement((d1 + 3, y0 + height - 8))
+    msp.add_text(texts["material"], dxfattribs={"layer": "LABELS", "height": 2.5}).set_placement((d1 + 3, y0 + 3))
+    msp.add_text(texts["date"], dxfattribs={"layer": "LABELS", "height": 2.5}).set_placement((d2 + 3, y0 + height - 8))
 
 
 def export_dxf(
@@ -631,17 +743,20 @@ def export_dxf(
                 ox, oy = offsets[view.name]
                 _draw_view_dxf(msp, view, (ox, oy + y_shift))
                 _add_dimensions_dxf(msp, view, (ox, oy + y_shift))
-            first = views[0]
-            fx, fy = offsets["front"]
+            # Part name goes ABOVE the whole block (above the top view). It used
+            # to sit 12mm over the front view, which is exactly where the top
+            # view's width-dimension line and text are drawn.
+            top = next(v for v in views if v.name == "top")
+            fx, _ = offsets["front"]
             msp.add_text(
                 label.upper(), dxfattribs={"layer": "LABELS", "height": 4.0}
-            ).set_placement((fx, fy + y_shift + first.height + 12))
+            ).set_placement((fx, offsets["top"][1] + y_shift + top.v_max + 8))
         overall_x0 = overall_y0 = float("inf")
         overall_x1 = overall_y1 = float("-inf")
         for _, views, offsets, y_shift in blocks:
             x0, x1, y0, y1 = _combined_bbox(
                 views, {n: (o[0], o[1] + y_shift) for n, o in offsets.items()},
-                label_clearance=20.0, left_clearance=14.0,
+                label_clearance=_LABEL_CLEARANCE, left_clearance=14.0,
             )
             overall_x0, overall_x1 = min(overall_x0, x0), max(overall_x1, x1)
             overall_y0, overall_y1 = min(overall_y0, y0), max(overall_y1, y1)
@@ -653,7 +768,7 @@ def export_dxf(
             _draw_view_dxf(msp, view, offsets[view.name])
             _add_dimensions_dxf(msp, view, offsets[view.name])
         overall_x0, overall_x1, overall_y0, overall_y1 = _combined_bbox(
-            views, offsets, label_clearance=20.0, left_clearance=14.0
+            views, offsets, label_clearance=_LABEL_CLEARANCE, left_clearance=14.0
         )
         size_mm = _part_size_mm(views)
 
@@ -792,7 +907,7 @@ def _add_dimensions_pdf(c, view: _View, offset: tuple[float, float], to_page) ->
     _draw_vertical_dim_pdf(c, to_page, v_min, v_max, u_min, u_min - 10, f"{view.height:.1f}")
 
     for cx, cy, r in _distinct_hole_callouts(_detect_circles(view)):
-        _draw_diameter_leader_pdf(c, to_page, cx + ox, cy + oy, r, f"\u2300{2 * r:.1f}")
+        _draw_diameter_leader_pdf(c, to_page, cx + ox, cy + oy, r, f"\u00d8{2 * r:.1f}")
 
 
 def _draw_view_pdf(c, view: _View, offset: tuple[float, float], to_page) -> None:
@@ -803,7 +918,7 @@ def _draw_view_pdf(c, view: _View, offset: tuple[float, float], to_page) -> None
     for line in view.hidden:
         pts = [to_page((x + ox, y + oy)) for x, y in line]
         _draw_open_polyline_pdf(c, pts, dashed=True)
-    label_pt = to_page((view.u_min + ox, view.v_min + oy - 6))
+    label_pt = to_page((view.u_min + ox, view.v_min + oy - _VIEW_LABEL_DROP))
     c.setFont("Helvetica-Bold", 8)
     c.drawString(label_pt[0], label_pt[1], view.label)
 
@@ -832,7 +947,7 @@ def export_pdf(
         overall_x0 = overall_y0 = float("inf")
         overall_x1 = overall_y1 = float("-inf")
         for (_, views, _, _), offsets in zip(blocks, all_offsets):
-            x0, x1, y0, y1 = _combined_bbox(views, offsets, label_clearance=20.0, left_clearance=14.0)
+            x0, x1, y0, y1 = _combined_bbox(views, offsets, label_clearance=_LABEL_CLEARANCE, left_clearance=14.0)
             overall_x0, overall_x1 = min(overall_x0, x0), max(overall_x1, x1)
             overall_y0, overall_y1 = min(overall_y0, y0), max(overall_y1, y1)
         part_size_mm = None  # sheet holds multiple distinct parts - no single (X,Y,Z) to report
@@ -842,7 +957,7 @@ def export_pdf(
         blocks = [(part_name, views, offsets, 0.0)]
         all_offsets = [offsets]
         overall_x0, overall_x1, overall_y0, overall_y1 = _combined_bbox(
-            views, offsets, label_clearance=20.0, left_clearance=14.0
+            views, offsets, label_clearance=_LABEL_CLEARANCE, left_clearance=14.0
         )
         part_size_mm = _part_size_mm(views)
 
@@ -851,7 +966,34 @@ def export_pdf(
 
     margin = 20 * mm
     title_block_h = 28 * mm
-    page_w = max(drawing_w_mm * mm + 2 * margin, 150 * mm)
+
+    # Title block text is decided first so the sheet can be widened to fit
+    # it - fixed column fractions made "SIZE: ... mm" run into the DATE cell.
+    # SIZE is the real (X, Y, Z) size of the solid, read back off the HLR
+    # views (_part_size_mm) - NOT drawing_w_mm/drawing_h_mm, which is the
+    # SHEET's layout extent (three tiled views + gaps + title block).
+    # Reporting the sheet extent here was the original bug: a 97mm plate's
+    # title block claimed "257.5 x 122.5mm" because that's how much page
+    # space three views + dimensions took up, not the part's real size.
+    if part_size_mm:
+        size_text = f"SIZE: {part_size_mm[0]:.1f} x {part_size_mm[1]:.1f} x {part_size_mm[2]:.1f} mm"
+    else:
+        size_text = "SIZE: n/a (multi-part sheet)"
+    name_text = f"PART: {_clip(part_name.upper())}"
+    type_text = f"TYPE: {_clip((part_type or 'n/a').upper())}"
+    scale_text = "SCALE: 1:1"
+    material_text = f"MATERIAL: {_clip(material or 'n/a')}"
+    date_text = f"DATE: {_dt.date.today().isoformat()}"
+
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    pad = 10.0  # points, 5 either side of the text
+    tb_needs = [
+        max(stringWidth(name_text, "Helvetica-Bold", 10), stringWidth(type_text, "Helvetica", 8)) + pad,
+        max(stringWidth(scale_text, "Helvetica", 8), stringWidth(size_text, "Helvetica", 8)) + pad,
+        max(stringWidth(material_text, "Helvetica", 8), stringWidth(date_text, "Helvetica", 8)) + pad,
+    ]
+    page_w = max(drawing_w_mm * mm + 2 * margin, 150 * mm, sum(tb_needs) + 2 * margin)
     page_h = drawing_h_mm * mm + 2 * margin + title_block_h
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -872,9 +1014,9 @@ def export_pdf(
 
     for (label, block_views, _, y_shift), offsets in zip(blocks, all_offsets):
         if parts:
-            first = block_views[0]
-            fx, fy = offsets["front"]
-            label_pt = to_page((fx, fy + first.height + 12))
+            top = next(v for v in block_views if v.name == "top")
+            fx, _ = offsets["front"]
+            label_pt = to_page((fx, offsets["top"][1] + top.v_max + 8))
             c.setFont("Helvetica-Bold", 10)
             c.drawString(label_pt[0], label_pt[1], label.upper())
         for view in block_views:
@@ -884,29 +1026,22 @@ def export_pdf(
     # Title block
     tb_x0, tb_y0 = margin, margin
     tb_w = page_w - 2 * margin
+    cols = _split_columns(tb_needs, tb_w)
+    d1 = tb_x0 + cols[0]
+    d2 = tb_x0 + cols[0] + cols[1]
     c.rect(tb_x0, tb_y0, tb_w, title_block_h, stroke=1, fill=0)
     c.line(tb_x0, tb_y0 + title_block_h / 2, tb_x0 + tb_w, tb_y0 + title_block_h / 2)
-    c.line(tb_x0 + tb_w * 0.38, tb_y0, tb_x0 + tb_w * 0.38, tb_y0 + title_block_h)
-    c.line(tb_x0 + tb_w * 0.7, tb_y0, tb_x0 + tb_w * 0.7, tb_y0 + title_block_h)
+    c.line(d1, tb_y0, d1, tb_y0 + title_block_h)
+    c.line(d2, tb_y0, d2, tb_y0 + title_block_h)
 
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(tb_x0 + 5, tb_y0 + title_block_h - 14, f"PART: {part_name.upper()}")
+    c.drawString(tb_x0 + 5, tb_y0 + title_block_h - 14, name_text)
     c.setFont("Helvetica", 8)
-    c.drawString(tb_x0 + 5, tb_y0 + 8, f"TYPE: {(part_type or 'n/a').upper()}")
-    c.drawString(tb_x0 + tb_w * 0.4, tb_y0 + title_block_h - 14, "SCALE: 1:1")
-    # SIZE is the real (X, Y, Z) size of the solid, read back off the HLR
-    # views (_part_size_mm) - NOT drawing_w_mm/drawing_h_mm, which is the
-    # SHEET's layout extent (three tiled views + gaps + title block).
-    # Reporting the sheet extent here was the original bug: a 97mm plate's
-    # title block claimed "257.5 x 122.5mm" because that's how much page
-    # space three views + dimensions took up, not the part's real size.
-    if part_size_mm:
-        size_text = f"SIZE: {part_size_mm[0]:.1f} x {part_size_mm[1]:.1f} x {part_size_mm[2]:.1f} mm"
-    else:
-        size_text = "SIZE: n/a (multi-part sheet)"
-    c.drawString(tb_x0 + tb_w * 0.4, tb_y0 + 8, size_text)
-    c.drawString(tb_x0 + tb_w * 0.72, tb_y0 + title_block_h - 14, f"MATERIAL: {material or 'n/a'}")
-    c.drawString(tb_x0 + tb_w * 0.72, tb_y0 + 8, f"DATE: {_dt.date.today().isoformat()}")
+    c.drawString(tb_x0 + 5, tb_y0 + 8, type_text)
+    c.drawString(d1 + 5, tb_y0 + title_block_h - 14, scale_text)
+    c.drawString(d1 + 5, tb_y0 + 8, size_text)
+    c.drawString(d2 + 5, tb_y0 + title_block_h - 14, material_text)
+    c.drawString(d2 + 5, tb_y0 + 8, date_text)
 
     c.showPage()
     c.save()
