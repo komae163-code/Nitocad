@@ -449,8 +449,12 @@ def build_router(*, generator, limiter) -> APIRouter:
 
     @router.post("/chats/{chat_id}/parts/{part_id}/match")
     @limiter.limit(settings.RATE_LIMIT_FILES)
-    async def match_reference(request: Request, chat_id: str, part_id: str, wallet: Wallet, file: UploadFile = File(...)):
+    async def match_reference(request: Request, chat_id: str, part_id: str, wallet: Wallet):
         """How much a part overlaps a reference file (STEP, IGES, BREP, STL or OBJ). Free; the file is read and dropped."""
+        form = await request.form()
+        file = form.get("file")
+        if file is None or not hasattr(file, "read"):
+            raise HTTPException(status_code=422, detail="Attach a reference file.")
         import file_analysis as fa
         uid = _uid(wallet)
         limit = settings.FILE_MAX_UPLOAD_MB * 1024 * 1024
