@@ -12,7 +12,22 @@ import cadquery as cq
 import db
 import exporters
 import storage
-from assembly import generate_assembly, get_assembly_parts, parse_assembly_description
+import import_ops
+import import_store
+import assembly as assembly_mod
+import assembly_parser
+import assembly_spec
+import assembly_templates
+from assembly import (
+    assembly_route,
+    mated_spec,
+    assembly_spec_from_parts,
+    generate_assembly,
+    get_assembly_parts,
+    legacy_assembly_example,
+    normalize_assembly_spec,
+    parse_assembly_description,
+)
 from cad_templates import TEMPLATES
 from cad_templates._safe_ops import safe_chamfer, safe_fillet
 from config import settings
@@ -24,9 +39,11 @@ from exceptions import (
     NitocadError,
     ParseError,
     StorageError,
+    UnsupportedFormatError,
     UnsupportedPartTypeError,
 )
 from logging_config import get_logger, log_duration
+from smart_parser import ParsedParameters
 from validator import validate_parameters
 
 logger = get_logger(__name__)
@@ -48,7 +65,12 @@ class CADGenerator:
         self.output_dir = Path(output_dir or settings.OUTPUT_DIR)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def generate_from_text(
+    def generate_from_text(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """See _generate_from_text. This wrapper says whose attached files a part may read."""
+        with import_store.owner(kwargs.get("user_id") or "default"):
+            return self._generate_from_text(*args, **kwargs)
+
+    def _generate_from_text(
         self,
         description: str,
         use_deepseek: bool | None = None,
@@ -58,6 +80,9 @@ class CADGenerator:
         formats: list[str] | None = None,
         endpoint: str = "paid",
         parse_policy: Any = None,
+        preparsed: Any = None,
+        draft: bool = False,
+        ai_tier: str | None = None,
     ) -> dict[str, Any]:
         """
         Generate CAD from natural language description.
@@ -85,6 +110,12 @@ class CADGenerator:
         - validation: Validation results
         - success: Boolean
         - error / error_type: populated on failure
+
+        preparsed: an already-built ParsedParameters (from the chat planner,
+        chat_service.py). When given, the parse step is skipped entirely and
+        everything after it - validation, geometry, verification, the job
+        record, provenance - runs exactly as for a parsed description. Paid
+        and preview callers never pass it.
         """
         # Defined before the try block so the except handler below always
         # has a value, even in the unlikely case parsing itself throws
@@ -112,10 +143,34 @@ class CADGenerator:
             # export format at the very end.
             resolved_formats = exporters.validate_formats(list(formats) if formats else list(exporters.DEFAULT_FORMATS))
 
-            with log_duration(logger, "parse", part_type=None):
-                params = deepseek_parse_description(
-                    description, use_deepseek=use_deepseek, api_key=api_key, model=resolved_model
+            # Interface-driven assemblies: a NAMED assembly ("wheel corner module", see
+            # assembly_templates.py) is built from its template, deterministically and without an
+            # AI key; parts are placed by solving their mates, and generation is gated on interface
+            # fit and real-solid overlap (assembly_spec.py, mating.py). Every other assembly
+            # description goes through the chat-planner path below (parts laid out in a row).
+            assembly_report: dict | None = None
+            assembly_checks_data: dict | None = None
+            if preparsed is not None:
+                params = preparsed
+            elif assembly_templates.match_named_assembly(description):
+                with log_duration(logger, "assembly_parse"):
+                    asm = assembly_parser.parse_assembly_request(
+                        description,
+                        api_key=resolved_key if use_deepseek is not False else None,
+                        model=resolved_model,
+                    )
+                params = ParsedParameters(
+                    part_type="assembly",
+                    parameters={"assembly": asm.spec},
+                    parser=asm.parser, model=asm.model, prompt_version=asm.prompt_version,
+                    retry_count=asm.retry_count, parse_hash=asm.parse_hash, warnings=list(asm.warnings),
+                    confidence=1.0,
                 )
+            else:
+                with log_duration(logger, "parse", part_type=None):
+                    params = deepseek_parse_description(
+                        description, use_deepseek=use_deepseek, api_key=api_key, model=resolved_model
+                    )
 
             # Record what actually happened, rather than inferring it only
             # from whether an API key existed. A cache hit is a validated
@@ -138,7 +193,7 @@ class CADGenerator:
             # Step 2: Validate and auto-correct parameters
             with log_duration(logger, "validate", part_type=params.part_type):
                 corrected_params, validation_result = validate_parameters(
-                    params.part_type, params.parameters
+                    params.part_type, params.parameters, description=description
                 )
 
             if not validation_result.is_valid:
@@ -162,20 +217,74 @@ class CADGenerator:
                 params.parameters = corrected_params
 
             # Step 3: Generate CAD
-            if params.part_type == "assembly":
-                export_paths = self._generate_assembly(description, resolved_formats)
+            imported_mesh = False
+            if params.part_type == "imported":
+                try:
+                    params.parameters = import_ops.clean_import_params(params.parameters or {})
+                except ValueError as exc:
+                    raise GeometryValidationError(f"The attached file's edits cannot be used: {exc}") from exc
+                imported_mesh = params.parameters["kind"] in import_ops.MESH_KINDS
+            if imported_mesh:
+                export_paths, mesh_stats = self._generate_imported_mesh(params.parameters)
+                params.parameters = {**params.parameters, "bbox_mm": [round(v, 3) for v in mesh_stats["size_mm"]]}
+                workplane_for_verify = None
+            elif params.part_type == "assembly" and assembly_route(params.parameters) == "mated":
+                # Fail-closed: interfaces that do not fit, or solids that collide, raise instead of
+                # quietly becoming a different assembly.
+                export_paths, assembly_report, resolved_spec, assembly_checks_data = self._generate_resolved_assembly(
+                    mated_spec(params.parameters), resolved_formats
+                )
+                # Store the RESOLVED spec (auto-corrections applied) with the job, so the exact
+                # assembly can be rebuilt on demand.
+                params.parameters = {"assembly": resolved_spec}
+                params.warnings = list(params.warnings) + [
+                    f["message"] for f in assembly_report["findings"] if f["severity"] == "warning"
+                ]
+                workplane_for_verify = None
+            elif params.part_type == "assembly":
+                # The parts list is kept with the job (as its parameters) so a later
+                # export rebuilds exactly this assembly instead of parsing the text again.
+                try:
+                    given = (params.parameters or {}).get("parts")
+                    if given:   # the chat planner named the parts
+                        layout = (params.parameters or {}).get("layout") or "row"
+                        parts_spec = assembly_spec_from_parts(given, layout=layout)
+                    else:       # read them out of the description
+                        layout = "row"
+                        parts_spec = normalize_assembly_spec(parse_assembly_description(description))
+                except Exception as exc:  # noqa: BLE001
+                    raise AssemblyError(f"Assembly construction failed: {exc}") from exc
+                params.parameters = {"parts": parts_spec, "layout": layout}
+                export_paths, assembly_checks_data = self._generate_assembly(parts_spec, resolved_formats)
                 workplane_for_verify = None
             else:
-                export_paths = self._generate_single_part(
-                    params, validation_result, resolved_formats
-                )
+                try:
+                    export_paths = self._generate_single_part(
+                        params, validation_result, resolved_formats
+                    )
+                except GenerationError as exc:
+                    # A typed size was kept, and the part could not be built with it.
+                    if validation_result.flags and str(exc).startswith("Failed to build"):
+                        listed = "; ".join(
+                            f"{k} = {f['value']} (safer: {f['suggested']})" for k, f in validation_result.flags.items()
+                        )
+                        raise GeometryValidationError(
+                            f"The part could not be built with the sizes you typed: {listed}. "
+                            "Change them, or ask me to use the safer values.",
+                            details={"flags": validation_result.flags},
+                        ) from exc
+                    raise
                 # Rebuild briefly for verification when CQ is available;
                 # solid is optional so tests without CQ still pass.
                 workplane_for_verify = None
                 try:
-                    workplane_for_verify = self._build_workplane(
-                        params.part_type, params.parameters, warnings=[]
-                    )
+                    # A building is several solids by design (slabs, walls, stair, roof): each one is
+                    # checked (valid, single solid) when it is built, and the STL is still checked
+                    # for watertightness below, so the one-solid rule is not applied to the compound.
+                    if params.part_type != "building":
+                        workplane_for_verify = self._build_workplane(
+                            params.part_type, params.parameters, warnings=[]
+                        )
                 except Exception:  # noqa: BLE001
                     logger.debug("could not rebuild workplane for verification", exc_info=True)
 
@@ -183,11 +292,23 @@ class CADGenerator:
             from geometry_verify import verify_geometry
 
             stl_path = export_paths.get("stl")
-            vreport = verify_geometry(
-                solid=workplane_for_verify,
-                stl_path=stl_path,
-                expected=None,  # expected volume/bbox filled when compiler provides them
-            )
+            if params.part_type == "imported":
+                # A file from somewhere else is not held to "one watertight solid". Its size is
+                # recorded with the job so the chat can show and edit it.
+                if workplane_for_verify is not None:
+                    bb = workplane_for_verify.val().BoundingBox()
+                    params.parameters = {**params.parameters, "bbox_mm": [round(bb.xlen, 3), round(bb.ylen, 3), round(bb.zlen, 3)]}
+                from geometry_verify import VerificationReport
+                vreport = VerificationReport(
+                    passed=True,
+                    warnings=["Attached files are checked when they are read, not for a single watertight solid"],
+                )
+            else:
+                vreport = verify_geometry(
+                    solid=workplane_for_verify,
+                    stl_path=stl_path,
+                    expected=None,  # expected volume/bbox filled when compiler provides them
+                )
             if not vreport.passed:
                 raise GeometryValidationError(
                     "Post-build geometry verification failed: " + "; ".join(vreport.errors),
@@ -228,6 +349,8 @@ class CADGenerator:
                 prompt_version=prompt_version,
                 retry_count=retry_count,
                 parse_hash=parse_hash,
+                draft=draft,
+                ai_tier=ai_tier,
                 state="settled",
                 verification_report=vreport.to_dict(),
             )
@@ -240,8 +363,11 @@ class CADGenerator:
                     "warnings": list(params.warnings) + list(validation_result.warnings) + list(vreport.warnings),
                     "errors": validation_result.errors,
                     "corrections": validation_result.corrections,
+                    "flags": validation_result.flags,
                 },
                 "verification": vreport.to_dict(),
+                "assembly": assembly_report,
+                "assembly_checks": assembly_checks_data,
                 "error": None,
                 "provenance": self._provenance(
                     parser_name, parser_model, prompt_version, retry_count, parse_hash
@@ -315,17 +441,116 @@ class CADGenerator:
             "parse_hash": parse_hash,
         }
 
+    def _generate_imported_mesh(self, parameters: dict) -> tuple[dict[str, Path], dict]:
+        """An attached STL or OBJ after its edits, as an STL file. A mesh can only be exported
+        as STL: it has no faces to write as STEP, IGES, DXF or PDF."""
+        from imported_solids import build_imported_mesh
+        with log_duration(logger, "imported_mesh"):
+            stl_bytes, stats = build_imported_mesh(parameters)
+        path = self.output_dir / f"imported_{uuid.uuid4().hex}.stl"
+        path.write_bytes(stl_bytes)
+        return {"stl": path}, stats
+
     def _generate_assembly(
-        self, description: str, formats: list[str]
-    ) -> dict[str, Path]:
+        self, parts_spec: "list[dict] | str", formats: list[str]
+    ) -> tuple[dict[str, Path], dict]:
+        """Build an assembly and export `formats`. Pass the parts list. A plain
+        description string is still accepted and parsed, for older callers.
+        Returns (export_paths, checks): the checks hold the parts list, overlaps and mass."""
         try:
             with log_duration(logger, "assembly_build"):
-                parts_spec = parse_assembly_description(description)
+                if isinstance(parts_spec, str):
+                    parts_spec = normalize_assembly_spec(parse_assembly_description(parts_spec))
                 assembly = generate_assembly(parts_spec)
+            with log_duration(logger, "assembly_checks"):
+                checks = self._assembly_checks(assembly, parts_spec, check_floating=False)
         except Exception as exc:  # noqa: BLE001
             raise AssemblyError(f"Assembly construction failed: {exc}") from exc
+        paths = self._export_assembly(assembly, f"assembly_{uuid.uuid4().hex}", formats,
+                                      bom=(checks or {}).get("bom"))
+        return paths, checks
 
-        base_name = f"assembly_{uuid.uuid4().hex}"
+    @staticmethod
+    def _assembly_checks(assembly, parts: list[dict], *, check_floating: bool) -> dict | None:
+        """Parts list, overlap, floating-part and mass checks. Advisory: a failure here is logged
+        and the assembly is still built, never turned into a different assembly."""
+        try:
+            return assembly_mod.assembly_checks_report(assembly, parts, check_floating=check_floating)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("assembly checks failed: %s", exc)
+            return None
+
+    def _resolve_and_build_assembly(self, spec: dict):
+        """Resolve -> gate on interface errors -> build parts -> gate on real
+        solid overlap -> assemble. Returns (assembly, resolved, report).
+        Fail-closed: an assembly whose interfaces do not fit, or whose solids
+        collide, is never exported."""
+        try:
+            resolved = assembly_spec.resolve_assembly(spec)
+        except assembly_spec.AssemblySpecError as exc:
+            raise AssemblyError(f"Invalid assembly: {exc}") from exc
+        if not resolved.ok:
+            raise GeometryValidationError(
+                "Assembly interfaces do not fit: " + "; ".join(f.message for f in resolved.errors[:5]),
+                details={"findings": [f.to_dict() for f in resolved.errors]},
+            )
+        try:
+            with log_duration(logger, "assembly_build", parts=len(resolved.order)):
+                built = assembly_mod.build_parts(resolved)
+                fit = assembly_mod.check_interference(resolved, built)
+        except NitocadError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise AssemblyError(f"Assembly construction failed: {exc}") from exc
+        collisions = [f for f in fit if f.severity == "error"]
+        if collisions:
+            raise GeometryValidationError(
+                "Assembly parts collide: " + "; ".join(f.message for f in collisions[:5]),
+                details={"findings": [f.to_dict() for f in collisions]},
+            )
+        report = resolved.to_dict()
+        report["findings"] = report["findings"] + [f.to_dict() for f in fit]
+        report["interference_checked"] = True
+        # Measured clearances from the analytic envelopes. ADVISORY: OCCT's
+        # boolean check above is the gate, so an envelope-only "collision" is
+        # downgraded to a warning (it would mean the envelope model and the
+        # real solid disagree, which is itself worth surfacing).
+        try:
+            import assembly_analysis
+            meas = assembly_analysis.measure_clearances(resolved)
+            report["analytic_clearances"] = {
+                "pairs": meas["pairs"], "min_non_mating_clearance_mm": meas["min_non_mating_clearance_mm"]}
+            for f in meas["findings"]:
+                d = f.to_dict()
+                if d["severity"] == "error":
+                    d["severity"] = "warning"
+                    d["message"] = "[envelope vs solid disagree] " + d["message"]
+                if d["severity"] != "info":
+                    report["findings"].append(d)
+        except Exception as exc:  # noqa: BLE001 - advisory only
+            logger.warning("analytic clearance measurement failed: %s", exc)
+        try:
+            assembly = assembly_mod.assemble_resolved(resolved, built)
+        except Exception as exc:  # noqa: BLE001
+            raise AssemblyError(f"Assembly construction failed: {exc}") from exc
+        return assembly, resolved, report
+
+    def _generate_resolved_assembly(self, spec: dict, formats: list[str]):
+        """Interface-driven assembly: resolve, gate, build, export. Returns
+        (export_paths, report, resolved_spec)."""
+        assembly, resolved, report = self._resolve_and_build_assembly(spec)
+        placed = [{"name": p["id"], "part_type": p["part_type"], "parameters": p["parameters"]}
+                  for p in resolved.resolved_spec()["parts"]]
+        checks = self._assembly_checks(assembly, placed, check_floating=True)
+        export_paths = self._export_assembly(assembly, f"assembly_{uuid.uuid4().hex}", formats,
+                                             bom=(checks or {}).get("bom"))
+        return export_paths, report, resolved.resolved_spec(), checks
+
+    def _export_assembly(
+        self, assembly: "cq.Assembly", base_name: str, formats: list[str], bom: dict | None = None
+    ) -> dict[str, Path]:
+        """Write `formats` for a built assembly as `<base_name>.<ext>`. Shared by
+        first-time generation and by on-demand re-export of a stored job."""
         compound = assembly.toCompound()
         # Per-part shapes (name, world-located shape) for the multi-part
         # DXF/PDF drawing path - see assembly.get_assembly_parts and the
@@ -347,7 +572,9 @@ class CADGenerator:
                 # to one solid - every other format works on the compound.
                 if "step" in formats:
                     step_path = self.output_dir / f"{base_name}.step"
-                    assembly.save(str(step_path))
+                    # export_step runs Assembly.save() (names kept) and then
+                    # checks the file is non-empty and re-imports to the same shape.
+                    exporters.export_step(assembly, step_path)
                     export_paths["step"] = step_path
                 remaining = [f for f in formats if f != "step"]
                 if remaining:
@@ -359,12 +586,33 @@ class CADGenerator:
                             formats=remaining,
                             part_name="assembly",
                             parts=parts,
+                            bom=bom,
                         )
                     )
         except Exception as exc:  # noqa: BLE001
             raise GenerationError(f"Assembly export failed: {exc}") from exc
 
         return export_paths
+
+    def _stored_assembly_spec(self, job: dict) -> list[dict]:
+        """The parts list for a stored assembly job. New jobs carry it in their
+        parameters. A job saved before the parts list was stored was always built from
+        the fixed example (the description was not read then), so that example is
+        what rebuilds it."""
+        import json as _json
+        stored = None
+        try:
+            raw = _json.loads(job["parameters"]) if job.get("parameters") else {}
+            stored = raw.get("parts") if isinstance(raw, dict) else None
+        except ValueError:
+            stored = None
+        try:
+            if stored:
+                return normalize_assembly_spec(stored)
+            logger.warning("assembly job %s has no stored parts, rebuilding the original fixed example", job.get("id"))
+            return normalize_assembly_spec(legacy_assembly_example())
+        except ValueError as exc:
+            raise AssemblyError(f"The stored assembly cannot be rebuilt: {exc}") from exc
 
     def _build_workplane(
         self, part_type: str, parameters: dict, warnings: list | None = None
@@ -376,6 +624,9 @@ class CADGenerator:
         path - same part_type + same parameters always produces the
         same solid, which is also the property the on-chain design-
         provenance anchor (see easycad's decision log) depends on."""
+        if part_type == "imported":
+            from imported_solids import build_imported_workplane
+            return build_imported_workplane(parameters)
         if part_type not in TEMPLATES:
             raise UnsupportedPartTypeError(f"Unsupported part type: {part_type}")
         template_func = TEMPLATES[part_type]
@@ -402,16 +653,22 @@ class CADGenerator:
     def export_format_for_job(
         self, job_id: str, fmt: str, anchor: bool = True
     ) -> tuple[Path, str]:
+        """See _export_format_for_job. This wrapper says whose attached files the rebuild may read."""
+        job = db.get_job(job_id)
+        with import_store.owner((job or {}).get("user_id")):
+            return self._export_format_for_job(job_id, fmt, anchor)
+
+    def _export_format_for_job(
+        self, job_id: str, fmt: str, anchor: bool = True
+    ) -> tuple[Path, str]:
         """On-demand export: rebuild geometry from a stored job's params
         and export exactly one format. This is the deferred half of what
         /generate used to do inline for every format on every call - see
         web_app.py's generate_cad, which now only requests ["stl"].
 
-        Assemblies are excluded - _generate_assembly rebuilds from the
-        original description text (re-parsed, possibly via DeepSeek),
-        not from stored structured parameters, so it isn't guaranteed to
-        reproduce byte-identical geometry the way single-part templates
-        are.
+        Assemblies are rebuilt from the parts list stored with the job
+        (see _stored_assembly_spec), not from the description text, so
+        they come back as the same assembly that was generated.
         """
         job = db.get_job(job_id)
         if job is None:
@@ -419,14 +676,16 @@ class CADGenerator:
         if not job["success"]:
             raise GenerationError(f"Job {job_id} did not complete successfully; nothing to export")
 
+        if str(fmt).strip().lower() == "recipe":
+            return self._export_recipe(job, anchor)
+
         resolved_formats = exporters.validate_formats([fmt])
         resolved_fmt = resolved_formats[0]
         part_type = job["part_type"]
-
-        if part_type == "assembly":
-            raise GenerationError(
-                "On-demand export isn't supported for assemblies yet - "
-                "re-generate with the formats you need instead."
+        if part_type == "assembly" and resolved_fmt == "urdf":
+            raise UnsupportedFormatError(
+                "A URDF describes one rigid link, so it is not offered for assemblies. "
+                "Use STEP, GLB or 3MF for the whole assembly."
             )
 
         base_name = f"{job_id}_{resolved_fmt}"
@@ -437,6 +696,60 @@ class CADGenerator:
             # one running process, not a durability guarantee.
             return out_path, part_type
 
+        if part_type == "imported":
+            import json as _json
+            stored = _json.loads(job["parameters"]) if job["parameters"] else {}
+            if stored.get("kind") in import_ops.MESH_KINDS:
+                if resolved_fmt not in ("stl", "glb", "3mf", "urdf"):
+                    raise UnsupportedFormatError(
+                        "A mesh can only be exported as STL, GLB, 3MF or URDF. STEP, IGES, DXF and PDF need a solid with faces"
+                    )
+                from imported_solids import build_imported_mesh
+                stl_bytes, _stats = build_imported_mesh(stored)
+                if resolved_fmt == "stl":
+                    out_path.write_bytes(stl_bytes)
+                    return out_path, part_type
+                import mesh_formats
+                try:
+                    verts, tris = mesh_formats.read_stl(stl_bytes)
+                    label = str(stored.get("filename") or "imported")
+                    if resolved_fmt == "glb":
+                        mesh_formats.write_glb(out_path, [(label, verts, tris)], flat=True)
+                    elif resolved_fmt == "3mf":
+                        mesh_formats.write_3mf(out_path, [(label, verts, tris)], title=label)
+                    else:
+                        mesh_formats.write_urdf_zip(out_path, label.rsplit(".", 1)[0], verts, tris,
+                                                    density_g_cm3=None, material=None)
+                except mesh_formats.MeshError as exc:
+                    raise GenerationError(f"{resolved_fmt.upper()} export failed: {exc}") from exc
+                return out_path, part_type
+
+        if part_type == "assembly":
+            # Rebuilt from the parts list stored with the job, never from the
+            # text again, so the file matches what was generated and anchored.
+            import json as _json_a
+            stored_params = _json_a.loads(job["parameters"]) if job.get("parameters") else {}
+            if isinstance(stored_params, dict) and stored_params.get("assembly"):
+                # An interface-driven assembly: re-resolved from its stored, resolved spec.
+                assembly, _resolved, _report = self._resolve_and_build_assembly(stored_params["assembly"])
+                bom = None
+                if resolved_fmt in ("dxf", "pdf"):   # only drawings carry the parts list
+                    placed = [{"name": q["id"], "part_type": q["part_type"], "parameters": q["parameters"]}
+                              for q in _resolved.resolved_spec()["parts"]]
+                    bom = ((self._assembly_checks(assembly, placed, check_floating=True)) or {}).get("bom")
+                paths = self._export_assembly(assembly, base_name, [resolved_fmt], bom=bom)
+                return paths[resolved_fmt], part_type
+            spec = self._stored_assembly_spec(job)
+            try:
+                assembly = generate_assembly(spec)
+            except Exception as exc:  # noqa: BLE001
+                raise AssemblyError(f"Assembly construction failed: {exc}") from exc
+            bom = None
+            if resolved_fmt in ("dxf", "pdf"):
+                bom = ((self._assembly_checks(assembly, spec, check_floating=False)) or {}).get("bom")
+            paths = self._export_assembly(assembly, base_name, [resolved_fmt], bom=bom)
+            return paths[resolved_fmt], part_type
+
         import json as _json
         parameters = _json.loads(job["parameters"]) if job["parameters"] else {}
         warnings: list[str] = []
@@ -446,6 +759,7 @@ class CADGenerator:
             exporters.export_all(
                 workplane, self.output_dir, base_name, formats=[resolved_fmt],
                 part_name=part_type, material=job["material"], part_type=part_type,
+                drawing_override=self._drawing_override(part_type, parameters),
             )
         except NitocadError:
             raise
@@ -457,6 +771,25 @@ class CADGenerator:
         # /api/jobs/{job_id}/anchor/* routes in web_app.py). The `anchor`
         # argument is kept only so existing callers don't break.
 
+        return out_path, part_type
+
+    def _export_recipe(self, job: dict, anchor: bool) -> tuple[Path, str]:
+        """The recipe zip: the STEP file, spec.json and a CadQuery build script (see recipe.py)."""
+        import recipe
+
+        job_id, part_type = job["id"], job["part_type"]
+        out_path = self.output_dir / f"{job_id}_recipe.zip"
+        if out_path.exists():
+            return out_path, part_type
+        try:
+            built = recipe.build_recipe(job)
+        except recipe.RecipeUnsupported as exc:
+            raise UnsupportedFormatError(str(exc)) from exc
+        step_path, _ = self._export_format_for_job(job_id, "step", anchor)
+        try:
+            recipe.write_zip(out_path, built, step_path)
+        except OSError as exc:
+            raise GenerationError(f"RECIPE export failed: {exc}") from exc
         return out_path, part_type
 
     def _generate_single_part(
@@ -477,6 +810,7 @@ class CADGenerator:
                     part_name=params.part_type,
                     material=getattr(params, "material", None),
                     part_type=params.part_type,
+                    drawing_override=self._drawing_override(params.part_type, params.parameters),
                 )
         except NitocadError:
             raise
@@ -484,6 +818,16 @@ class CADGenerator:
             raise GenerationError(f"Export failed for {params.part_type}: {exc}") from exc
 
         return export_paths
+
+    @staticmethod
+    def _drawing_override(part_type: str, parameters: dict) -> dict | None:
+        """A building's DXF and PDF are its own drawing set (plans, elevations, sections), not generic views."""
+        if part_type != "building":
+            return None
+        from building.drawing_set import write_building_dxf, write_building_pdf
+
+        return {"dxf": lambda path: write_building_dxf(path, parameters),
+                "pdf": lambda path: write_building_pdf(path, parameters)}
 
     def _apply_operations(
         self, workplane: cq.Workplane, operations: list, warnings: list | None = None

@@ -12,9 +12,9 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 import uvicorn
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -24,6 +24,11 @@ import db
 from a2mcp.server import mcp_app, mcp_app_gated
 from a2mcp_botchain.server import mcp_app as mcp_app_botchain
 import botchain_pay
+import chat_api
+import civil_api
+import file_api
+import pcb_api
+import chat_store
 import paystack_pay
 import prompt_refine
 import wallet_auth
@@ -43,6 +48,8 @@ limiter = Limiter(key_func=get_remote_address)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    chat_store.configure(db.get_conn)
+    chat_store.init_tables()
     logger.info(
         "starting nitocad api",
         extra={"environment": settings.ENVIRONMENT, "r2_configured": settings.r2_configured},
@@ -202,6 +209,7 @@ class ValidationInfo(BaseModel):
     warnings: list[str] = []
     errors: list[str] = []
     corrections: dict[str, Any] = {}
+    flags: dict[str, Any] = {}
 
 
 class GenerateResponse(BaseModel):
@@ -222,6 +230,11 @@ class GenerateResponse(BaseModel):
     error: str | None = None
     error_type: str | None = None
     provenance: dict[str, Any] | None = None
+    # Assemblies only: placed parts, mate findings, dependency graph (see
+    # assembly_spec.ResolvedAssembly.to_dict). None for single parts.
+    assembly: dict[str, Any] | None = None
+    # Parts list, overlaps, floating parts and mass for an assembly (assembly.assembly_checks_report).
+    assembly_checks: dict[str, Any] | None = None
 
 
 class HealthResponse(BaseModel):
@@ -552,6 +565,23 @@ class PromptRefineMessage(BaseModel):
         return v
 
 
+class AssemblyAnalyzeRequest(BaseModel):
+    spec: dict[str, Any]
+
+
+class AssemblyDeepRequest(BaseModel):
+    spec: dict[str, Any]
+    sweep: dict[str, Any] | None = None            # {"min_deg": -10, "max_deg": 10, "steps": 9}
+    stack_up: dict[str, Any] | None = None         # {"a": "rotor", "b": "arm", "tolerances": {"hub.flange_thickness_mm": 0.1}}
+    load_case: dict[str, Any] | None = None        # see loads.WheelLoadCase (+ stud_class, ball_joint_force_N, pivot_force_N)
+
+
+class AssemblyImpactRequest(BaseModel):
+    spec: dict[str, Any]
+    part_id: str = Field(min_length=1, max_length=40)
+    changes: dict[str, Any]
+
+
 class PromptRefineRequest(BaseModel):
     messages: list[PromptRefineMessage]
 
@@ -613,6 +643,88 @@ async def prompt_refine_chat(
         raise HTTPException(status_code=502, detail=exc.message) from exc
 
     return {"reply": reply}
+
+
+@app.get("/api/domain-packs")
+async def list_domain_packs():
+    """Public: which discipline packs are installed, their part types, and an
+    explicit statement of what each pack does NOT establish (see
+    domain_packs/__init__.py's honesty contract)."""
+    from domain_packs import describe_packs
+    return {"packs": describe_packs()}
+
+
+@app.get("/api/assembly/catalog")
+async def assembly_catalog():
+    """Public: which parts expose mating interfaces, which interface kinds
+    can mate, and the named assemblies that need no AI parser."""
+    import assembly_templates
+    import domain_packs
+    import mating
+    return {
+        "interfaces": domain_packs.interface_catalog(),
+        "mating_rules": [list(p) for p in mating.rule_pairs()],
+        "named_assemblies": {k: list(v) for k, v in assembly_templates.NAMED_ASSEMBLIES.items()},
+    }
+
+
+@app.post("/api/assembly/analyze")
+@limiter.limit(settings.RATE_LIMIT_PROMPT_REFINE)
+async def assembly_analyze(
+    request: Request,
+    body: AssemblyAnalyzeRequest,
+    wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)],
+):
+    """Validate an assembly spec: parameter checks, solved placements, mate
+    compatibility, open interfaces, dependency graph. Pure computation - no
+    geometry is built and no credit is spent."""
+    import assembly_spec
+    try:
+        return assembly_spec.resolve_assembly(body.spec).to_dict()
+    except assembly_spec.AssemblySpecError as exc:
+        raise HTTPException(status_code=422, detail=exc.messages) from exc
+
+
+@app.post("/api/assembly/deep-analysis")
+@limiter.limit(settings.RATE_LIMIT_PROMPT_REFINE)
+async def assembly_deep_analysis(
+    request: Request,
+    body: AssemblyDeepRequest,
+    wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)],
+):
+    """Measured clearances between every part pair, plus optional jounce/rebound
+    sweep, tolerance stack-up (worst-case + RSS) and fastener load screening.
+    Envelope-based measurement and hand-calculation screening - see
+    assembly_analysis.py / loads.py for exactly what is and is not modelled.
+    No geometry is built and no credit is spent; CPU-bound, so it runs in a
+    worker thread."""
+    import assembly_analysis
+    import assembly_spec
+    from starlette.concurrency import run_in_threadpool
+    try:
+        return await run_in_threadpool(
+            assembly_analysis.analyze_assembly, body.spec, body.sweep, body.stack_up, body.load_case)
+    except assembly_spec.AssemblySpecError as exc:
+        raise HTTPException(status_code=422, detail=exc.messages) from exc
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/assembly/impact")
+@limiter.limit(settings.RATE_LIMIT_PROMPT_REFINE)
+async def assembly_impact(
+    request: Request,
+    body: AssemblyImpactRequest,
+    wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)],
+):
+    """What-if: apply `changes` to one part and report which parts move, which
+    dependent parameters are affected, and which mate checks newly fail.
+    Pure computation; nothing is built or charged."""
+    import assembly_spec
+    try:
+        return assembly_spec.analyze_change(body.spec, body.part_id, body.changes)
+    except assembly_spec.AssemblySpecError as exc:
+        raise HTTPException(status_code=422, detail=exc.messages) from exc
 
 
 @app.get("/config/chain")
@@ -1763,6 +1875,8 @@ async def generate_cad(
 _EXPORT_MEDIA_TYPES = {
     "step": "application/step", "stl": "model/stl", "iges": "model/iges",
     "dxf": "image/vnd.dxf", "pdf": "application/pdf",
+    "glb": "model/gltf-binary", "3mf": "model/3mf", "urdf": "application/zip",
+    "recipe": "application/zip",
 }
 
 # Phones (iOS Safari especially) save attachments reliably when the response
@@ -1850,6 +1964,18 @@ def _anchor_info(job: dict) -> tuple[str | None, str | None]:
     return str(anchor_tx), f"{explorer}/tx/{anchor_tx}"
 
 
+def _is_mesh_import(job: dict) -> bool:
+    """An attached STL, OBJ, GLB or 3MF opened as a part: only mesh formats can be exported from it."""
+    import import_ops
+    if job.get("part_type") != "imported":
+        return False
+    try:
+        stored = json.loads(job.get("parameters") or "{}")
+    except ValueError:
+        return False
+    return isinstance(stored, dict) and stored.get("kind") in import_ops.MESH_KINDS
+
+
 def _build_export(fmt: str, job_id: str, owner_wallet: str | None, anchor: bool = True):
     """Shared by every export route: ownership check (skipped when
     owner_wallet is None because a signed token already proved it), build
@@ -1857,6 +1983,11 @@ def _build_export(fmt: str, job_id: str, owner_wallet: str | None, anchor: bool 
     job = db.get_job(job_id)
     if job is None or (owner_wallet is not None and job["user_id"] != owner_wallet):
         raise HTTPException(status_code=404, detail="Job not found")
+    # A free studio preview only has its STL until the owner presses Generate. An attached mesh has
+    # nothing to unlock (Generate charges nothing for it), so its GLB, 3MF and URDF, which are the
+    # same mesh in another container, are as free as its STL.
+    if fmt != "stl" and db.is_job_locked(job) and not _is_mesh_import(job):
+        raise HTTPException(status_code=402, detail="Press Generate on this part first to unlock the full files.")
     try:
         file_path, _part_type = generator.export_format_for_job(job_id, fmt, anchor=anchor)
     except UnsupportedFormatError as exc:
@@ -1879,10 +2010,13 @@ async def export_on_demand(
     export format for an already-generated job, on demand.
 
     No separate charge here, on purpose: the 1 credit spent at
-    POST /generate time already covers this job in full, including
-    every export format pulled from it - a job isn't billed per
-    format, it's billed once, at generation. Ownership is enough to
-    gate this. (This used to re-charge per format on top of the
+    POST /generate time (or, for a CAD Studio preview, when the person
+    presses Generate - POST /chats/{id}/parts/{part}/generate) already
+    covers this job in full, including every export format pulled from
+    it - a job isn't billed per format, it's billed once. Ownership is
+    enough to gate this, plus one more check: a Studio preview that has
+    not been paid for yet only has its STL, so every other format
+    answers 402 until it is. (This used to re-charge per format on top of the
     generation charge - that was the reported "double charge" bug.)
 
     Kept for API/agent callers that can send an Authorization header.
@@ -2265,6 +2399,8 @@ async def download_job_format(
     if owner != "anonymous":
         if wallet is None or owner != wallet["wallet_address"]:
             raise HTTPException(status_code=404, detail="Job not found")
+    if fmt != "stl" and db.is_job_locked(job):
+        raise HTTPException(status_code=402, detail="Press Generate on this part first to unlock the full files.")
 
     # Prefer durable R2 URL on the job row (local disk is ephemeral on Railway).
     url_col = f"{fmt}_url"
@@ -2334,6 +2470,181 @@ async def download_pdf(
     return _resolve_owned_download("pdf", filename, wallet, "application/pdf")
 
 
+# Aerospace domain pack: assessment, change impact, persisted evidence.
+# Outputs are engineering SCREENING results with explicit blockers; the
+# strongest status is 'ready_for_engineering_review', never certification.
+# ---------------------------------------------------------------------------
+@app.get("/api/aero/materials")
+async def aero_materials():
+    from aerospace.materials import LIBRARY
+    return [{"id": m.id, "name": m.name, "basis": m.basis, "design_allowable": m.is_design_allowable,
+             "source": m.source} for m in LIBRARY.values()]
+
+
+@app.post("/api/aero/assess")
+@limiter.limit("30/minute")
+async def aero_assess(request: Request, wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)]):
+    from aerospace import store as aero_store
+    from aerospace.release import assess_design
+    from aerospace.requirements import SpecError
+    try:
+        spec = await request.json()
+        did = str((spec or {}).get("design_id") or "unnamed") if isinstance(spec, dict) else "unnamed"
+        result = assess_design(spec, created_by=wallet["wallet_address"],
+                               approvals=aero_store.list_approvals(wallet["wallet_address"], did))
+    except SpecError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except (ValueError, TypeError, KeyError) as e:
+        raise HTTPException(status_code=422, detail=f"invalid spec: {e}")
+    aero_store.save_assessment(wallet["wallet_address"], spec, result)
+    return result
+
+
+def _signers(spec: dict) -> set:
+    cert = (spec or {}).get("certification") or {}
+    return {a.lower() for lst in (cert.get("authorized_signers") or {}).values() for a in lst}
+
+
+@app.post("/api/aero/approvals")
+@limiter.limit("20/minute")
+async def aero_approve(request: Request, wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)]):
+    """Record a human sign-off. NitoCAD never certifies: this stores who accepted exactly what."""
+    from aerospace import certification as cert, store as aero_store
+    from aerospace.release import assess_design
+    body = await request.json()
+    owner, did, me = str(body.get("owner", "")), str(body.get("design_id", "")), wallet["wallet_address"]
+    d = aero_store.load_design(owner, did) if owner and did else None
+    if not d or me.lower() not in _signers(d["spec"]):
+        raise HTTPException(status_code=404, detail="design not found")      # same answer for non-signers
+    try:
+        def build(records):
+            a = assess_design(d["spec"], created_by=owner, approvals=records)
+            return cert.append_record(records, a, d["spec"].get("certification"), owner, str(body.get("stage", "")), me,
+                                      str(body.get("statement", "")), body.get("reference"), body.get("document_sha256"),
+                                      body.get("authority_name"))
+        rec = aero_store.append_approval(owner, did, build)
+    except cert.ApprovalError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except aero_store.ChainConflict as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return rec
+
+
+@app.get("/api/aero/approvals/{owner}/{design_id}")
+async def aero_approvals(owner: str, design_id: str, wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)]):
+    from aerospace import certification as cert, store as aero_store
+    from aerospace.release import assess_design
+    me = wallet["wallet_address"]
+    d = aero_store.load_design(owner, design_id)
+    if not d or (me.lower() != owner.lower() and me.lower() not in _signers(d["spec"])):
+        raise HTTPException(status_code=404, detail="design not found")
+    records = aero_store.list_approvals(owner, design_id)
+    ok, why = cert.verify_chain(records)
+    a = assess_design(d["spec"], created_by=owner, approvals=records)
+    return {"records": records, "chain_valid": ok, "chain_problem": why, "current": a.get("certification"), "status": a["status"]}
+
+
+@app.post("/api/aero/allowables/basis")
+@limiter.limit("20/minute")
+async def aero_allowable_basis(request: Request, wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)]):
+    """A/B-basis from your own coupon data (normal distribution, exact tolerance factors)."""
+    from aerospace import allowables
+    from aerospace.engine_cycle import CycleError
+    body = await request.json()
+    try:
+        return allowables.allowable_from_coupons(body.get("values") or [], str(body.get("basis", "B")), bool(body.get("minimum", True)))
+    except (CycleError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.post("/api/aero/impact")
+@limiter.limit("60/minute")
+async def aero_impact(request: Request, wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)]):
+    from aerospace.evidence import change_impact
+    body = await request.json()
+    if not isinstance(body, dict) or "old" not in body or "new" not in body:
+        raise HTTPException(status_code=422, detail="body must be {old: spec, new: spec}")
+    return change_impact(body["old"], body["new"])
+
+
+@app.post("/api/aero/assembly/assess")
+@limiter.limit("20/minute")
+async def aero_assembly_assess(request: Request, wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)]):
+    from aerospace import store as aero_store
+    from aerospace.assembly import assess_assembly
+    from aerospace.requirements import SpecError
+    try:
+        spec = await request.json()
+        result = assess_assembly(spec, created_by=wallet["wallet_address"])
+    except SpecError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except (ValueError, TypeError, KeyError) as e:
+        raise HTTPException(status_code=422, detail=f"invalid spec: {e}")
+    aero_store.save_assessment(wallet["wallet_address"], spec, result)
+    return result
+
+
+@app.post("/api/aero/assembly/impact")
+@limiter.limit("30/minute")
+async def aero_assembly_impact(request: Request, wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)]):
+    from aerospace.assembly import assembly_change_impact
+    body = await request.json()
+    if not isinstance(body, dict) or "old" not in body or "new" not in body:
+        raise HTTPException(status_code=422, detail="body must be {old: assembly spec, new: assembly spec}")
+    return assembly_change_impact(body["old"], body["new"])
+
+
+@app.get("/api/aero/designs/{design_id}")
+async def aero_design(design_id: str, wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)]):
+    from aerospace import store as aero_store
+    from aerospace.evidence import is_current
+    d = aero_store.load_design(wallet["wallet_address"], design_id)
+    if not d:
+        raise HTTPException(status_code=404, detail="design not found")
+    for rec in d["evidence"]:
+        rec["current"] = is_current(rec, d["revision_id"])
+    return d
+
+
+# ---------------------------------------------------------------------------
+# B-rep import (STEP / IGES / BREP). Everything else the import workspace opens is handled in the browser.
+# The OpenCascade kernel runs in a sandboxed subprocess: see file_import.py.
+# ---------------------------------------------------------------------------
+async def _cad_request(file: UploadFile, ops: str, exports: list):
+    import file_import as fim
+    fmt = fim.format_of(file.filename or "")
+    data = await fim.read_limited(file)
+    if not fim.sniff_cad(fmt, data[:4096]):
+        raise fim.UnsupportedUpload(f"This does not look like a real {fmt.upper()} file (its contents do not match the extension).")
+    try:
+        parsed = json.loads(ops) if ops else []
+    except ValueError:
+        raise fim.FileImportError("ops must be valid JSON.")
+    return fim, fmt, await fim.process_cad(data, fmt, fim.validate_ops(parsed), fim.validate_exports(exports))
+
+
+@app.post("/convert")
+@limiter.limit("12/minute")
+async def convert_cad(request: Request, file: UploadFile = File(...), ops: str = Form("")):
+    """STEP/IGES/BREP -> STL for viewing (optionally after edit operations). Nothing is stored."""
+    fim, _fmt, res = await _cad_request(file, ops, ["stl"])
+    return Response(content=res["stl"], media_type="model/stl",
+                    headers={"X-NitoCAD-Stats": json.dumps(res["stats"]), "Cache-Control": "no-store"})
+
+
+@app.post("/api/files/cad/export")
+@limiter.limit("8/minute")
+async def export_cad(request: Request, file: UploadFile = File(...), ops: str = Form(""), format: str = Form("step")):
+    """Apply edit operations to a B-rep file and return it as STEP, BREP or STL."""
+    fim, _fmt, res = await _cad_request(file, ops, [format])
+    if not res.get(format):
+        raise fim.CadProcessingError("The converter could not produce that format.")
+    media = {"step": "application/step", "brep": "application/octet-stream", "stl": "model/stl"}[format]
+    name = f"{fim.safe_stem(file.filename or '')}-edited.{format}"
+    return Response(content=res[format], media_type=media,
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "X-NitoCAD-Stats": json.dumps(res["stats"]), "Cache-Control": "no-store"})
+
+
 @app.get("/healthz", response_model=HealthResponse, tags=["ops"])
 async def healthz():
     """Liveness probe - answers as soon as the process is up, with no
@@ -2356,6 +2667,18 @@ async def readyz():
         status_code=status_code,
         content=ReadinessResponse(status="ready" if all(checks.values()) else "degraded", checks=checks).model_dump(),
     )
+
+
+# CAD Studio chats: server-stored conversations. See chat_api.py.
+app.include_router(chat_api.build_router(generator=generator, limiter=limiter))
+# Civil calculations (terrain, earthworks, hydraulics, walls). See civil_api.py.
+app.include_router(civil_api.build_router(limiter=limiter))
+# File upload and analysis for CAD Studio (STEP/IGES/BREP, PDF, images). See file_api.py.
+app.include_router(file_api.build_router(limiter=limiter))
+# Circuit boards: block library, free preview, and the KiCad / Gerber package for paid PCB parts.
+# See pcb_api.py and the pcb/ package.
+app.include_router(pcb_api.build_router(generator=generator, limiter=limiter,
+                                        make_token=_make_dl_token, verify_token=_verify_dl_token))
 
 
 if __name__ == "__main__":

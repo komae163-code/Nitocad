@@ -59,6 +59,28 @@ class Settings(BaseSettings):
 
     # --- Rate limiting (slowapi / limits syntax, e.g. "20/minute") ---
     RATE_LIMIT_GENERATE: str = "20/minute"
+    # Civil calculations (terrain, earthworks, hydraulics, wall checks). No credit
+    # is charged, so the limit is what stops someone using them to burn CPU.
+    RATE_LIMIT_CIVIL: str = "60/minute"
+    CIVIL_MAX_SURVEY_POINTS: int = 3000
+
+    # File upload and analysis in CAD Studio (STEP/IGES/BREP, PDF, images). Free for now,
+    # so these limits are what protect the server and the vision model bill.
+    FILE_MAX_UPLOAD_MB: int = 15
+    RATE_LIMIT_FILES: str = "30/hour"
+    FILE_DAILY_LIMIT_PER_ACCOUNT: int = 60
+    FILE_ANALYSIS_TIMEOUT_SECONDS: float = 40.0
+    # Files kept so they can be edited (import_store.py). Newest kept per account; a file that a
+    # design still uses is never deleted to make room.
+    FILE_MAX_IMPORTS_PER_ACCOUNT: int = 40
+    FILE_MAX_IMPORT_BYTES: int = 20 * 1024 * 1024        # after compression
+    # Vision model for images and PDF pages. Any provider with an OpenAI-compatible
+    # chat API that accepts images works. Leave VISION_API_KEY unset to switch image
+    # reading off (CAD files and PDF text still work).
+    VISION_API_KEY: str | None = None
+    VISION_BASE_URL: str | None = None
+    VISION_MODEL: str | None = None
+    VISION_TIMEOUT_SECONDS: float = 60.0
     # RATE_LIMIT_KEY_ISSUE removed - it rate-limited the old
     # POST /api/keys/generate endpoint, retired along with the whole
     # API-key system (see web_app.py's note where that endpoint used
@@ -104,6 +126,48 @@ class Settings(BaseSettings):
     # DeepSeek tokens per call with no BOT payment attached to absorb
     # abuse the way /generate's payment requirement naturally does.
     RATE_LIMIT_PROMPT_REFINE: str = "20/hour"
+
+    # --- CAD Studio chats (chat_api.py / chat_service.py) -----------------
+    # Preview first, pay when you generate. Every message in the studio builds a
+    # free preview (STL only) and costs nothing, so fixing a wrong dimension is
+    # free. Credits are spent once per version, when the person presses Generate
+    # to unlock the full files (STEP, IGES, DXF, PDF). Messages are limited per AI
+    # tier per wallet per rolling 24 hours so free chat cannot burn AI budget.
+    #
+    # Studio AI tiers (ai_models.py). The AI only coordinates: it reads the chat and
+    # writes the part spec, and the CadQuery templates build the solid. A stronger
+    # model plans better, it does not draw anything. Each tier has a daily allowance
+    # of AI messages (every message that actually calls the model, answers included,
+    # since each one costs real money) and a price in credits for pressing Generate.
+    AI_MESSAGES_PER_DAY_BASIC: int = 40
+    AI_MESSAGES_PER_DAY_PLUS: int = 15
+    AI_MESSAGES_PER_DAY_ADVANCED: int = 4
+    # Engine: no AI at all. The built-in rules parser reads the message and goes straight to
+    # the CAD engine, so it costs us nothing to plan and has no daily message limit.
+    GENERATE_CREDITS_ENGINE: int = 2
+    GENERATE_CREDITS_BASIC: int = 10
+    GENERATE_CREDITS_PLUS: int = 25
+    GENERATE_CREDITS_ADVANCED: int = 40
+    # One manufacturability check (POST /chats/{id}/parts/{part}/checks): paid once per part version and process, then free to reopen
+    CHECK_CREDITS: int = 5
+    # Plus tier, GPT. Both the key and the model name must be set for it to show up.
+    OPENAI_API_KEY: str | None = None
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    OPENAI_MODEL: str | None = None
+    # Plus tier, Qwen, through Alibaba Cloud's OpenAI-compatible endpoint. Check the base
+    # URL for your region in the Alibaba Cloud Model Studio docs.
+    QWEN_API_KEY: str | None = None
+    QWEN_BASE_URL: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    QWEN_MODEL: str | None = None
+    # Advanced tier, Claude.
+    ANTHROPIC_API_KEY: str | None = None
+    ANTHROPIC_MODEL: str = "claude-sonnet-5-5"
+    AI_TIMEOUT_SECONDS: float = 30.0
+    CHAT_MAX_HISTORY_MESSAGES: int = 30
+    CHAT_MAX_CHATS_PER_USER: int = 200
+    CHAT_MAX_MESSAGES_PER_CHAT: int = 400
+    CHAT_MAX_MESSAGE_CHARS: int = 2000
+    CHAT_PLANNER_MODEL: str | None = None  # defaults to DEEPSEEK_DEFAULT_MODEL
 
     # --- Cloudflare R2 storage (optional; falls back to local disk) ----
     R2_ACCOUNT_ID: str | None = None

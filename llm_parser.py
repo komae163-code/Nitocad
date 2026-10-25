@@ -37,8 +37,8 @@ You must extract parameters for one of these part types:
    - width_mm: Plate width (default 80mm)
    - thickness_mm: Plate thickness (default 5mm)
    - hole_pattern: "rectangular" or "circular" (default rectangular)
-   - hole_count_x: Holes in X direction (default 4)
-   - hole_count_y: Holes in Y direction (default 3)
+   - hole_count_x: Holes in X direction (default 0, so a plate has no holes unless the description asks for them)
+   - hole_count_y: Holes in Y direction (default 0)
    - hole_diameter_mm: Hole diameter (default 3.2mm)
    - corner_fillet_mm: Corner fillet radius (default 3mm)
 
@@ -47,8 +47,7 @@ You must extract parameters for one of these part types:
    - width_mm: Outer width (default 80mm)
    - height_mm: Outer height (default 50mm)
    - wall_thickness_mm: Wall thickness (default 3mm)
-   - has_lid: Boolean for separate lid (default false)
-   - lid_fit_tolerance_mm: Lid fit tolerance (default 0.2mm)
+   - hollow: Boolean, true for an open-top box with walls and false for a solid block (default false)
 
 Return JSON in this exact format:
 {
@@ -129,12 +128,16 @@ def parse_with_mock_llm(description: str) -> ParsedParameters:
             "width_mm": 80.0,
             "thickness_mm": 5.0,
             "hole_pattern": "rectangular",
-            "hole_count_x": 4,
-            "hole_count_y": 3,
+            "hole_count_x": 0,
+            "hole_count_y": 0,
             "hole_diameter_mm": 3.2,
             "corner_fillet_mm": 3.0
         }
         
+        # A plate has no holes unless asked. Holes with no count get one in each corner.
+        if "hole" in desc_lower and "no hole" not in desc_lower and "without hole" not in desc_lower:
+            params["hole_count_x"] = params["hole_count_y"] = 2
+
         # Extract dimensions
         if "100mm" in desc_lower:
             params["length_mm"] = 100.0
@@ -142,14 +145,14 @@ def parse_with_mock_llm(description: str) -> ParsedParameters:
             params["width_mm"] = 80.0
         
     elif "box" in desc_lower or "enclosure" in desc_lower:
+        from smart_parser import _HOLLOW_RE      # one definition of "hollow", shared with the rule-based parser
         part_type = "simple_box"
         params = {
             "length_mm": 100.0,
             "width_mm": 80.0,
             "height_mm": 50.0,
             "wall_thickness_mm": 3.0,
-            "has_lid": "lid" in desc_lower,
-            "lid_fit_tolerance_mm": 0.2
+            "hollow": bool(_HOLLOW_RE.search(desc_lower)),
         }
         
     else:
@@ -160,8 +163,8 @@ def parse_with_mock_llm(description: str) -> ParsedParameters:
             "width_mm": 80.0,
             "thickness_mm": 5.0,
             "hole_pattern": "rectangular",
-            "hole_count_x": 4,
-            "hole_count_y": 3,
+            "hole_count_x": 0,
+            "hole_count_y": 0,
             "hole_diameter_mm": 3.2,
             "corner_fillet_mm": 3.0
         }

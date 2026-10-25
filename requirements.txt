@@ -8,6 +8,7 @@ pydantic-settings==2.6.1   # config.py - typed env var loading, replaces scatter
 python-multipart==0.0.9
 jinja2==3.1.2
 numpy>=1.26.4,<2.0
+trimesh>=4.4.0   # geometry_verify.py - watertight check on the STL; without it the check is skipped
 openai>=1.55.3   # DeepSeek client (deepseek_parser.py) - OpenAI-compatible API via base_url override. Was pinned to 1.35.13, which hardcodes a `proxies=` kwarg incompatible with httpx>=0.28 (pinned below) - fixed upstream in 1.55.3, see https://github.com/openai/openai-python/issues/1902
 boto3>=1.34.0   # R2 (S3-compatible) storage - see storage.py, optional at runtime
 slowapi==0.1.9   # per-IP rate limiting on /generate and /api/keys/generate - see web_app.py
@@ -43,3 +44,8 @@ fastmcp==2.14.7
 # llm_parser.py gets wired back in later, re-add a current `anthropic`
 # version (not the old 0.7.5 pin - that's what was fighting `openai`
 # over httpx range and causing the pip backtracking).
+
+# File upload and analysis (file_analysis.py, file_api.py)
+pypdf>=4.0,<6          # text from PDF drawings
+pypdfium2>=4.30,<5     # renders PDF pages to pictures for the vision model (wheels bundle PDFium, no poppler)
+Pillow>=10.0           # checks and shrinks uploaded images

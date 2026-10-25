@@ -30,8 +30,15 @@ import db
 
 logger = get_logger(__name__)
 
+# eval_geometry.py sets this to count tokens per build. It is called with the API response's `usage`
+# object (or None). Nothing else uses it, and an error inside it never reaches the parse.
+USAGE_HOOK = None
 
-PROMPT_VERSION = "freeform-fidelity-v3"
+
+from domain_packs import prompt_section as _pack_prompt_section
+from feature_tree import DSL_HELP
+
+PROMPT_VERSION = "freeform-fidelity-v3-civil1+aero1+automotive-v1+arch5+plate0holes+hollow"
 
 SYSTEM_PROMPT = """You are a CAD parameter extraction system. Parse natural language descriptions of mechanical parts into structured JSON.
 
@@ -39,8 +46,8 @@ Choose exactly one part_type from this list, and extract only the parameters rel
 
 - motor_mount: motor_size_mm, thickness_mm, hole_diameter_mm, fillet_radius_mm
 - l_bracket: width_mm, height_mm, depth_mm, thickness_mm, hole_count, hole_diameter_mm, fillet_radius_mm
-- flat_plate: length_mm, width_mm, thickness_mm, hole_pattern ("rectangular"|"circular"), hole_count_x, hole_count_y, hole_diameter_mm, corner_fillet_mm
-- simple_box: length_mm, width_mm, height_mm, wall_thickness_mm, has_lid (bool), lid_fit_tolerance_mm
+- flat_plate: length_mm, width_mm, thickness_mm, hole_pattern ("rectangular"|"circular"), hole_count_x, hole_count_y, hole_diameter_mm, corner_fillet_mm (a plate has no holes unless the description asks for them: leave the hole counts out, or give 0 and 0, when it names none)
+- simple_box: length_mm, width_mm, height_mm, wall_thickness_mm, hollow (bool: true for an open-top box or enclosure with walls, false for a solid block)
 - shaft: diameter_mm, length_mm, chamfer_mm, keyway_width_mm, keyway_depth_mm
 - bearing: inner_diameter_mm, outer_diameter_mm, width_mm
 - spacer: outer_diameter_mm, inner_diameter_mm, length_mm
@@ -57,10 +64,33 @@ Choose exactly one part_type from this list, and extract only the parameters rel
 - hinge: length_mm, width_mm, thickness_mm, knuckle_count, pin_diameter_mm
 - cam: base_radius_mm, lift_mm, thickness_mm, bore_diameter_mm, lift_profile ("simple"|"harmonic"|"cycloidal")
 - hex_standoff: across_flats_mm, inner_diameter_mm, length_mm
+- hex_bolt: size (e.g. "M8"), length_mm (shank length under the head). Standard ISO 4017; dimensions come from the standard, so give only the size and length
+- socket_cap_screw: size (e.g. "M6"), length_mm. Standard ISO 4762
+- hex_nut: size (e.g. "M10"). Standard ISO 4032
+- fastener: standard ("ISO_4762"|"ISO_4017"|"ISO_4032"|"ISO_7089"), size (e.g. "M8"), length_mm (screws only)
+- std_bearing: designation (ISO 15 number, e.g. "6205")
+- key: shaft_diameter_mm, length_mm, form ("A"|"B")
+- asme_flange: standard ("ASME_B16_5_150"), nps (string e.g. "4"), flange_type ("slip_on"|"blind")
+- o_ring: inner_diameter_mm, cross_section_mm (standard series)
+- building: floors (1-4), bedrooms, master_bedroom (0|1), bathrooms, toilets, dining_room (0|1), study (0|1), store (0|1), width_mm, depth_mm (omit both to size automatically), floor_height_mm, roof_type ("gable"|"flat") - for a house or small building from its rooms; all values are plain numbers
+- feature_tree: features (a list; see FEATURE TREE below) - a validated multi-feature part
 - t_bracket: length_mm, cap_width_mm, stem_height_mm, thickness_mm, hole_count, hole_diameter_mm, fillet_radius_mm
 - channel_bracket: length_mm, width_mm, height_mm, wall_thickness_mm, mount_hole_count, mount_hole_diameter_mm
 - connecting_rod: center_distance_mm, big_end_diameter_mm, small_end_diameter_mm, thickness_mm
 - crankshaft: num_throws, stroke_mm, main_journal_diameter_mm, main_journal_length_mm, rod_journal_diameter_mm, rod_journal_length_mm, web_thickness_mm, nose_diameter_mm, nose_length_mm, flange_diameter_mm, flange_length_mm
+- airfoil_wing: naca (4-digit string e.g. "2412"), root_chord_mm, tip_chord_mm, span_mm (semi-span), sweep_deg, both_halves (bool)
+- wing_rib: naca, chord_mm, thickness_mm, lightening_hole_count, lightening_hole_ratio, spar_positions (chord fractions), spar_slot_width_mm
+- wing_spar: length_mm, height_mm, flange_width_mm, flange_thickness_mm, web_thickness_mm
+- attachment_lug: width_mm, length_mm, thickness_mm, hole_diameter_mm
+- fuselage: length_mm, diameter_mm, nose_ratio, tail_ratio, tail_end_diameter_mm
+- tail_surface: orientation ("horizontal"|"vertical"), naca, root_chord_mm, tip_chord_mm, span_mm, sweep_deg
+- turbofan_engine: fan_diameter_mm, length_mm, hub_ratio, core_ratio, fan_blades, compressor_stages, turbine_stages, blades_per_row
+- jet_aircraft: fuselage_length_mm, fuselage_diameter_mm, wing_span_mm, wing_root_chord_mm, wing_tip_chord_mm, wing_sweep_deg, wing_x_ratio, wing_z_ratio, htail_span_mm, vtail_height_mm, tail_x_ratio, engines (0|2|4), engine_fan_diameter_mm, engine_span_ratio, airfoil_kappa (0.87 conventional, 0.95 supercritical)
+- fuselage_frame: outer_diameter_mm, ring_width_mm, thickness_mm, lightening_hole_count, lightening_hole_diameter_mm, flange_height_mm
+- road_segment: length_mm, lane_width_mm, lane_count, shoulder_width_mm, pavement_thickness_mm, crossfall_percent, shoulder_crossfall_percent, has_kerbs (bool), kerb_width_mm, kerb_height_mm
+- box_culvert: clear_width_mm, clear_height_mm, length_mm, wall_thickness_mm, slab_thickness_mm, barrel_count
+- retaining_wall: length_mm, stem_height_mm, stem_thickness_base_mm, stem_thickness_top_mm, base_width_mm, base_thickness_mm, toe_length_mm
+- pcb_board: description (a printed circuit board, described by what it does. Copy the person's own words, joined with ' | ' when later messages change it. Never invent voltages, parts or sizes)
 - freeform: for anything irregular/organic/custom-profile that doesn't match a template above. operation ("revolve"|"sweep"|"loft"), profile_points (list of [x,y] mm pairs tracing the 2D cross-section/profile in order - this is the actual shape), revolve_axis ("X"|"Y", for revolve), revolve_angle_deg (default 360, for revolve), path_points (list of [x,y,z] mm points, for sweep), profiles (list of {"points":[[x,y],...],"z":number}, for loft)
 
 FREEFORM FIDELITY RULES (requirements, not suggestions):
@@ -81,6 +111,10 @@ Worked examples (illustrative shapes, not to be copied):
 3. "Loft from a 30mm square base to a 10mm square top, 25mm tall" ->
 {"part_type":"freeform","parameters":{"operation":"loft","profiles":[{"points":[[-15,-15],[15,-15],[15,15],[-15,15]],"z":0},{"points":[[-5,-5],[5,-5],[5,5],[-5,5]],"z":25}]},"material":null,"operations":[],"confidence":0.8}
 
+PCB RULES: for a circuit board, return part_type "pcb_board" with only the description. The pcb planner chooses circuit blocks and checks the design, so do not put dimensions or components in parameters.
+
+CIVIL RULES: road_segment, box_culvert and retaining_wall are usually described in metres. Every _mm parameter must still be in millimetres, so 3.5 m is 3500 and a 50 m road is length_mm 50000. lane_count and barrel_count are whole numbers. Never claim a civil element meets a design code.
+
 If the description doesn't clearly match any of these, set part_type to "unknown" and confidence to 0.0.
 If a parameter isn't mentioned, omit it (the template applies its own default), don't guess a specific value for something the description didn't say.
 
@@ -96,6 +130,28 @@ Respond with ONLY valid JSON, no markdown fences, no explanation, in this exact 
   "operations": [...],
   "confidence": 0.0-1.0
 }"""
+
+
+# Domain-pack part types (generated from each pack's parameter specs, so the
+# prompt can never list a parameter the template does not accept). Inserted
+# just before the freeform entry; PROMPT_VERSION above is part of the parse
+# cache key, so changing this section requires bumping it.
+SYSTEM_PROMPT = SYSTEM_PROMPT.replace("- freeform:", _pack_prompt_section() + "\n- freeform:", 1)
+
+# Multi-feature parts (holes + patterns + pockets, several bodies, wings, walls with
+# openings) are better expressed as a feature tree than as one freeform operation.
+# DSL_HELP is generated from the same module that validates the response, so the prompt
+# and the validator cannot drift apart.
+_FEATURE_TREE_PROMPT = (
+    "\n\nFEATURE TREE (use it instead of freeform whenever the part needs more than one feature: holes, "
+    "patterns, pockets, several bodies, mirrored or revolved sections; keep freeform for a single organic "
+    "outline). Return part_type \"feature_tree\" with parameters {\"features\": [...]}. " + DSL_HELP + "\n"
+)
+_ANCHOR = "\n\nIf the description doesn't clearly match any of these"
+if _ANCHOR in SYSTEM_PROMPT:
+    SYSTEM_PROMPT = SYSTEM_PROMPT.replace(_ANCHOR, _FEATURE_TREE_PROMPT + _ANCHOR, 1)
+else:  # never silently ship a prompt that omits the advertised part type
+    SYSTEM_PROMPT += _FEATURE_TREE_PROMPT
 
 
 def _normalize_description(description: str) -> str:
@@ -169,6 +225,12 @@ def _call_deepseek(
         response_format={"type": "json_object"},
         extra_body={"thinking": {"type": "disabled"}},
     )
+
+    if USAGE_HOOK is not None:
+        try:
+            USAGE_HOOK(getattr(response, "usage", None))
+        except Exception:  # noqa: BLE001 - counting tokens must never fail a parse
+            pass
 
     raw_text = response.choices[0].message.content.strip()
     if raw_text.startswith("```"):
@@ -285,7 +347,7 @@ def parse_with_deepseek(
         validated, errors = validate_llm_response(data, description)
         if validated is None:
             last_errors = errors
-            fidelity_failure = isinstance(data, dict) and data.get("part_type") == "freeform"
+            fidelity_failure = isinstance(data, dict) and data.get("part_type") in ("freeform", "feature_tree")
             logger.warning("DeepSeek parse rejected (attempt %s): %s", attempt + 1, errors)
             continue
 
@@ -332,6 +394,12 @@ def parse_description(
 ) -> ParsedParameters:
     """Drop-in parser with explicit LLM/cache/regex provenance."""
     resolved_key = api_key or settings.DEEPSEEK_API_KEY
+    # A circuit board is planned by the pcb pack (which checks the circuit), not by this parser, so a
+    # board request never needs the model here: it is deterministic, free, and cannot be mislabelled
+    # as a flat plate. See pcb/intent.py and cad_templates/pcb.py.
+    from pcb.intent import is_pcb_request
+    if is_pcb_request(description):
+        return _regex_result(description, parser="regex", model=None)
     if use_deepseek is not False and resolved_key:
         return parse_with_deepseek(description, resolved_key, model=model)
     # Regex was the deliberate choice (opted out, or no key configured).

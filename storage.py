@@ -130,6 +130,9 @@ _CONTENT_TYPES = {
     "iges": "model/iges",
     "dxf": "image/vnd.dxf",
     "pdf": "application/pdf",
+    "glb": "model/gltf-binary",
+    "3mf": "model/3mf",
+    "urdf": "application/zip",
 }
 
 

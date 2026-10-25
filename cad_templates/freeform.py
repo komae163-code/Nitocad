@@ -128,12 +128,13 @@ def generate_lofted_part(params: dict) -> cq.Workplane:
         for i in range(1, len(points)):
             wp = wp.lineTo(points[i][0], points[i][1])
         wp = wp.close()
-        wires.append(wp)
+        wires.append(wp.val())  # the closed Wire, located at its own z offset
     
-    # Loft between profiles
-    result = wires[0].loft(wires[1:])
-    
-    return result
+    # Loft through every profile wire. (Workplane.loft() lofts the wires pending on ONE
+    # workplane and takes no list of other workplanes, so the previous
+    # `wires[0].loft(wires[1:])` raised ValueError on every call.)
+    solid = cq.Solid.makeLoft(wires, False)
+    return cq.Workplane("XY").newObject([solid])
 
 def generate_freeform(params: dict) -> cq.Workplane:
     """

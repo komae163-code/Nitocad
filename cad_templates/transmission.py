@@ -4,9 +4,11 @@ Transmission components: gears, pulleys, sprockets.
 import cadquery as cq
 import math
 
+from ._gear_profile import involute_gear_outline
+
 def generate_gear(params: dict) -> cq.Workplane:
     """
-    Generate a simplified spur gear.
+    Generate a spur gear with involute teeth.
     
     Expected params:
     - module: Gear module (mm)
@@ -21,35 +23,13 @@ def generate_gear(params: dict) -> cq.Workplane:
     bore = params.get('bore_diameter_mm', 5.0)
     pressure_angle = params.get('pressure_angle', 20.0)
     
-    # Calculate gear dimensions
-    pitch_radius = module * teeth / 2
-    outer_radius = pitch_radius + module
-    root_radius = pitch_radius - 1.25 * module
-    
-    # Create base cylinder at outer radius
-    result = cq.Workplane("XY").circle(outer_radius).extrude(thickness)
-    
-    # Simplified tooth profile - cut away material between teeth
-    # This is a simplified representation, not a true involute profile
-    tooth_angle = 360.0 / teeth
-    
-    for i in range(teeth):
-        angle = i * tooth_angle
-        # Create a simple trapezoidal tooth space
-        x = root_radius * math.cos(math.radians(angle))
-        y = root_radius * math.sin(math.radians(angle))
-        
-        # Cut a small notch to represent tooth space
-        notch = (
-            cq.Workplane("XY")
-            .center(x, y)
-            .rect(module * 1.5, module * 2)
-            .extrude(thickness)
-        )
-        # Rotate notch to proper angle
-        notch = notch.rotate((0, 0, 0), (0, 0, 1), angle + tooth_angle / 2)
-        result = result.cut(notch)
-    
+    # A real spur gear outline: involute flanks, a tip arc and a root arc, `teeth` times around.
+    # (See cad_templates/_gear_profile.py. The earlier version cut one notch per tooth and then rotated
+    # it about the origin, which moved the notches to every second tooth angle and never opened them to
+    # the tip circle.)
+    outline = involute_gear_outline(module, int(teeth), pressure_angle)
+    result = cq.Workplane("XY").polyline(outline).close().extrude(thickness)
+
     # Add center bore
     if bore > 0:
         result = result.faces(">Z").workplane().hole(bore)
@@ -93,16 +73,22 @@ def generate_pulley(params: dict) -> cq.Workplane:
     )
     result = result.union(flange2)
     
-    # Cut groove in middle
-    groove_start = (thickness - belt_width) / 2
-    groove = (
-        cq.Workplane("XY")
-        .workplane(offset=groove_start)
-        .circle(outer_dia / 2 - groove_depth)
-        .extrude(belt_width)
-    )
-    result = result.cut(groove)
-    
+    # Cut the belt groove: the ring from (outer/2 - groove_depth) out past the rim, between the two flanges.
+    # (The earlier version cut a solid cylinder of radius outer/2 - groove_depth, which removed the hub and
+    # left a hollow drum.)
+    groove_start = max((thickness - belt_width) / 2, flange_height)
+    groove_end = min((thickness + belt_width) / 2, thickness - flange_height)
+    groove_floor = max(outer_dia / 2 - groove_depth, bore / 2 + 0.5)
+    if groove_end > groove_start and groove_depth > 0 and groove_floor < outer_dia / 2:
+        groove = (
+            cq.Workplane("XY")
+            .workplane(offset=groove_start)
+            .circle(outer_dia / 2 + flange_height + 0.5)
+            .circle(groove_floor)
+            .extrude(groove_end - groove_start)
+        )
+        result = result.cut(groove)
+
     # Add center bore
     if bore > 0:
         result = result.faces(">Z").workplane().hole(bore)
@@ -138,14 +124,14 @@ def generate_sprocket(params: dict) -> cq.Workplane:
         x = pitch_radius * math.cos(math.radians(angle))
         y = pitch_radius * math.sin(math.radians(angle))
         
-        # Cut tooth space
+        # Cut tooth space. It is a circle, so it needs no turning; rotating it about the origin
+        # (as an earlier version did) moved it to every second tooth angle.
         space = (
             cq.Workplane("XY")
             .center(x, y)
             .circle(pitch / 3)
             .extrude(thickness)
         )
-        space = space.rotate((0, 0, 0), (0, 0, 1), angle + tooth_angle / 2)
         result = result.cut(space)
     
     # Add center bore

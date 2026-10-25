@@ -1,0 +1,933 @@
+{
+ "version": 1,
+ "cases": [
+  {
+   "prompt": "L-bracket 50mm wide, 60mm tall, 3mm thick",
+   "part_type": "l_bracket",
+   "params": {
+    "width_mm": 50,
+    "height_mm": 60,
+    "thickness_mm": 3
+   }
+  },
+  {
+   "prompt": "an L bracket 40 wide by 40 tall, 4 mm thick, with 3 holes",
+   "part_type": "l_bracket",
+   "params": {
+    "width_mm": 40,
+    "height_mm": 40,
+    "thickness_mm": 4,
+    "hole_count": 3
+   }
+  },
+  {
+   "prompt": "angle bracket 80mm x 50mm x 2.5mm thickness",
+   "part_type": "l_bracket",
+   "params": {
+    "thickness_mm": 2.5
+   }
+  },
+  {
+   "prompt": "mounting L-bracket, 6mm holes, 5 mm thick, 100 mm wide",
+   "part_type": "l_bracket",
+   "params": {
+    "hole_diameter_mm": 6,
+    "thickness_mm": 5,
+    "width_mm": 100
+   }
+  },
+  {
+   "prompt": "flat plate 200 x 100 x 6 mm",
+   "part_type": "flat_plate",
+   "params": {
+    "length_mm": 200,
+    "width_mm": 100,
+    "thickness_mm": 6
+   }
+  },
+  {
+   "prompt": "rectangular plate 150mm long 75mm wide 3mm thick",
+   "part_type": "flat_plate",
+   "params": {
+    "length_mm": 150,
+    "width_mm": 75,
+    "thickness_mm": 3
+   }
+  },
+  {
+   "prompt": "steel plate 10mm thick, 300mm by 200mm",
+   "part_type": "flat_plate",
+   "params": {
+    "thickness_mm": 10
+   }
+  },
+  {
+   "prompt": "T-bracket 60mm long, 40mm cap, 30mm stem, 4mm thick",
+   "part_type": "t_bracket",
+   "params": {
+    "length_mm": 60,
+    "thickness_mm": 4
+   }
+  },
+  {
+   "prompt": "channel bracket 80 long 25 wide 20 high 2 mm wall",
+   "part_type": "channel_bracket",
+   "params": {
+    "length_mm": 80,
+    "width_mm": 25,
+    "height_mm": 20,
+    "wall_thickness_mm": 2
+   }
+  },
+  {
+   "prompt": "angle iron 50 x 50 x 5 mm, 100 mm long",
+   "part_type": "angle",
+   "params": {
+    "leg1_mm": 50,
+    "leg2_mm": 50,
+    "thickness_mm": 5,
+    "length_mm": 100
+   }
+  },
+  {
+   "prompt": "equal angle 40x40x4 length 500mm",
+   "part_type": "angle",
+   "params": {
+    "leg1_mm": 40,
+    "leg2_mm": 40,
+    "thickness_mm": 4,
+    "length_mm": 500
+   }
+  },
+  {
+   "prompt": "motor mount for a NEMA 17 stepper",
+   "part_type": "motor_mount",
+   "params": {}
+  },
+  {
+   "prompt": "mounting bracket for a 50mm stepper motor, 4 holes, 5mm fillets, 3mm thick",
+   "part_type": "motor_mount",
+   "params": {
+    "thickness_mm": 3
+   }
+  },
+  {
+   "prompt": "shaft 10mm diameter, 50mm long",
+   "part_type": "shaft",
+   "params": {
+    "diameter_mm": 10,
+    "length_mm": 50
+   }
+  },
+  {
+   "prompt": "steel rod 12 mm dia 200 mm length",
+   "part_type": "shaft",
+   "params": {
+    "diameter_mm": 12,
+    "length_mm": 200
+   }
+  },
+  {
+   "prompt": "a 25mm shaft that is 300mm long",
+   "part_type": "shaft",
+   "params": {
+    "diameter_mm": 25,
+    "length_mm": 300
+   }
+  },
+  {
+   "prompt": "drive shaft 8mm diameter 120mm long with 1mm chamfer",
+   "part_type": "shaft",
+   "params": {
+    "diameter_mm": 8,
+    "length_mm": 120,
+    "chamfer_mm": 1
+   }
+  },
+  {
+   "prompt": "spacer 10mm outside diameter, 5mm bore, 8mm long",
+   "part_type": "spacer",
+   "params": {
+    "outer_diameter_mm": 10,
+    "inner_diameter_mm": 5,
+    "length_mm": 8
+   }
+  },
+  {
+   "prompt": "aluminum spacer OD 20 ID 10 length 15",
+   "part_type": "spacer",
+   "params": {
+    "outer_diameter_mm": 20,
+    "inner_diameter_mm": 10,
+    "length_mm": 15
+   }
+  },
+  {
+   "prompt": "bushing 16mm outer 8mm inner 12mm long",
+   "part_type": "spacer",
+   "params": {
+    "outer_diameter_mm": 16,
+    "inner_diameter_mm": 8,
+    "length_mm": 12
+   }
+  },
+  {
+   "prompt": "washer 20mm outer diameter, 8.4mm hole, 2mm thick",
+   "part_type": "washer",
+   "params": {
+    "outer_diameter_mm": 20,
+    "inner_diameter_mm": 8.4,
+    "thickness_mm": 2
+   }
+  },
+  {
+   "prompt": "flat washer OD 16 ID 6.4 thickness 1.6",
+   "part_type": "washer",
+   "params": {
+    "outer_diameter_mm": 16,
+    "inner_diameter_mm": 6.4,
+    "thickness_mm": 1.6
+   }
+  },
+  {
+   "prompt": "sphere 30mm diameter",
+   "part_type": "sphere",
+   "params": {
+    "diameter_mm": 30
+   }
+  },
+  {
+   "prompt": "a ball 50 mm in diameter",
+   "part_type": "sphere",
+   "params": {
+    "diameter_mm": 50
+   }
+  },
+  {
+   "prompt": "round tube 20mm outside diameter 2mm wall 100mm long",
+   "part_type": "tube",
+   "params": {
+    "outer_diameter_mm": 20,
+    "wall_thickness_mm": 2,
+    "length_mm": 100
+   }
+  },
+  {
+   "prompt": "square tube 25 mm, 2.5 mm wall, 300 mm long",
+   "part_type": "tube",
+   "params": {
+    "outer_diameter_mm": 25,
+    "wall_thickness_mm": 2.5,
+    "length_mm": 300
+   }
+  },
+  {
+   "prompt": "hollow pipe 30mm OD 3mm wall length 150",
+   "part_type": "tube",
+   "params": {
+    "outer_diameter_mm": 30,
+    "wall_thickness_mm": 3,
+    "length_mm": 150
+   }
+  },
+  {
+   "prompt": "hex standoff 6mm across flats, 3.2mm hole, 10mm long",
+   "part_type": "hex_standoff",
+   "params": {
+    "across_flats_mm": 6,
+    "inner_diameter_mm": 3.2,
+    "length_mm": 10
+   }
+  },
+  {
+   "prompt": "M3 hex standoff 20mm",
+   "part_type": "hex_standoff",
+   "params": {
+    "length_mm": 20
+   }
+  },
+  {
+   "prompt": "gear with 20 teeth, module 2, 10mm thick, 5mm bore",
+   "part_type": "gear",
+   "params": {
+    "teeth": 20,
+    "module": 2,
+    "thickness_mm": 10,
+    "bore_diameter_mm": 5
+   }
+  },
+  {
+   "prompt": "spur gear 40 teeth module 1.5 width 8mm",
+   "part_type": "gear",
+   "params": {
+    "teeth": 40,
+    "module": 1.5
+   }
+  },
+  {
+   "prompt": "a 24 tooth gear, 3 module, 12 mm thick",
+   "part_type": "gear",
+   "params": {
+    "teeth": 24,
+    "module": 3,
+    "thickness_mm": 12
+   }
+  },
+  {
+   "prompt": "pinion 12 teeth module 2.5 10 mm bore",
+   "part_type": "gear",
+   "params": {
+    "teeth": 12,
+    "module": 2.5,
+    "bore_diameter_mm": 10
+   }
+  },
+  {
+   "prompt": "sprocket 18 teeth for a 12.7mm pitch chain, 8mm bore",
+   "part_type": "sprocket",
+   "params": {
+    "teeth": 18,
+    "chain_pitch_mm": 12.7,
+    "bore_diameter_mm": 8
+   }
+  },
+  {
+   "prompt": "chain sprocket with 25 teeth",
+   "part_type": "sprocket",
+   "params": {
+    "teeth": 25
+   }
+  },
+  {
+   "prompt": "pulley 40mm outer diameter, 10mm belt, 5mm bore",
+   "part_type": "pulley",
+   "params": {
+    "outer_diameter_mm": 40,
+    "belt_width_mm": 10,
+    "bore_diameter_mm": 5
+   }
+  },
+  {
+   "prompt": "V pulley 60 mm OD, 8mm bore, 20 mm wide",
+   "part_type": "pulley",
+   "params": {
+    "outer_diameter_mm": 60,
+    "bore_diameter_mm": 8,
+    "thickness_mm": 20
+   }
+  },
+  {
+   "prompt": "bearing 20mm bore 47mm outer 14mm wide",
+   "part_type": "bearing",
+   "params": {
+    "inner_diameter_mm": 20,
+    "outer_diameter_mm": 47,
+    "width_mm": 14
+   }
+  },
+  {
+   "prompt": "ball bearing ID 8 OD 22 width 7",
+   "part_type": "bearing",
+   "params": {
+    "inner_diameter_mm": 8,
+    "outer_diameter_mm": 22,
+    "width_mm": 7
+   }
+  },
+  {
+   "prompt": "cam with 20mm base radius and 10mm lift",
+   "part_type": "cam",
+   "params": {
+    "base_radius_mm": 20,
+    "lift_mm": 10
+   }
+  },
+  {
+   "prompt": "cam 25 mm base circle, 12 mm lift, 6 mm bore",
+   "part_type": "cam",
+   "params": {
+    "base_radius_mm": 25,
+    "lift_mm": 12,
+    "bore_diameter_mm": 6
+   }
+  },
+  {
+   "prompt": "door hinge 100mm long 30mm leaf 2mm thick 5 knuckles",
+   "part_type": "hinge",
+   "params": {
+    "length_mm": 100,
+    "width_mm": 30,
+    "thickness_mm": 2,
+    "knuckle_count": 5
+   }
+  },
+  {
+   "prompt": "hinge 60 long, 3 mm pin",
+   "part_type": "hinge",
+   "params": {
+    "length_mm": 60,
+    "pin_diameter_mm": 3
+   }
+  },
+  {
+   "prompt": "connecting rod 150mm center to center",
+   "part_type": "connecting_rod",
+   "params": {}
+  },
+  {
+   "prompt": "crankshaft for a single cylinder engine",
+   "part_type": "crankshaft",
+   "params": {}
+  },
+  {
+   "prompt": "flange 100mm outer diameter, 50mm bore, 10mm thick, 4 holes of 5mm on a 75mm bolt circle",
+   "part_type": "flange",
+   "params": {
+    "outer_diameter_mm": 100,
+    "inner_diameter_mm": 50,
+    "thickness_mm": 10,
+    "hole_count": 4,
+    "hole_diameter_mm": 5,
+    "bolt_circle_mm": 75
+   }
+  },
+  {
+   "prompt": "pipe flange 120 OD 60 ID 12 thick 6 bolt holes 9mm on 90mm circle",
+   "part_type": "flange",
+   "params": {
+    "outer_diameter_mm": 120,
+    "inner_diameter_mm": 60,
+    "thickness_mm": 12,
+    "hole_count": 6,
+    "hole_diameter_mm": 9,
+    "bolt_circle_mm": 90
+   }
+  },
+  {
+   "prompt": "flange 80mm diameter 8mm thick",
+   "part_type": "flange",
+   "params": {
+    "outer_diameter_mm": 80,
+    "thickness_mm": 8
+   }
+  },
+  {
+   "prompt": "box enclosure 100x80x50mm, 3mm walls, with lid",
+   "part_type": "simple_box",
+   "params": {
+    "length_mm": 100,
+    "width_mm": 80,
+    "height_mm": 50,
+    "wall_thickness_mm": 3
+   }
+  },
+  {
+   "prompt": "a box 200 by 150 by 100 mm",
+   "part_type": "simple_box",
+   "params": {
+    "length_mm": 200,
+    "width_mm": 150,
+    "height_mm": 100
+   }
+  },
+  {
+   "prompt": "project case 120 x 60 x 40 with 2mm walls",
+   "part_type": "simple_box",
+   "params": {
+    "length_mm": 120,
+    "width_mm": 60,
+    "height_mm": 40,
+    "wall_thickness_mm": 2
+   }
+  },
+  {
+   "prompt": "I-beam 100mm tall 50mm wide 200mm long 5mm thick",
+   "part_type": "structural_beam",
+   "params": {
+    "height_mm": 100,
+    "width_mm": 50,
+    "length_mm": 200,
+    "thickness_mm": 5
+   }
+  },
+  {
+   "prompt": "C channel beam 80 high 40 wide 500 long",
+   "part_type": "structural_beam",
+   "params": {
+    "height_mm": 80,
+    "width_mm": 40,
+    "length_mm": 500
+   }
+  },
+  {
+   "prompt": "90 degree elbow pipe fitting 20mm OD 2mm wall",
+   "part_type": "pipe_fitting",
+   "params": {
+    "outer_diameter_mm": 20,
+    "wall_thickness_mm": 2,
+    "angle_deg": 90
+   }
+  },
+  {
+   "prompt": "tee pipe fitting 25mm outer diameter",
+   "part_type": "pipe_fitting",
+   "params": {
+    "outer_diameter_mm": 25
+   }
+  },
+  {
+   "prompt": "M8 hex bolt 30mm long",
+   "part_type": "hex_bolt",
+   "params": {
+    "length_mm": 30
+   }
+  },
+  {
+   "prompt": "M6 x 20 socket head cap screw",
+   "part_type": "socket_cap_screw",
+   "params": {
+    "length_mm": 20
+   }
+  },
+  {
+   "prompt": "an M10 hex nut",
+   "part_type": "hex_nut",
+   "params": {}
+  },
+  {
+   "prompt": "shaft 1 inch diameter 6 inches long",
+   "part_type": "shaft",
+   "params": {
+    "diameter_mm": 25.4,
+    "length_mm": 152.4
+   }
+  },
+  {
+   "prompt": "plate 4in x 2in x 0.25in",
+   "part_type": "flat_plate",
+   "params": {
+    "length_mm": 101.6,
+    "width_mm": 50.8,
+    "thickness_mm": 6.35
+   }
+  },
+  {
+   "prompt": "shaft 2cm diameter and 10cm long",
+   "part_type": "shaft",
+   "params": {
+    "diameter_mm": 20,
+    "length_mm": 100
+   }
+  },
+  {
+   "prompt": "SHAFT 10MM DIA 50MM LONG",
+   "part_type": "shaft",
+   "params": {
+    "diameter_mm": 10,
+    "length_mm": 50
+   }
+  },
+  {
+   "prompt": "shaft, diameter: 10, length: 50",
+   "part_type": "shaft",
+   "params": {
+    "diameter_mm": 10,
+    "length_mm": 50
+   }
+  },
+  {
+   "prompt": "I want a gear. It should have 30 teeth and a module of 2.",
+   "part_type": "gear",
+   "params": {
+    "teeth": 30,
+    "module": 2
+   }
+  },
+  {
+   "prompt": "please make me a spacer with an outer diameter of 12 mm, inner diameter of 6 mm and length of 5 mm",
+   "part_type": "spacer",
+   "params": {
+    "outer_diameter_mm": 12,
+    "inner_diameter_mm": 6,
+    "length_mm": 5
+   }
+  },
+  {
+   "prompt": "could you design a washer, 24 mm OD, 13 mm ID, 2.5 mm thick?",
+   "part_type": "washer",
+   "params": {
+    "outer_diameter_mm": 24,
+    "inner_diameter_mm": 13,
+    "thickness_mm": 2.5
+   }
+  },
+  {
+   "prompt": "bracket for holding a 40mm pipe, L shaped, 3mm steel",
+   "part_type": "l_bracket",
+   "params": {
+    "thickness_mm": 3
+   }
+  },
+  {
+   "prompt": "sphere radius 15mm",
+   "part_type": "sphere",
+   "params": {
+    "diameter_mm": 30
+   }
+  },
+  {
+   "prompt": "gear 20 teeth module 2 thick 10",
+   "part_type": "gear",
+   "params": {
+    "teeth": 20,
+    "module": 2,
+    "thickness_mm": 10
+   }
+  },
+  {
+   "prompt": "tube 20 OD x 2 wall x 100",
+   "part_type": "tube",
+   "params": {
+    "outer_diameter_mm": 20,
+    "wall_thickness_mm": 2,
+    "length_mm": 100
+   }
+  },
+  {
+   "prompt": "make me a sandwich",
+   "part_type": "unknown",
+   "params": {}
+  },
+  {
+   "prompt": "hello",
+   "part_type": "unknown",
+   "params": {}
+  },
+  {
+   "prompt": "what is the weather like",
+   "part_type": "unknown",
+   "params": {}
+  },
+  {
+   "prompt": "design something nice",
+   "part_type": "unknown",
+   "params": {}
+  },
+  {
+   "prompt": "a thing",
+   "part_type": "unknown",
+   "params": {}
+  },
+  {
+   "prompt": "L bracket 30 x 30 x 2 mm",
+   "part_type": "l_bracket",
+   "params": {
+    "thickness_mm": 2
+   }
+  },
+  {
+   "prompt": "bracket, L-shaped, 70mm wide, 45mm tall, 4mm thick, two holes",
+   "part_type": "l_bracket",
+   "params": {
+    "width_mm": 70,
+    "height_mm": 45,
+    "thickness_mm": 4,
+    "hole_count": 2
+   }
+  },
+  {
+   "prompt": "plate 500 x 250 x 12",
+   "part_type": "flat_plate",
+   "params": {
+    "length_mm": 500,
+    "width_mm": 250,
+    "thickness_mm": 12
+   }
+  },
+  {
+   "prompt": "aluminum plate 120mm by 80mm, 4mm thick, 4 corner holes",
+   "part_type": "flat_plate",
+   "params": {
+    "length_mm": 120,
+    "width_mm": 80,
+    "thickness_mm": 4
+   }
+  },
+  {
+   "prompt": "base plate 100 long 60 wide 8 thick",
+   "part_type": "flat_plate",
+   "params": {
+    "length_mm": 100,
+    "width_mm": 60,
+    "thickness_mm": 8
+   }
+  },
+  {
+   "prompt": "T bracket 80 mm long 50 mm cap 6 mm thick",
+   "part_type": "t_bracket",
+   "params": {
+    "length_mm": 80,
+    "thickness_mm": 6
+   }
+  },
+  {
+   "prompt": "channel bracket 100 x 30 x 25 with 3mm wall",
+   "part_type": "channel_bracket",
+   "params": {
+    "length_mm": 100,
+    "width_mm": 30,
+    "height_mm": 25,
+    "wall_thickness_mm": 3
+   }
+  },
+  {
+   "prompt": "shaft 6mm diameter 40mm long",
+   "part_type": "shaft",
+   "params": {
+    "diameter_mm": 6,
+    "length_mm": 40
+   }
+  },
+  {
+   "prompt": "steel shaft, 30 mm diameter, 450 mm in length",
+   "part_type": "shaft",
+   "params": {
+    "diameter_mm": 30,
+    "length_mm": 450
+   }
+  },
+  {
+   "prompt": "axle 15mm dia 250mm long",
+   "part_type": "shaft",
+   "params": {
+    "diameter_mm": 15,
+    "length_mm": 250
+   }
+  },
+  {
+   "prompt": "spacer 8 OD 4 ID 6 long",
+   "part_type": "spacer",
+   "params": {
+    "outer_diameter_mm": 8,
+    "inner_diameter_mm": 4,
+    "length_mm": 6
+   }
+  },
+  {
+   "prompt": "spacer, outside diameter 25mm, bore 12mm, length 30mm",
+   "part_type": "spacer",
+   "params": {
+    "outer_diameter_mm": 25,
+    "inner_diameter_mm": 12,
+    "length_mm": 30
+   }
+  },
+  {
+   "prompt": "washer M10: 20mm OD, 10.5mm ID, 2mm",
+   "part_type": "washer",
+   "params": {
+    "outer_diameter_mm": 20,
+    "inner_diameter_mm": 10.5,
+    "thickness_mm": 2
+   }
+  },
+  {
+   "prompt": "sphere 100mm",
+   "part_type": "sphere",
+   "params": {
+    "diameter_mm": 100
+   }
+  },
+  {
+   "prompt": "tube 40mm OD, 4mm wall, 250mm long",
+   "part_type": "tube",
+   "params": {
+    "outer_diameter_mm": 40,
+    "wall_thickness_mm": 4,
+    "length_mm": 250
+   }
+  },
+  {
+   "prompt": "square tubing 30x30 1.5mm wall 1 meter long",
+   "part_type": "tube",
+   "params": {
+    "wall_thickness_mm": 1.5,
+    "length_mm": 1000
+   }
+  },
+  {
+   "prompt": "gear 60 teeth module 1 thickness 6 bore 10",
+   "part_type": "gear",
+   "params": {
+    "teeth": 60,
+    "module": 1,
+    "thickness_mm": 6,
+    "bore_diameter_mm": 10
+   }
+  },
+  {
+   "prompt": "small gear 15 teeth module 1.25",
+   "part_type": "gear",
+   "params": {
+    "teeth": 15,
+    "module": 1.25
+   }
+  },
+  {
+   "prompt": "sprocket 11 teeth 8mm pitch",
+   "part_type": "sprocket",
+   "params": {
+    "teeth": 11,
+    "chain_pitch_mm": 8
+   }
+  },
+  {
+   "prompt": "pulley 80mm diameter 12mm bore 25mm wide",
+   "part_type": "pulley",
+   "params": {
+    "outer_diameter_mm": 80,
+    "bore_diameter_mm": 12,
+    "thickness_mm": 25
+   }
+  },
+  {
+   "prompt": "bearing 17mm inside 40mm outside 12mm width",
+   "part_type": "bearing",
+   "params": {
+    "inner_diameter_mm": 17,
+    "outer_diameter_mm": 40,
+    "width_mm": 12
+   }
+  },
+  {
+   "prompt": "bearing with 10 mm bore, 26 mm outer diameter and 8 mm width",
+   "part_type": "bearing",
+   "params": {
+    "inner_diameter_mm": 10,
+    "outer_diameter_mm": 26,
+    "width_mm": 8
+   }
+  },
+  {
+   "prompt": "flange 150 OD 80 bore 15 thick 8 holes 11mm on 120 bolt circle",
+   "part_type": "flange",
+   "params": {
+    "outer_diameter_mm": 150,
+    "inner_diameter_mm": 80,
+    "thickness_mm": 15,
+    "hole_count": 8,
+    "hole_diameter_mm": 11,
+    "bolt_circle_mm": 120
+   }
+  },
+  {
+   "prompt": "enclosure 150x100x60 mm 2.5 mm wall",
+   "part_type": "simple_box",
+   "params": {
+    "length_mm": 150,
+    "width_mm": 100,
+    "height_mm": 60,
+    "wall_thickness_mm": 2.5
+   }
+  },
+  {
+   "prompt": "cube 50mm",
+   "part_type": "simple_box",
+   "params": {
+    "length_mm": 50,
+    "width_mm": 50,
+    "height_mm": 50
+   }
+  },
+  {
+   "prompt": "steel I-beam 200 tall 100 wide 1000 long 8 thick",
+   "part_type": "structural_beam",
+   "params": {
+    "height_mm": 200,
+    "width_mm": 100,
+    "length_mm": 1000,
+    "thickness_mm": 8
+   }
+  },
+  {
+   "prompt": "elbow fitting 32mm OD 3mm wall 90 degrees",
+   "part_type": "pipe_fitting",
+   "params": {
+    "outer_diameter_mm": 32,
+    "wall_thickness_mm": 3,
+    "angle_deg": 90
+   }
+  },
+  {
+   "prompt": "hex standoff 8mm across flats 4.2mm bore 15mm long",
+   "part_type": "hex_standoff",
+   "params": {
+    "across_flats_mm": 8,
+    "inner_diameter_mm": 4.2,
+    "length_mm": 15
+   }
+  },
+  {
+   "prompt": "M12 socket head cap screw 40mm",
+   "part_type": "socket_cap_screw",
+   "params": {
+    "length_mm": 40
+   }
+  },
+  {
+   "prompt": "hex bolt M10 x 50",
+   "part_type": "hex_bolt",
+   "params": {
+    "length_mm": 50
+   }
+  },
+  {
+   "prompt": "M5 nut",
+   "part_type": "hex_nut",
+   "params": {}
+  },
+  {
+   "prompt": "tell me a joke",
+   "part_type": "unknown",
+   "params": {}
+  },
+  {
+   "prompt": "123456",
+   "part_type": "unknown",
+   "params": {}
+  },
+  {
+   "prompt": "can you help me",
+   "part_type": "unknown",
+   "params": {}
+  },
+  {
+   "prompt": "draw a cat",
+   "part_type": "unknown",
+   "params": {}
+  },
+  {
+   "prompt": "build a house",
+   "part_type": "unknown",
+   "params": {}
+  },
+  {
+   "prompt": "road segment 200 m long with 3.5 m lanes",
+   "part_type": "road_segment",
+   "params": {
+    "length_mm": 200000,
+    "lane_width_mm": 3500
+   }
+  },
+  {
+   "prompt": "a single cell box culvert",
+   "part_type": "box_culvert",
+   "params": {}
+  },
+  {
+   "prompt": "cantilever retaining wall 3 m high",
+   "part_type": "retaining_wall",
+   "params": {}
+  }
+ ]
+}

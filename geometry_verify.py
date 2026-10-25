@@ -242,7 +242,7 @@ def verify_geometry(
         all_errors.extend(e)
         measured.update(m)
         if not c.get("trimesh_available", True) and c.get("stl_present"):
-            all_warnings.append("trimesh not installed; watertight check skipped")
+            logger.warning("trimesh not installed; watertight check skipped (add it to requirements.txt)")
     else:
         all_warnings.append("No STL path provided; mesh checks skipped")
 
