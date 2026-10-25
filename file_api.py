@@ -10,7 +10,6 @@ Signed-in accounts only, rate limited, and a per-account daily cap. No credit is
 charged for analysis. Files are held in memory (or a temp file for the CAD reader),
 read, and deleted. Nothing is stored.
 """
-from __future__ import annotations
 
 import base64
 import importlib.util
