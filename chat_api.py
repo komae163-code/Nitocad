@@ -26,7 +26,6 @@ delete another's chat.
 /generate itself is unchanged and stays for API and MCP callers that send one finished
 description. The studio talks to POST /chats/{id}/messages instead.
 """
-from __future__ import annotations
 
 import os
 
