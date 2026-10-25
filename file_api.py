@@ -195,7 +195,11 @@ def build_router(*, limiter) -> APIRouter:
 
     @router.post("/analyze")
     @limiter.limit(settings.RATE_LIMIT_FILES)
-    async def analyze(request: Request, wallet: Wallet, file: UploadFile = File(...), chat_id: str | None = Form(None)):
+    async def analyze(request: Request, wallet: Wallet, chat_id: str | None = Form(None)):
+        form = await request.form()
+        file = form.get("file")
+        if file is None or not hasattr(file, "read"):
+            raise HTTPException(status_code=422, detail="Attach a file.")
         account = wallet["wallet_address"].lower()
         if chat_id is not None and chat_store.get_chat(account, chat_id) is None:
             raise HTTPException(status_code=404, detail="Chat not found")
