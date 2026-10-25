@@ -1,0 +1,51 @@
+name: tests
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: System libraries OCP needs
+        run: sudo apt-get update && sudo apt-get install -y libgl1 libglib2.0-0 libxrender1 libsm6 libxext6
+      - run: pip install -r requirements.txt
+      - name: Full suite; the geometry tests must actually run
+        run: |
+          set -o pipefail
+          pytest -q -rs --cov | tee pytest.out
+          if grep -q "could not import 'cadquery'" pytest.out; then
+            echo "CadQuery geometry tests were SKIPPED, so nothing was verified"; exit 1
+          fi
+  # The geometry benchmark builds ~250 prompts with CadQuery and measures the results (see docs/BENCHMARK.md).
+  # It runs on the default branch only, it never fails the run, and it puts its table on the run's summary page
+  # and its full results in an artifact, so a release has numbers to compare with.
+  benchmark:
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+    needs: test
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: System libraries OCP needs
+        run: sudo apt-get update && sudo apt-get install -y libgl1 libglib2.0-0 libxrender1 libsm6 libxext6
+      - run: pip install -r requirements.txt
+      - name: Geometry benchmark (rule-based parser, no AI cost)
+        run: |
+          python eval_geometry.py --label "${GITHUB_SHA::7}" --out bench.json --markdown bench.md
+          cat bench.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: geometry-benchmark
+          path: |
+            bench.json
+            bench.md

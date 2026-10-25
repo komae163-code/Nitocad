@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from domain_packs import extract_parameters as extract_pack_parameters, is_pack_part
+
 
 @dataclass
 class ExtractedDimension:
@@ -95,7 +97,7 @@ def extract_all_dimensions(text: str) -> list[ExtractedDimension]:
         ))
     
     # Extract decimal with units
-    for match in re.finditer(r'(\d+(?:\.\d+)?)\s*(mm|millimeters?|cm|centimeters?|m|meters?|inch|inches|in|ft|feet|foot)\b', text, re.IGNORECASE):
+    for match in re.finditer(r'(\d+(?:\.\d+)?)\s*(mm|millimeters?|cm|centimeters?|m|meters?|metres?|inch|inches|in|ft|feet|foot)\b', text, re.IGNORECASE):
         value = float(match.group(1))
         unit = match.group(2).lower()
         # Normalize unit
@@ -103,7 +105,7 @@ def extract_all_dimensions(text: str) -> list[ExtractedDimension]:
             unit_mm = 'mm'
         elif unit in ['cm', 'centimeter', 'centimeters']:
             unit_mm = 'cm'
-        elif unit in ['m', 'meter', 'meters']:
+        elif unit in ['m', 'meter', 'meters', 'metre', 'metres']:
             unit_mm = 'm'
         elif unit in ['inch', 'inches', 'in']:
             unit_mm = 'inch'
@@ -282,6 +284,138 @@ def extract_operations(text: str) -> list[dict[str, Any]]:
     
     return operations
 
+
+# ---------------------------------------------------------------------------
+# Civil elements (road_segment, box_culvert, retaining_wall)
+#
+# The regex fallback reads only what the text says, in metres, centimetres or
+# millimetres (British and US spelling), and returns millimetres. Anything it
+# does not find is left out so the template's own default applies. The AI
+# parser is the main path for these; this keeps them working without it.
+# ---------------------------------------------------------------------------
+
+_CIVIL_UNIT_MM = {'mm': 1.0, 'cm': 10.0, 'm': 1000.0, 'meter': 1000.0, 'meters': 1000.0,
+                  'metre': 1000.0, 'metres': 1000.0}
+_CIVIL_NUM = r'(\d+(?:\.\d+)?)'
+_CIVIL_UNIT = r'(mm|cm|metres?|meters?|m)\b'
+_COUNT_WORDS = {'one': 1, 'single': 1, 'two': 2, 'twin': 2, 'double': 2, 'three': 3,
+                'triple': 3, 'four': 4, 'six': 6}
+
+
+def _detect_building_type(text_lower: str) -> bool:
+    """A house or small building: a dwelling word, or bedrooms together with another room."""
+    if re.search(r'\b(house|bungalow|duplex|villa|residential building|dwelling|storey|story|storeys|stories)\b', text_lower):
+        return True
+    return bool(re.search(r'\bbedrooms?\b', text_lower) and re.search(r'\b(bathroom|kitchen|living room|parlou?r|toilet)\b', text_lower))
+
+
+def _building_params_from_text(text: str) -> dict[str, Any]:
+    from building.intake import parse_description as _parse_building
+
+    c = _parse_building(text)["counts"]
+    out: dict[str, Any] = {"floors": c["levels"], "bedrooms": c["bedrooms"], "master_bedroom": int(c["master"]),
+                           "bathrooms": c["bathrooms"], "dining_room": int(c["dining"]), "study": int(c["study"]),
+                           "store": int(c["store"])}
+    if c["toilets"]:
+        out["toilets"] = c["toilets"]
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:m|metres|meters)?\s*(?:x|by|×)\s*(\d+(?:\.\d+)?)\s*(?:m|metres|meters)\b", text)
+    if m and 5 <= min(float(m.group(1)), float(m.group(2))) and max(float(m.group(1)), float(m.group(2))) <= 40:
+        out["width_mm"] = max(float(m.group(1)), float(m.group(2))) * 1000
+        out["depth_mm"] = min(float(m.group(1)), float(m.group(2))) * 1000
+    return out
+
+
+def _detect_civil_type(text_lower: str) -> str | None:
+    if re.search(r'\bculverts?\b', text_lower):
+        return 'box_culvert'
+    if re.search(r'\bretaining\s+walls?\b', text_lower):
+        return 'retaining_wall'
+    if re.search(r'\b(roads?|roadways?|carriageways?|highways?|streets?|driveways?)\b', text_lower):
+        return 'road_segment'
+    return None
+
+
+def _mm(value: str, unit: str) -> float:
+    return float(value) * _CIVIL_UNIT_MM[unit.lower()]
+
+
+def _first_mm(text: str, patterns: list[str]) -> float | None:
+    """First pattern with two groups (number, unit) that matches, as mm."""
+    for pat in patterns:
+        m = re.search(pat, text)
+        if m:
+            return _mm(m.group(1), m.group(2))
+    return None
+
+
+def _civil_params_from_text(part_type: str, text: str) -> dict[str, Any]:
+    n, u = _CIVIL_NUM, _CIVIL_UNIT
+    out: dict[str, Any] = {}
+
+    def put(key: str, value: float | None) -> None:
+        if value is not None:
+            out[key] = value
+
+    put('length_mm', _first_mm(text, [
+        rf'{n}\s*{u}\s*(?:long|length)',
+        rf'length\s*(?:of|is|=|:)?\s*{n}\s*{u}',
+    ]))
+
+    if part_type == 'road_segment':
+        put('lane_width_mm', _first_mm(text, [
+            rf'{n}\s*{u}\s*(?:wide\s*)?lanes?\b',
+            rf'lane\s*width\s*(?:of|is|=|:)?\s*{n}\s*{u}',
+        ]))
+        put('shoulder_width_mm', _first_mm(text, [
+            rf'{n}\s*{u}\s*(?:wide\s*)?shoulders?',
+            rf'shoulders?\s*(?:width\s*)?(?:of|is|=|:)?\s*{n}\s*{u}',
+        ]))
+        put('pavement_thickness_mm', _first_mm(text, [
+            rf'{n}\s*{u}\s*(?:thick|pavement)',
+            rf'pavement\s*thickness\s*(?:of|is|=|:)?\s*{n}\s*{u}',
+        ]))
+        m = re.search(r'(?<![\d.])(\d+|one|two|three|four|six)[\s-]*lanes?\b', text) \
+            or re.search(rf'\b(one|two|three|four|six|\d+)\s+{n}\s*{u}\s*(?:wide\s*)?lanes?\b', text)
+        if m:
+            tok = m.group(1)
+            out['lane_count'] = int(tok) if tok.isdigit() else _COUNT_WORDS[tok]
+        m = re.search(rf'{n}\s*%\s*(?:cross\s*-?\s*fall|cross\s*slope|camber|crown)', text) \
+            or re.search(rf'(?:cross\s*-?\s*fall|cross\s*slope|camber)\s*(?:of|is|=|:)?\s*{n}\s*%', text)
+        if m:
+            out['crossfall_percent'] = float(m.group(1))
+        if re.search(r'\b(kerbs?|curbs?)\b', text):
+            out['has_kerbs'] = True
+
+    elif part_type == 'box_culvert':
+        m = re.search(rf'{n}\s*(?:{u})?\s*(?:x|by|\u00d7)\s*{n}\s*{u}', text)
+        if m:
+            unit = m.group(4)
+            first_unit = m.group(2) or unit
+            out['clear_width_mm'] = _mm(m.group(1), first_unit)
+            out['clear_height_mm'] = _mm(m.group(3), unit)
+        m = re.search(r'\b(\d+|single|twin|double|triple|two|three|four)[\s-]*(?:cells?|barrels?)\b', text)
+        if m:
+            tok = m.group(1)
+            out['barrel_count'] = int(tok) if tok.isdigit() else _COUNT_WORDS[tok]
+        elif re.search(r'\b(twin|double)\b', text):
+            out['barrel_count'] = 2
+        put('wall_thickness_mm', _first_mm(text, [
+            rf'wall\s*thickness\s*(?:of|is|=|:)?\s*{n}\s*{u}',
+            rf'{n}\s*{u}\s*(?:thick\s*)?walls?',
+        ]))
+
+    elif part_type == 'retaining_wall':
+        put('stem_height_mm', _first_mm(text, [
+            rf'{n}\s*{u}\s*(?:high|tall)',
+            rf'height\s*(?:of|is|=|:)?\s*{n}\s*{u}',
+        ]))
+        put('base_width_mm', _first_mm(text, [
+            rf'base\s*(?:width\s*)?(?:of|is|=|:)?\s*{n}\s*{u}',
+            rf'{n}\s*{u}\s*(?:wide\s*)?base',
+        ]))
+
+    return out
+
 def infer_part_type(text: str, dimensions: list[ExtractedDimension], operations: list[dict]) -> str:
     """Infer part type from text and extracted data."""
     text_lower = text.lower()
@@ -293,6 +427,48 @@ def infer_part_type(text: str, dimensions: list[ExtractedDimension], operations:
     # Check for freeform operations
     has_freeform = any(op['type'] in ['revolve', 'sweep', 'loft'] for op in operations)
     
+    # Houses before civil: 'a house with a driveway' is a building, not a road.
+    if _detect_building_type(text_lower):
+        return 'building'
+
+    # Civil elements first: 'box culvert' would otherwise hit the generic 'box'
+    # check and 'drainage channel' the 'channel' check further down.
+    civil_type = _detect_civil_type(text_lower)
+    if civil_type:
+        return civil_type
+
+    # Domain packs (automotive, ...): specific multi-word phrases only, so
+    # they win over the generic keywords below ("brake rotor" must not fall
+    # through to 'rotor'/'disc' heuristics, "battery enclosure bracket" must
+    # not become a simple_box) without ever shadowing core keywords on bare
+    # generic words.
+    from domain_packs import infer_part_type as _pack_infer
+    pack_hit = _pack_infer(text)
+    if pack_hit:
+        return pack_hit
+    
+
+    # Aerospace pack. Word-boundary regexes on purpose: plain substring 'wing'
+    # would hijack "swing arm" / "drawing", and 'rib' would match "ribbon".
+    if re.search(r'\b(?:wing|airfoil|aerofoil|naca)\s*-?\s*(?:rib|section rib)\b|\brib\b.*\b(?:wing|airfoil|naca)\b', text_lower):
+        return 'wing_rib'
+    if re.search(r'\b(?:turbofan|turbojet|jet\s+engine|turbine\s+engine|engine\s+nacelle)\b', text_lower):
+        return 'turbofan_engine'
+    if re.search(r'\b(?:jet\s*(?:aircraft|airliner|plane)|airliner|business\s+jet|passenger\s+jet|fighter\s+jet|(?:twin|four)[- ]engine\s+(?:jet|aircraft))\b', text_lower):
+        return 'jet_aircraft'
+    if re.search(r'\b(?:horizontal|vertical)\s+(?:stabili[sz]er|tail)|\btail\s+(?:plane|fin|surface)\b', text_lower):
+        return 'tail_surface'
+    if re.search(r'\bfuselage\b(?!\s+(?:frame|bulkhead|ring))', text_lower):
+        return 'fuselage'
+    if re.search(r'\b(?:wing\s+spar|spar\s+beam|i-?beam\s+spar|\bspar\b)', text_lower):
+        return 'wing_spar'
+    if re.search(r'\b(?:attachment\s+lug|clevis\s+lug|lug\s+fitting|aircraft\s+lug|aerospace\s+lug)\b', text_lower):
+        return 'attachment_lug'
+    if re.search(r'\b(?:fuselage\s+(?:frame|bulkhead|ring)|bulkhead|aircraft\s+frame)\b', text_lower):
+        return 'fuselage_frame'
+    if re.search(r'\b(?:wing(?!\s*-?\s*nut|\s*-?\s*bolt)|airfoil|aerofoil|naca\s*\d{4})\b', text_lower):
+        return 'airfoil_wing'
+
     # Part type detection with priority
     if any(word in text_lower for word in ['motor', 'stepper', 'servo']):
         return 'motor_mount'
@@ -341,7 +517,7 @@ def infer_part_type(text: str, dimensions: list[ExtractedDimension], operations:
         return 'washer'
     elif any(word in text_lower for word in ['cam', 'cam profile']):
         return 'cam'
-    elif any(word in text_lower for word in ['box', 'enclosure', 'case', 'housing']):
+    elif any(word in text_lower for word in ['box', 'enclosure', 'case', 'housing', 'cube']) or 'solid block' in text_lower:
         return 'simple_box'
     elif any(word in text_lower for word in ['plate', 'flange', 'blank']):
         return 'flat_plate'
@@ -355,6 +531,45 @@ def infer_part_type(text: str, dimensions: list[ExtractedDimension], operations:
             return 'l_bracket'
         else:
             return 'flat_plate'
+
+_TRIPLE_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(mm|cm|inches|inch|in|m)?\s*(?:x|by|\u00d7)\s*"
+    r"(\d+(?:\.\d+)?)\s*(mm|cm|inches|inch|in|m)?\s*(?:x|by|\u00d7)\s*"
+    r"(\d+(?:\.\d+)?)\s*(mm|cm|inches|inch|in|m)?\b")
+_TRIPLE_UNIT_MM = {"mm": 1.0, "cm": 10.0, "m": 1000.0, "in": 25.4, "inch": 25.4, "inches": 25.4}
+
+
+def _triple_dims_mm(text_lower: str) -> tuple[float, float, float] | None:
+    """"200 x 100 x 6 mm", "4in x 2in x 0.25in", "120 by 80 by 5": three sizes in the order written, in mm.
+    A unit given once, after the last number, applies to all three. No unit means millimetres."""
+    m = _TRIPLE_RE.search(text_lower)
+    if not m:
+        return None
+    nums = [float(m.group(1)), float(m.group(3)), float(m.group(5))]
+    units = [m.group(2), m.group(4), m.group(6)]
+    fallback = next((u for u in reversed(units) if u), "mm")
+    return tuple(round(n * _TRIPLE_UNIT_MM[u or fallback], 4) for n, u in zip(nums, units))  # type: ignore[return-value]
+
+
+def plate_grid_for_count(count: int, length: float, width: float) -> tuple[int, int]:
+    """Holes in X and Y whose product is exactly `count`, as square as the count allows, with the larger
+    number along the plate's longer side. (The parser used to give min(4, count) by count // 4, so 6 holes
+    became 4 and 7 became 4.)"""
+    count = max(1, int(count))
+    best = (count, 1)
+    for a in range(1, int(count ** 0.5) + 1):
+        if count % a == 0:
+            best = (count // a, a)           # the last divisor pair found is the most square
+    big, small = best
+    return (big, small) if length >= width else (small, big)
+
+
+_NO_HOLES_RE = re.compile(r"\b(?:no|without|zero)\s+(?:any\s+|mounting\s+|drilled\s+)?holes?\b|\b(?:solid|plain|blank)\s+(?:rectangular\s+)?plate\b")
+_HOLLOW_RE = re.compile(r"\b(?:enclosure|hollow|open[- ]top|walls?|tray|container|housing|shell|case)\b")
+# "walls of 4 mm" first. Then "3 mm walls", but not a number that is the last of a "100 x 80 x 50" size.
+_WALL_OF_RE = re.compile(r"\bwalls?\s*(?:of|thickness|=|:)\s*(\d+(?:\.\d+)?)")
+_WALL_RE = re.compile(r"(?<![\d.])(?<![x\u00d7])(?<![x\u00d7]\s)(?<!by\s)(\d+(?:\.\d+)?)\s*(?:mm\s*)?(?:thick\s*)?walls?\b")
+
 
 def infer_missing_dimensions(part_type: str, dimensions: list[ExtractedDimension], patterns: list[ExtractedPattern], description: str = "", operations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Infer missing dimensions based on part type and context."""
@@ -408,21 +623,35 @@ def infer_missing_dimensions(part_type: str, dimensions: list[ExtractedDimension
         params['length_mm'] = dim_map.get('length', 100.0)
         params['width_mm'] = dim_map.get('width', 80.0)
         params['thickness_mm'] = dim_map.get('thickness', 5.0)
+        triple = _triple_dims_mm(text_lower)
+        if triple:                                  # "200 x 100 x 6 mm" is length, width, thickness
+            params['length_mm'], params['width_mm'], params['thickness_mm'] = triple
         params['hole_pattern'] = 'rectangular'
-        if patterns:
-            p = patterns[0]
+        # An explicit grid ("3 by 2 grid") wins over a bare count ("6 holes") from the same sentence.
+        chosen = next((q for q in patterns if q.layout), patterns[0] if patterns else None)
+        if _NO_HOLES_RE.search(text_lower):
+            params['hole_count_x'] = 0
+            params['hole_count_y'] = 0
+        elif chosen is not None:
+            p = chosen
             if p.layout:
                 parts = p.layout.split('x')
                 params['hole_count_x'] = int(parts[0])
                 params['hole_count_y'] = int(parts[1])
+            elif p.pattern_type == 'circular':
+                params['hole_pattern'] = 'circular'
+                params['hole_count_x'] = max(1, p.count)
+                params['hole_count_y'] = 1
             else:
-                params['hole_count_x'] = min(4, p.count)
-                params['hole_count_y'] = max(1, p.count // 4)
+                params['hole_count_x'], params['hole_count_y'] = plate_grid_for_count(p.count, params['length_mm'], params['width_mm'])
             if p.diameter:
                 params['hole_diameter_mm'] = p.diameter
         else:
-            params['hole_count_x'] = 4
-            params['hole_count_y'] = 3
+            # No count in the prompt. A plate that never mentions holes has none. One that asks for holes
+            # without saying how many gets one in each corner.
+            asks_for_holes = bool(re.search(r"\bholes?\b", text_lower))
+            params['hole_count_x'] = 2 if asks_for_holes else 0
+            params['hole_count_y'] = 2 if asks_for_holes else 0
             params['hole_diameter_mm'] = dim_map.get('diameter', 3.2)
         params['corner_fillet_mm'] = fillet_op_radius if fillet_op_radius is not None else dim_map.get('radius', 3.0)
         
@@ -505,8 +734,77 @@ def infer_missing_dimensions(part_type: str, dimensions: list[ExtractedDimension
         params['length_mm'] = dim_map.get('length', 100.0)
         params['width_mm'] = dim_map.get('width', 80.0)
         params['height_mm'] = dim_map.get('height', 50.0)
-        params['wall_thickness_mm'] = dim_map.get('thickness', 3.0)
-        params['has_lid'] = False
+        triple = _triple_dims_mm(text_lower)
+        if triple:                                  # "100 x 80 x 50 mm" is length, width, height
+            params['length_mm'], params['width_mm'], params['height_mm'] = triple
+        elif re.search(r"\bcube\b", text_lower) and len(dimensions) == 1:
+            params['length_mm'] = params['width_mm'] = params['height_mm'] = dimensions[0].value * UNIT_TO_MM.get(dimensions[0].unit, 1.0)
+        wall = _WALL_OF_RE.search(text_lower) or _WALL_RE.search(text_lower)
+        params['wall_thickness_mm'] = float(wall.group(1)) if wall else dim_map.get('thickness', 3.0)
+        # The template shells the box (open top) only when hollow is true, and builds a solid block
+        # otherwise. An enclosure, a box with walls, or an open-top box is meant to be hollow.
+        params['hollow'] = bool(_HOLLOW_RE.search(text_lower))
+
+    elif part_type in ('turbofan_engine', 'jet_aircraft', 'fuselage', 'tail_surface'):
+        _num = r'(\d+(?:\.\d+)?)\s*(mm|cm|m|ft|feet|meters?|metres?)\b'
+        _unit = {'mm': 1, 'cm': 10, 'm': 1000, 'ft': 304.8, 'feet': 304.8}
+
+        def _dim(label):
+            m = (re.search(label + r'\s*(?:of|is|=|:)?\s*' + _num, text_lower)
+                 or re.search(_num + r'\s*(?:\w+\s+)?' + label, text_lower))
+            return float(m.group(1)) * _unit.get(m.group(2), 1000) if m else None
+        if part_type == 'turbofan_engine':
+            v = _dim(r'fan\s+diameter')
+            if v: params['fan_diameter_mm'] = v
+        elif part_type == 'jet_aircraft':
+            for key, label in (('wing_span_mm', r'(?:wing\s*span|span)'),
+                               ('fuselage_length_mm', r'(?:fuselage\s+length|length)')):
+                v = _dim(label)
+                if v: params[key] = v
+            if re.search(r'\b(?:twin|two)[- ]engine', text_lower): params['engines'] = 2
+            elif re.search(r'\b(?:four|quad)[- ]engine', text_lower): params['engines'] = 4
+            sw = re.search(r'(\d+(?:\.\d+)?)\s*(?:deg(?:rees?)?|\u00b0)\s*sweep', text_lower)
+            if sw: params['wing_sweep_deg'] = float(sw.group(1))
+        elif part_type == 'fuselage':
+            v = _dim(r'(?:length|long)')
+            if v: params['length_mm'] = v
+            v = _dim(r'diameter')
+            if v: params['diameter_mm'] = v
+        else:
+            if re.search(r'\bvertical\b', text_lower): params['orientation'] = 'vertical'
+    elif part_type in ('airfoil_wing', 'wing_rib', 'fuselage_frame'):
+        def _num(pattern):
+            m = re.search(pattern, text_lower)
+            return float(m.group(1)) if m else None
+        naca = re.search(r'naca\s*-?\s*(\d{4})', text_lower)
+        if naca:
+            params['naca'] = naca.group(1)
+        if part_type == 'airfoil_wing':
+            v = _num(r'(\d+(?:\.\d+)?)\s*(?:mm\s*)?(?:semi[- ]?)?span') or _num(r'span\s*(?:of|is|=|:)?\s*(\d+(?:\.\d+)?)')
+            if v: params['span_mm'] = v
+            v = _num(r'root\s*chord\s*(?:of|is|=|:)?\s*(\d+(?:\.\d+)?)') or _num(r'(\d+(?:\.\d+)?)\s*(?:mm\s*)?root\s*chord')
+            if v: params['root_chord_mm'] = v
+            v = _num(r'tip\s*chord\s*(?:of|is|=|:)?\s*(\d+(?:\.\d+)?)') or _num(r'(\d+(?:\.\d+)?)\s*(?:mm\s*)?tip\s*chord')
+            if v: params['tip_chord_mm'] = v
+            v = _num(r'(\d+(?:\.\d+)?)\s*(?:deg(?:rees?)?|\u00b0)\s*sweep') or _num(r'sweep\s*(?:of|is|=|:)?\s*(\d+(?:\.\d+)?)')
+            if v: params['sweep_deg'] = v
+            if re.search(r'full wing|both halves|both sides', text_lower):
+                params['both_halves'] = True
+        elif part_type == 'wing_rib':
+            v = _num(r'chord\s*(?:of|is|=|:)?\s*(\d+(?:\.\d+)?)') or _num(r'(\d+(?:\.\d+)?)\s*(?:mm\s*)?chord')
+            if v: params['chord_mm'] = v
+            if 'thickness' in dim_map: params['thickness_mm'] = dim_map['thickness']
+        else:
+            v = dim_map.get('diameter')
+            if v: params['outer_diameter_mm'] = v
+            if 'thickness' in dim_map: params['thickness_mm'] = dim_map['thickness']
+            v = _num(r'(\d+)\s*(?:lightening\s*)?holes')
+            if v: params['lightening_hole_count'] = int(v)
+
+    elif is_pack_part(part_type):
+        # Domain-pack part: the pack owns its own parameter names and
+        # extraction; only stated values are set, templates default the rest.
+        params.update(extract_pack_parameters(part_type, description, dim_map))
 
     elif part_type == 'connecting_rod':
         params['center_distance_mm'] = dim_map.get('length', dim_map.get('center_distance', 120.0))
@@ -535,7 +833,13 @@ def infer_missing_dimensions(part_type: str, dimensions: list[ExtractedDimension
         #     set at all, so it silently always defaulted to 'revolve'.
         op_types = [op.get('type') for op in operations if op.get('type') in ('sweep', 'loft', 'revolve')]
         params['operation'] = op_types[0] if op_types else 'revolve'
-        
+
+    elif part_type == 'building':
+        params.update(_building_params_from_text(text_lower))
+
+    elif part_type in ('road_segment', 'box_culvert', 'retaining_wall'):
+        params.update(_civil_params_from_text(part_type, text_lower))
+
     return params
 
 def extract_material(text: str) -> str | None:
@@ -580,7 +884,16 @@ def parse_description(description: str, use_claude: bool = False, api_key: str =
     Main parsing function with smart extraction.
     """
     warnings = []
-    
+
+    # A circuit board is described by what it does, not by dimensions: hand the sentence to the pcb
+    # pack (see cad_templates/pcb.py). Mechanical parts that merely mention a PCB are not affected.
+    from pcb.intent import is_pcb_request
+    if is_pcb_request(description):
+        return ParsedParameters(
+            part_type='pcb_board', parameters={'description': description.strip()},
+            material=None, operations=[], assembly_parts=[], confidence=0.8, warnings=[]
+        )
+
     # Extract all data
     dimensions = extract_all_dimensions(description)
     patterns = extract_hole_patterns(description)

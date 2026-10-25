@@ -65,6 +65,7 @@ At minimum for a real deploy, set:
 - `CORS_ORIGINS=https://your-frontend-domain.com` (not `*` — see the
   comment in `.env.example`)
 - `DEEPSEEK_API_KEY` if you want server-side DeepSeek parsing available
+- `VISION_API_KEY`, `VISION_MODEL` and (for non-OpenAI providers) `VISION_BASE_URL` if you want CAD Studio to read images and PDF pages. Leave them unset to switch that off. STEP/IGES/BREP reading and PDF text need no key
   without every caller bringing their own key
 - R2 credentials if you want generated files to survive beyond this
   one VPS's disk (recommended, but not required to get started — the

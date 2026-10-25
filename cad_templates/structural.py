@@ -113,23 +113,13 @@ def generate_angle(params: dict) -> cq.Workplane:
     thickness = params.get('thickness_mm', 5.0)
     length = params.get('length_mm', 100.0)
     
-    # Create L-profile and extrude
-    result = (
-        cq.Workplane("XY")
-        .rect(leg1, thickness)
-        .extrude(length)
-    )
-    
-    vert = (
-        cq.Workplane("YZ")
-        .center(0, leg2 / 2)
-        .rect(thickness, leg2)
-        .extrude(leg1)
-    )
-    
-    result = result.union(vert)
-    
-    return result
+    # One L-shaped profile in the XY plane, extruded along Z. Leg 1 runs along X and leg 2 along Y, and
+    # they share the corner square, so the angle is a single solid of (leg1 + leg2 - thickness) x
+    # thickness x length. (The earlier version built its two legs from different extrusion axes, so they did
+    # not make an L-shaped section.)
+    t = min(thickness, leg1 * 0.99, leg2 * 0.99)
+    profile = [(0, 0), (leg1, 0), (leg1, t), (t, t), (t, leg2), (0, leg2)]
+    return cq.Workplane("XY").polyline(profile).close().extrude(length)
 
 def generate_tube(params: dict) -> cq.Workplane:
     """

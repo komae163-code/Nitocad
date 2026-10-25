@@ -186,7 +186,7 @@ class TestAssemblyParts:
         parts_spec = parse_assembly_description("base plate with l bracket")
         assy = generate_assembly(parts_spec)
         parts = get_assembly_parts(assy)
-        assert {name for name, _ in parts} == {"base_plate", "bracket"}
+        assert {name for name, _ in parts} == {"base_plate", "l_bracket"}
         for _, shape in parts:
             assert shape is not None
 
@@ -255,3 +255,44 @@ class TestGenerateFromTextWithFormats:
         )
         assert result["success"] is False
         assert result["error_type"] == "UnsupportedFormatError"
+
+
+class TestExportVerification:
+    """Real-geometry checks for the file/STEP verification and topology-based hole
+    detection. These need CadQuery + OCCT, so they run in CI/Docker, not in a bare sandbox."""
+
+    def test_step_survives_after_the_shape_was_meshed_for_stl(self, tmp_path):
+        # The STL export attaches a triangulation to the source shape; the STEP
+        # re-import check must not read it and report a false mismatch.
+        wp = cadquery.Workplane("XY").circle(12).extrude(30).faces(">Z").fillet(2)
+        exporters.export_stl(wp, tmp_path / "a.stl")
+        step = exporters.export_step(wp, tmp_path / "a.step")
+        assert step.stat().st_size > 0
+
+    def test_step_keeps_assembly_part_names(self, tmp_path):
+        asm = cadquery.Assembly(name="demo")
+        asm.add(cadquery.Workplane("XY").box(10, 10, 10), name="base_plate")
+        asm.add(cadquery.Workplane("XY").box(4, 4, 4), name="top_cap", loc=cadquery.Location((0, 0, 10)))
+        step = exporters.export_step(asm, tmp_path / "asm.step")
+        text = step.read_text(errors="ignore")
+        assert "base_plate" in text and "top_cap" in text
+
+    def test_step_with_several_workplane_objects_is_not_a_false_mismatch(self, tmp_path):
+        wp = cadquery.Workplane("XY").pushPoints([(0, 0), (30, 0)]).box(10, 10, 10)
+        assert exporters.export_step(wp, tmp_path / "two.step").exists()
+
+    def test_bore_is_detected_as_a_hole_in_the_top_view(self):
+        wp = cadquery.Workplane("XY").box(40, 40, 5).faces(">Z").workplane().hole(8)
+        top = next(v for v in exporters._build_three_views(wp) if v.name == "top")
+        assert any(abs(r - 4.0) < 1e-3 for _, _, r in top.hole_circles)
+        assert exporters._validated_hole_circles(top)
+
+    def test_solid_cylinder_end_view_gets_no_hole_callout(self):
+        wp = cadquery.Workplane("XY").circle(5).extrude(20)
+        top = next(v for v in exporters._build_three_views(wp) if v.name == "top")
+        assert top.hole_circles == [] and exporters._validated_hole_circles(top) == []
+
+    def test_boss_on_a_plate_is_not_called_a_hole(self):
+        wp = cadquery.Workplane("XY").box(40, 40, 5).faces(">Z").workplane().circle(6).extrude(8)
+        top = next(v for v in exporters._build_three_views(wp) if v.name == "top")
+        assert exporters._validated_hole_circles(top) == []

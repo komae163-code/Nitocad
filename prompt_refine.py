@@ -60,7 +60,10 @@ NitoCAD's generator understands these part types and their key parameters, for \
 reference (use this to know what's worth asking about, not as a menu to recite): \
 motor_mount, l_bracket, flat_plate, simple_box, shaft, bearing, spacer, washer, \
 sphere, gear, pulley, sprocket, structural_beam, angle, tube, pipe_fitting, flange, \
-hinge, cam, hex_standoff, t_bracket, channel_bracket, connecting_rod, crankshaft, \
+hinge, cam, hex_standoff, t_bracket, channel_bracket, connecting_rod, crankshaft, airfoil_wing, wing_rib, fuselage_frame, wing_spar, attachment_lug, fuselage, tail_surface, turbofan_engine, jet_aircraft, \
+road_segment, box_culvert, retaining_wall (civil), pcb_board (a circuit board, described by what it does), \
+fastener (ISO screws, nuts, washers by size), std_bearing (ISO 15 by number), key (DIN 6885 by shaft diameter), \
+asme_flange (ASME B16.5 Class 150 by NPS), o_ring, building (a house or other small building from its rooms), \
 and freeform (for irregular/custom-profile shapes).
 
 Never claim to have generated, previewed, or exported anything - you can only discuss \

@@ -279,11 +279,38 @@ def init_db() -> None:
             # On-chain provenance tx hash (DesignRegistry.anchorDesign) - set
             # after a paid STEP export succeeds. Existing DBs lack this column.
             "ALTER TABLE jobs ADD COLUMN anchor_tx TEXT",
+            # Preview-then-pay (CAD Studio). draft=1 marks a job that was built
+            # as a free preview: its non-STL files stay locked until the owner
+            # presses Generate, which stamps charged_at/charged_pool (see
+            # charge_job). Every older job and every /generate, MCP and x402 job
+            # keeps draft=0, so they behave exactly as before and need no backfill.
+            "ALTER TABLE jobs ADD COLUMN draft INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE jobs ADD COLUMN charged_at TEXT",
+            "ALTER TABLE jobs ADD COLUMN charged_pool TEXT",
+            # Which AI tier planned this version (basic | plus | advanced). Sets what
+            # pressing Generate costs. NULL on older jobs, priced as basic.
+            "ALTER TABLE jobs ADD COLUMN ai_tier TEXT",
+            # How many credits charge_job took, so a refund returns exactly that many.
+            "ALTER TABLE jobs ADD COLUMN charged_credits INTEGER",
         ):
             try:
                 conn.execute(column_sql)
             except sqlite3.OperationalError:
                 pass
+        # One row per Studio message that actually called an AI model, so each tier's
+        # daily allowance can be counted (see count_ai_usage_last_24h).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                wallet_address TEXT NOT NULL,
+                tier TEXT NOT NULL,
+                model TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_wallet_tier ON ai_usage(wallet_address, tier, created_at)")
         # Idempotency for paystack_pay.py's charge.success handler - see
         # mark_paystack_reference_processed's docstring. A transaction
         # reference is unique per Paystack transaction (their guarantee,
@@ -400,6 +427,8 @@ def record_job(
     verification_report: dict | None = None,
     spec_version: str | None = None,
     kernel_version: str | None = None,
+    draft: bool = False,
+    ai_tier: str | None = None,
 ) -> str:
     """Persist one generation job and return its id (a uuid4 string, also
     used as the on-disk/R2 filename stem - see storage.py)."""
@@ -415,8 +444,8 @@ def record_job(
                 used_deepseek, success, error, step_url, stl_url,
                 warnings, corrections, parser, parser_model, prompt_version,
                 retry_count, parse_hash, state, verification_report,
-                spec_version, kernel_version, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                spec_version, kernel_version, draft, ai_tier, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id,
@@ -441,6 +470,8 @@ def record_job(
                 json.dumps(verification_report) if verification_report is not None else None,
                 spec_version,
                 kernel_version,
+                1 if draft else 0,
+                ai_tier,
                 _now(),
             ),
         )
@@ -1162,9 +1193,14 @@ def count_generations_last_24h(wallet_address: str) -> int:
     "anonymous" and never match a real wallet address here, so they
     never count against anyone's cap)."""
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    # A free preview (draft=1) only counts once its owner has paid for it, and
+    # then from the moment of payment, not from when it was built. Everything
+    # else (draft=0) counts exactly as before.
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) AS c FROM jobs WHERE user_id = ? AND success = 1 AND created_at > ?",
+            "SELECT COUNT(*) AS c FROM jobs WHERE user_id = ? AND success = 1 "
+            "AND COALESCE(charged_at, created_at) > ? "
+            "AND (draft = 0 OR (charged_at IS NOT NULL AND charged_pool != 'pending'))",
             (wallet_address.lower(), cutoff),
         ).fetchone()
         return row["c"]
@@ -1257,6 +1293,160 @@ def refund_generation(wallet_address: str, charged_pool: str | None) -> None:
                 "UPDATE subscriptions SET subscription_credits = subscription_credits + 1, "
                 "updated_at = ? WHERE wallet_address = ?",
                 (_now(), wallet_address.lower()),
+            )
+
+
+def log_ai_usage(wallet_address: str, tier: str, model: str) -> None:
+    """Record one Studio message that called an AI model."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO ai_usage (wallet_address, tier, model, created_at) VALUES (?, ?, ?, ?)",
+            (wallet_address.lower(), tier, model, _now()),
+        )
+
+
+def count_ai_usage_last_24h(wallet_address: str, tier: str) -> int:
+    """AI messages this wallet used on one tier in the last 24 hours (rolling, no midnight
+    reset). Backs each tier's daily allowance."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS c FROM ai_usage WHERE wallet_address = ? AND tier = ? AND created_at > ?",
+            (wallet_address.lower(), tier, cutoff),
+        ).fetchone()
+        return row["c"]
+
+
+def count_drafts_last_24h(wallet_address: str) -> int:
+    """How many free previews this wallet has built in the last 24 hours.
+    Backs the per-wallet preview limit, which is what stops free previews
+    from being a way to burn server time and AI budget."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS c FROM jobs WHERE user_id = ? AND draft = 1 AND created_at > ?",
+            (wallet_address.lower(), cutoff),
+        ).fetchone()
+        return row["c"]
+
+
+def is_job_locked(job: dict[str, Any] | None) -> bool:
+    """True while a free preview has not been paid for. Only these jobs are
+    locked: draft=0 jobs (older jobs, /generate, MCP, x402) were paid for when
+    they were built, so they are never locked."""
+    if not job:
+        return False
+    if not job.get("draft"):
+        return False
+    return job.get("charged_at") is None or job.get("charged_pool") in (None, "pending")
+
+
+def charge_job(job_id: str, wallet_address: str, cost: int = 1) -> tuple[str, str | None]:
+    """Pay for one preview, once. Returns (status, pool):
+
+        ("charged", pool)       this call spent the generation
+        ("already_paid", None)  nothing to charge: paid before, or never locked
+        ("insufficient", None)  the wallet has nothing left to spend
+        ("not_found", None)     no such job for this wallet, or it never built
+
+    The job is claimed with a single UPDATE ... WHERE charged_at IS NULL before
+    any money moves, so two taps (or two tabs) on Generate can never charge the
+    same preview twice. If the wallet cannot pay, the claim is released.
+
+    cost is how many credits Generate takes. cost=1 goes through charge_generation, so it can
+    still be paid by a subscription allowance. Any higher price is taken from purchased
+    credits in one atomic step (consume_credit), and that amount is remembered so a refund
+    returns exactly what was taken."""
+    wallet = wallet_address.lower()
+    with get_conn() as conn:
+        job = conn.execute(
+            "SELECT draft, success, charged_at FROM jobs WHERE id = ? AND lower(user_id) = ?",
+            (job_id, wallet),
+        ).fetchone()
+        if job is None or not job["success"]:
+            return "not_found", None
+        if not job["draft"] or job["charged_at"] is not None:
+            return "already_paid", None
+        cur = conn.execute(
+            "UPDATE jobs SET charged_at = ?, charged_pool = 'pending' "
+            "WHERE id = ? AND lower(user_id) = ? AND charged_at IS NULL",
+            (_now(), job_id, wallet),
+        )
+        if cur.rowcount == 0:
+            return "already_paid", None  # lost a race to another request
+    try:
+        if cost <= 1:
+            pool = charge_generation(wallet)
+            taken = 1
+        else:
+            pool = "purchased" if consume_credit(wallet, cost) else None
+            taken = cost
+    except Exception:
+        _release_job_claim(job_id)
+        raise
+    if pool is None:
+        _release_job_claim(job_id)
+        return "insufficient", None
+    with get_conn() as conn:
+        conn.execute("UPDATE jobs SET charged_pool = ?, charged_credits = ? WHERE id = ?", (pool, taken, job_id))
+    return "charged", pool
+
+
+def _release_job_claim(job_id: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET charged_at = NULL, charged_pool = NULL, charged_credits = NULL WHERE id = ? AND charged_pool = 'pending'",
+            (job_id,),
+        )
+
+
+def refund_job_charge(job_id: str, wallet_address: str) -> bool:
+    """Undo charge_job() when the files could not be built after paying. The
+    job goes back to locked, and the credit returns to the pool it came from.
+    Safe to call twice: only the first call refunds."""
+    wallet = wallet_address.lower()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT charged_pool, charged_credits FROM jobs WHERE id = ? AND lower(user_id) = ? AND charged_at IS NOT NULL",
+            (job_id, wallet),
+        ).fetchone()
+        if row is None:
+            return False
+        pool = row["charged_pool"]
+        credits = row["charged_credits"] or 1
+        cur = conn.execute(
+            "UPDATE jobs SET charged_at = NULL, charged_pool = NULL, charged_credits = NULL WHERE id = ? AND charged_at IS NOT NULL",
+            (job_id,),
+        )
+        if cur.rowcount == 0:
+            return False
+    if pool == "purchased" and credits > 1:
+        add_credits(wallet, credits)
+    elif pool and pool != "pending":
+        refund_generation(wallet, pool)
+    return True
+
+
+def charge_credits(wallet_address: str, amount: int) -> str | None:
+    """Spend `amount` credits that are not tied to a job (a manufacturability check, for example).
+    Subscription credits go first, then purchased ones. Returns the pool that paid ("subscription" or
+    "purchased") or None when the wallet cannot pay. Keep the pool, refund_credits needs it."""
+    if amount <= 0:
+        return "purchased"
+    return consume_credit_waterfall(wallet_address, amount)
+
+
+def refund_credits(wallet_address: str, pool: str | None, amount: int) -> None:
+    """Give back what charge_credits took, to the pool it came from."""
+    if amount <= 0 or pool is None:
+        return
+    if pool == "purchased":
+        add_credits(wallet_address, amount)
+    elif pool == "subscription":
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE subscriptions SET subscription_credits = subscription_credits + ?, updated_at = ? WHERE wallet_address = ?",
+                (amount, _now(), wallet_address.lower()),
             )
 
 

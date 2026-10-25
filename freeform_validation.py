@@ -19,7 +19,7 @@ import math
 import re
 from typing import Any
 
-VALIDATOR_VERSION = "2"
+VALIDATOR_VERSION = "3"
 
 FREEFORM_OPS = {"sweep", "loft", "revolve"}
 MIN_CURVE_POINTS = 8
@@ -70,6 +70,17 @@ def validate_llm_response(
         errors = validate_freeform(parameters, description)
         if errors:
             return None, errors
+
+    if part_type == "feature_tree":
+        from feature_tree import validate_feature_tree
+
+        extra = set(parameters) - {"features"}
+        if extra:
+            return None, [f"feature_tree takes only a \"features\" parameter, got {sorted(extra)}"]
+        features, ferrors = validate_feature_tree(parameters.get("features"))
+        if ferrors:
+            return None, ferrors
+        parameters = {"features": features}
 
     return {
         "part_type": part_type,

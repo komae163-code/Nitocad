@@ -1,0 +1,38 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0">
+<canvas id="c2" style="width:400px;height:300px"></canvas><canvas id="c3" style="width:300px;height:300px"></canvas>
+<script type="module">
+import { View2D } from '/frontend/import/view2d.js';
+import { Viewer3D } from '/frontend/import/viewer3d.js';
+import { h } from '/frontend/import/ui.js';
+import * as M from '/frontend/import/mesh.js';
+const R = { errors: [] };
+try {
+  // ---- View2D
+  const v = new View2D(document.getElementById('c2'), { flipY: true }); v.resize();
+  v.fit({ x0: 0, y0: 0, x1: 100, y1: 50 });
+  const p = [30, 20], s = v.toScreen(...p), w = v.toWorld(...s);
+  R.roundTrip = Math.hypot(w[0] - p[0], w[1] - p[1]) < 1e-9;
+  R.yUp = v.toScreen(0, 40)[1] < v.toScreen(0, 0)[1];            // flipY: larger y is higher on screen
+  const before = v.toWorld(200, 150); v.zoomAt(200, 150, 2); const after = v.toWorld(200, 150);
+  R.zoomKeepsPoint = Math.hypot(after[0] - before[0], after[1] - before[1]) < 1e-9; R.scale2x = v.scale;
+  const fitS = (() => { const q = new View2D(document.createElement('canvas')); q.w = 400; q.h = 300; q.fit({ x0: 0, y0: 0, x1: 100, y1: 50 }); return q.scale; })();
+  R.fitScale = fitS;                                               // (400-48)/100 = 3.52
+  const q = new View2D(document.createElement('canvas')); q.w = 100; q.h = 100; q.fit(null); R.emptyFitOk = q.scale === 1;
+  // ---- Viewer3D
+  const cv = document.getElementById('c3'); const V = new Viewer3D(cv);
+  const cube = M.transform(new Float32Array([0,0,0,10,0,0,10,10,0, 0,0,0,10,10,0,0,10,0, 0,0,10,10,10,10,10,0,10, 0,0,10,0,10,10,10,10,10,
+    0,0,0,0,0,10,10,0,10, 0,0,0,10,0,10,10,0,0, 10,0,0,10,0,10,10,10,10, 10,0,0,10,10,10,10,10,0, 10,10,0,10,10,10,0,10,10, 10,10,0,0,10,10,0,10,0, 0,10,0,0,10,10,0,0,10, 0,10,0,0,0,10,0,0,0]), M.identity());
+  V.setMesh(cube); V.draw();
+  R.tris = V.tris; R.edges = V.edgeCount;
+  const gl = V.gl, px = new Uint8Array(4), W = cv.width, H = cv.height;
+  gl.readPixels(Math.floor(W / 2), Math.floor(H / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); R.center = Array.from(px);
+  gl.readPixels(2, 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); R.corner = Array.from(px);
+  V.setView('top'); V.draw(); gl.readPixels(Math.floor(W / 2), Math.floor(H / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); R.topCenter = Array.from(px);
+  R.pitchAfterTop = V.pitch;
+  try { V.setMesh(new Float32Array(9 * 3_000_001)); R.bigRefused = false; } catch (e) { R.bigRefused = /too large/.test(e.message); }
+  // ---- ui helpers
+  const el = h('div', { class: 'a', onclick: () => {} }, h('span', { text: 'x' }), 'y', null, [h('b', {}, 'z')]);
+  R.h = el.outerHTML;
+} catch (e) { R.errors.push(String(e && e.stack || e)); }
+window.__R = R; document.title = 'done';
+</script>

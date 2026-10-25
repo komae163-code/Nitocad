@@ -42,7 +42,14 @@ class TestAllTemplatesProduceValidGeometry:
     parameter knowledge. Complements (doesn't replace) smoke_test.py's
     more scenario-driven checks."""
 
-    @pytest.mark.parametrize("part_type", sorted(TEMPLATES.keys()))
+    # Templates whose input is an explicit, validated structure with no meaningful default
+    # (a feature tree is the part's whole definition). They have their own tests in
+    # tests/test_feature_builder.py, including that an empty tree is rejected.
+    REQUIRES_EXPLICIT_INPUT = {"feature_tree"}
+
+    @pytest.mark.parametrize(
+        "part_type", sorted(set(TEMPLATES.keys()) - REQUIRES_EXPLICIT_INPUT)
+    )
     def test_template_builds_a_valid_solid_with_default_params(self, part_type):
         template_func = TEMPLATES[part_type]
         workplane = template_func({})

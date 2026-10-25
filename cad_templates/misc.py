@@ -21,41 +21,44 @@ def generate_hinge(params: dict) -> cq.Workplane:
     knuckle_count = params.get('knuckle_count', 5)
     pin_dia = params.get('pin_diameter_mm', 3.0)
     
-    # Create first leaf
-    leaf1 = (
-        cq.Workplane("XY")
-        .rect(width, thickness)
-        .extrude(length)
-    )
-    
-    # Create second leaf
-    leaf2 = (
-        cq.Workplane("XY")
-        .center(width + pin_dia, 0)
-        .rect(width, thickness)
-        .extrude(length)
-    )
-    
-    # Create knuckles (simplified as cylinders)
-    knuckle_length = length / knuckle_count
-    knuckles = cq.Workplane("XY")
-    
+    # The hinge is built opened flat, as one solid: a barrel along Z on the pin axis, with a leaf out to each
+    # side. The barrel is cut into `knuckle_count` knuckles with a small gap between them, and the pin runs
+    # through all of them, so the knuckles and both leaves are joined and the part is a single body.
+    # (The earlier version put the knuckles 15 mm away from the first leaf, so the first leaf touched
+    # nothing and the hinge was two separate solids.)
+    barrel_r = max(pin_dia / 2 + 1.0, thickness / 2 + 0.5)      # 1 mm of wall round the pin, and never thinner than a leaf
+    segment = length / knuckle_count
+    gap = segment * 0.1
+
+    pin = cq.Workplane("XY").circle(pin_dia / 2).extrude(length)
+
+    barrel = None
     for i in range(knuckle_count):
-        z_offset = i * knuckle_length
         knuckle = (
             cq.Workplane("XY")
-            .workplane(offset=z_offset)
-            .center(width, thickness / 2)
-            .circle(pin_dia / 2)
-            .extrude(knuckle_length * 0.9)
+            .workplane(offset=i * segment + gap / 2)
+            .circle(barrel_r)
+            .extrude(segment - gap)
         )
-        if i == 0:
-            knuckles = knuckle
-        else:
-            knuckles = knuckles.union(knuckle)
-    
-    result = leaf1.union(leaf2).union(knuckles)
-    
+        barrel = knuckle if barrel is None else barrel.union(knuckle)
+
+    # Each leaf runs from half way into the barrel out to `width` beyond it, full length, centred on the pin's mid-plane.
+    leaf_reach = barrel_r + width
+    leaf1 = (
+        cq.Workplane("XY")
+        .center(-(leaf_reach + barrel_r / 2) / 2, 0)
+        .rect(leaf_reach - barrel_r / 2, thickness)
+        .extrude(length)
+    )
+    leaf2 = (
+        cq.Workplane("XY")
+        .center((leaf_reach + barrel_r / 2) / 2, 0)
+        .rect(leaf_reach - barrel_r / 2, thickness)
+        .extrude(length)
+    )
+
+    result = leaf1.union(leaf2).union(barrel).union(pin)
+
     return result
 
 def generate_cam(params: dict) -> cq.Workplane:

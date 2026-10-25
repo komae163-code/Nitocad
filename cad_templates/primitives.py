@@ -27,15 +27,22 @@ def generate_shaft(params: dict) -> cq.Workplane:
     
     # Add chamfer to ends
     if chamfer > 0:
-        result = safe_chamfer(result, chamfer, "|Z")
+        # The two circular end edges. ("|Z" selected the seam line along the side of the cylinder,
+        # so the ends were never chamfered.)
+        result = safe_chamfer(result, chamfer, "%CIRCLE")
     
     # Add keyway if specified
     if keyway_width > 0 and keyway_depth > 0:
+        # One pocket on the +Y side: keyway_width wide, keyway_depth deep
+        # measured from the shaft surface (DIN 6885 t1), full shaft length.
+        # (The previous cut extruded the slot both ways through the whole
+        # diameter, which sliced the shaft into two separate pieces.)
+        r = diameter / 2
+        pocket_h = min(keyway_depth, r) + 1.0  # +1 mm so the cut clears the cylinder surface
         keyway = (
-            cq.Workplane("XZ")
-            .center(0, length / 2)
-            .rect(keyway_width, length)
-            .extrude(diameter / 2 + keyway_depth, both=True)
+            cq.Workplane("XY")
+            .box(keyway_width, pocket_h, length, centered=(True, False, False))
+            .translate((0, r - min(keyway_depth, r), 0))
         )
         result = result.cut(keyway)
     

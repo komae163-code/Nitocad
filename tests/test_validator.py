@@ -75,9 +75,16 @@ class TestLBracket:
         assert not result.is_valid
         assert any("width" in e for e in result.errors)
 
-    def test_hole_diameter_ge_thickness_is_corrected(self):
+    def test_a_hole_wider_than_the_metal_is_fine(self):
+        # A 5 mm hole in 3 mm metal is ordinary. The old rule shrank it to 2.5 mm.
         result = validate_l_bracket({"thickness_mm": 3.0, "hole_diameter_mm": 5.0})
-        assert result.corrections["hole_diameter_mm"]["new"] < 3.0
+        assert "hole_diameter_mm" not in result.corrections
+
+    def test_a_hole_that_does_not_fit_its_leg_is_reduced(self):
+        # 2 mm of metal each side of a 50 mm leg allows 46, but the first hole sits 10 mm from the end of the
+        # leg, so with 3 mm metal it can be at most 2 x (10 - 3 - 2) = 10 mm and still clear the bend.
+        result = validate_l_bracket({"width_mm": 50.0, "thickness_mm": 3.0, "hole_diameter_mm": 40.0})
+        assert result.corrections["hole_diameter_mm"]["new"] == 10.0
 
     def test_thickness_too_large_relative_to_body_is_reduced(self):
         result = validate_l_bracket(

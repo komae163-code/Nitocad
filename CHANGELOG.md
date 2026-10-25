@@ -3,6 +3,351 @@
 All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased] - One project from Nitocad-merged (3.9.0 + packs) and Nitocad-merged-v8 (mechanical, building, feature tree)
+
+Base is Nitocad-merged (master-v7 with the PCB, aerospace and automotive packs). The mechanical, building and
+feature-tree work from Nitocad-merged-v8 was ported on top. Both grew from 3.6.0.
+
+### Frontend design update (frontend-v14-writeup)
+Visual layer only: the new write-up, colours and styles across the site. The site is now dark only (black with a navy
+tint and glow), so the light/dark toggle and its code were removed from the Studio, `theme.js` no longer builds one, and
+`theme.css`, `hero-blueprint.js` and the homepage have the new look. Pages the new zip did not include (`import.html`,
+`aerospace.html`, `import/`) keep their own content and take the new colours through `theme.css`. No backend, API call or
+Studio feature was changed. The Studio's added cards (check card, template cards, requirement fields, assembly table) were
+given the same navy surface as the rest.
+
+### Added from frontend-v8-with-studio-features (Studio frontend, with the backend it needed)
+The new frontend differed from the merged one in `studio.js`, `studio.css` and `studio.html` only. The merged
+frontend stays the base (it is the superset: requirements panel, PCB rows, DXF/SVG/KiCad/Gerber attach, the import and
+aerospace pages). The new Studio work was ported into it, and the backend endpoints it calls were built.
+- Templates: the Templates button and picker. `GET /templates` (catalogue in `studio_templates.py`, 26 templates,
+  each tested to validate with no corrections) and `POST /chats/{id}/templates/{template}` (a free preview, no AI,
+  priced as Engine on Generate). Assembly templates place parts on a shaft with explicit positions and 0.1 mm clearance.
+- Manufacturability check: `POST /chats/{id}/parts/{part}/check` with `{process}` for `cnc`, `sheet_metal`,
+  `injection_molding`, `fdm` or `resin`. Costs `CHECK_CREDITS` (default 5) once per part version and process, then the
+  saved report reopens free (`chat_part_checks` table, returned as `part.checks` by `GET /chats/{id}`). No AI. The report is
+  worked out before credits are taken, a failed save refunds, and two taps charge once. Price is in `/ai/models` and
+  `/chat-config` as `check_credits`. Single parts only (assemblies, boards, buildings and civil parts return 422).
+  - `manufacturability.py` reads the dimensions through `dfm.py` and, when the STL is readable, the mesh: closed surface,
+    thin spots (rays through the walls), FDM overhangs, molding draft, resin trapped cavities.
+  - `dfm.py` gained injection molding and resin rules, `check_with_passes()` (what held, not just what failed) and
+    `SIZE_LIMIT_MM`. `PROCESSES`, `applicable()` and `best_fit()` are unchanged, so chat answers behave as before.
+- Exports: GLB, 3MF and URDF (`mesh_formats.py`, pure Python, no new dependency) through `/export/{fmt}/{job}`. GLB and 3MF
+  work for assemblies (one node or object per part). URDF is one rigid link with mass and inertia from the mesh and the
+  material's density (aluminium is assumed, and said so in the file, when there is no material), and is refused for
+  assemblies. An attached mesh gets all three without pressing Generate, since there is nothing to unlock.
+- Assemblies: the Specs section now has the per-part table (position, size, mass) next to the overlap, floating-part and
+  mass findings, the parts list CSV and the requirements. `assembly_checks_report` returns `parts` for it. Versions saved
+  before this fall back to the grouped parts list.
+- Credits: `db.charge_credits` and `db.refund_credits` (subscription pool first, refunded to the pool that paid).
+
+### Not verified in the build environment
+CadQuery, FastAPI and pytest were not installable there, so the CadQuery paths were not run: tessellating a real solid for
+GLB, 3MF and URDF, the assembly `parts` table, building the templates, and the HTTP routes. Run `pytest` and open one GLB, one
+3MF and one URDF in a viewer, a slicer and a simulator before release. See the tests marked `importorskip("cadquery")`.
+
+### Added from Nitocad-merged-v8
+- Building domain (`building/`, the `building` part type, DXF and PDF drawing sets), feature tree (`feature_tree.py`,
+  `feature_builder.py`), standard parts (`standards.py`, `standards_data.py`: `fastener`, `std_bearing`, `key`,
+  `asme_flange`, `o_ring`, plus `hex_bolt`, `socket_cap_screw`, `hex_nut`).
+- Requirements that stay attached to a chat and are re-checked on every version (`requirements.py`,
+  `POST/DELETE /chats/{id}/requirements`), manufacturability answers (`dfm.py`), screening and materials.
+- Typed sizes are kept and flagged (`validator.typed_keys`, `merge_notes`, `validation.flags`), and free questions are answered.
+- Drawing footer with notes, tolerance table and parts list (`drawing_footer.py`), STEP export with a round-trip check.
+- Bug fixes: the freeform loft builds a real solid, the shaft keyway is one pocket instead of splitting the shaft.
+- Studio: assembly panel (parts list CSV, overlaps, mass) and requirements panel, next to the PCB download rows.
+
+### Decisions
+- One assembly engine: the mate and row engine from Nitocad-merged. The text-parsed assembly path from
+  Nitocad-merged-v8 (`deps.generate_assembly`, its `build_assembly` and `assembly_parser.parse_assembly`) was not ported.
+- Its parts list, overlap, floating-part and mass checks now run on every built assembly
+  (`assembly.assembly_checks_report`, returned as `assembly_checks`, stored in the part facts, shown in Studio, and
+  the parts list is printed on the DXF and PDF). Floating-part checks are skipped for the side-by-side row layout.
+- `assembly_planner.py` and `mates.py` come along as unused modules, with their tests.
+- Removed tests that exercised the dropped path: `test_assembly_logic`, `test_assembly_mates_cq`, `test_chat_assembly`.
+
+### Not verified
+- CadQuery, pytest and a live server were not available while merging. Every file compiles and every local import
+  and attribute reference resolves. Run `pytest -q` where CadQuery is installed before deploying.
+
+## [Unreleased] - Merge of master-v7, PCB v4, aerospace and automotive packs
+
+Base is master-v7 (3.9.0). The other four zips were layered on top of it.
+
+### Added
+- **PCB pack** (from Nitocad-v4-PCB): `pcb/`, `pcb_api.py`, `pcb_service.py`, `pcb_board` template,
+  validator, parser and chat-planner hooks, KiCad layer in the Dockerfile (image grows by about 1-2 GB).
+- **Aerospace pack** (from nitocad-update): `aerospace/`, `aerospace_pack.py`, 9 aerospace templates,
+  `/api/aero/*`, and sandboxed STEP/IGES/BREP import (`file_import.py`, `cad_worker.py`,
+  `/convert`, `/api/files/cad/export`). Frontend pages `aerospace.html`, `import.html`, `import/`.
+- **Automotive pack** (from nitocad-automotive-pack): `domain_packs/` (9 parts), mate-based
+  assemblies (`assembly_spec.py`, `mating.py`, `envelope.py`, `tolerance.py`, `loads.py`,
+  `assembly_analysis.py`, `assembly_parser.py`, `assembly_templates.py`), `/api/domain-packs`, `/api/assembly/*`.
+- Frontend is `frontend-v8`, with the PCB download rows and the DXF/SVG/KiCad/Gerber attach types ported in.
+
+### Decisions
+- Both assembly systems use `part_type: "assembly"`; the spec decides the engine (`assembly.assembly_route`):
+  1. a **named** assembly (for example "wheel corner module") or a stored spec holding `assembly` uses the mate engine;
+  2. a chat-planner assembly with `mates` (`layout: "mated"`, parts with ids, optional `root`) uses the mate engine;
+  3. a plain parts list uses the row layout, as before.
+  The mate engine is fail-closed: interfaces that do not fit, or solids that collide, are reported to the user and
+  are never replaced by a row layout. Parts without connection points can still be placed with explicit `placement`.
+- Dropped as superseded by master: `assembly_store.py`, `file_formats.py` (PCB zip) and `file_edit/` (automotive zip, unwired work in progress).
+
+### Not verified
+- Nothing was run against real CadQuery/OpenCascade or a live server during the merge. See `NITOCAD_STATUS.md`
+  (automotive geometry has never run on OCCT; run `python scripts/verify_automotive.py`).
+
+## [3.9.0] - Assemblies in chat, attached files you can edit (backend only)
+
+This release is backend only. The Studio screens for it are not built yet (see the end).
+
+### Added
+- **The chat planner builds and edits assemblies.** `part_type: "assembly"` with a parts list
+  (`conversation.py`, `assembly.py`). Parts from the AI or from the description go through one
+  validated layout, side by side, with names and counts. Without an AI, the description is read
+  by rules. Without an AI, an existing assembly can only be replaced, not edited, and the reply says so.
+- **Attached files that can be edited** (`import_store.py`, `import_ops.py`, `imported_solids.py`,
+  `meshes.py`, `profiles.py`). A new `imported` part type is the stored file plus an ordered list
+  of edits: scale, scale to a size, holes, fillets, chamfers, move, rotate, mirror, and for drawings
+  a thickness. Formats:
+  - STEP, IGES, BREP: kept as BREP.
+  - DXF, SVG, KiCad boards (`.kicad_pcb`), Gerber (one file, or a zip of Gerber and drill files):
+    read into flat shapes and extruded.
+  - STL, OBJ: kept as a mesh. Meshes can be scaled, rotated, moved, mirrored, rested on the ground
+    and centered, and export as STL only. No holes or fillets.
+  - PDF, PNG, JPG, WEBP are read for sizes as before and are not edited.
+- **`POST /chats/{chat_id}/imports/{import_id}/part`** opens a stored file as an editable part.
+  `POST /files/analyze` now returns a `card` and an `import_id`, accepts `chat_id` to save the
+  card in the chat (so it survives a reload), and accepts all the formats above.
+- **Rules planner edits** for attached files: "scale it to 150 mm long", "make it 5 mm thick",
+  "add a 6 mm hole at x 10 y 20", "fillet the top edges 2 mm", "rotate it 90 degrees", "undo".
+- **Tests:** `test_profiles.py`, `test_meshes.py`, `test_import_ops.py`,
+  `test_planner_assembly_import.py`, and updated `test_file_analysis.py`.
+
+### Changed
+- STL and OBJ are now uploaded for editing instead of staying in the browser. GLB, GLTF and 3MF
+  are refused with a message.
+- A mesh part has nothing to buy: its STL is free, and Generate returns without charging.
+- Imported parts skip the "one watertight solid" check, and record their size with the job.
+
+### Not done in this release
+- Studio screens: the attach button still lists only the old file types, there is no "Edit this
+  file" button, saved file cards are not drawn after a reload, there is no assembly view, no link to
+  Civil tools and no plans screen.
+- Tests that need CadQuery or the database for imported parts and the new chat route are not written.
+
+## [3.8.0] - Assemblies are built from the description
+
+### Fixed
+- **Assemblies ignored what you asked for.** `parse_assembly_description` returned the same
+  base plate and L-bracket for any description, and reported success. It now reads the
+  description: it is cut into parts at commas, "and", "plus" and "with", a piece that names
+  no part (for example "4 holes") stays with the part before it, and counts such as "two l
+  brackets" or "3 flat plates" work. Each part is read with the single-part parser and its
+  values go through the same validator. Parts are laid out in a row along X with a 10 mm
+  gap, sitting on z = 0, so they never overlap. How parts mate is not guessed. Part names
+  come from the description (`base_plate`, `l_bracket`, `l_bracket_2`).
+- **Fewer than two parts is now an error** (422, "Describe at least two parts, for example:
+  a base plate and an L bracket") instead of the fixed example. Something like "assemble
+  multiple parts into one unit" used to succeed and now asks for the parts.
+- **Older assembly jobs** (saved before 3.7.0, with no stored parts list) are rebuilt from
+  `legacy_assembly_example()`, the exact fixed example they were built from. This replaces
+  the `ASSEMBLY_PARSER_IS_DETERMINISTIC` flag from 3.7.0, which could not have reproduced
+  them once the parser changed.
+- **PDF drawing scale** no longer depends on `Shape.scale` existing in the installed CadQuery
+  (`exporters._scale_shape` falls back to the OCCT transform).
+
+### Added
+- `tests/test_civil_api.py` and `tests/test_file_api.py`: HTTP tests for the `/civil` and
+  `/files` routes (sign-in, refusals, caps, each kind of file).
+- Parser and layout tests in `tests/test_assembly_reexport.py`.
+
+### Changed
+- `tests/test_exporters.py` expects the part names the parser now gives (`base_plate`,
+  `l_bracket`).
+
+### Not changed
+CAD Studio still cannot create assemblies (`conversation.UNSUPPORTED_TYPES`) and has no
+assembly screen. Assembly jobs come from `POST /generate`, the API and MCP.
+
+## [3.7.0] - Re-export stored assemblies
+
+### Added
+- **Stored assemblies can be exported again.** `GET /export/{fmt}/{job_id}` used to
+  refuse any job whose part type was `assembly`, because an assembly was rebuilt by
+  parsing its description a second time. The parts list used for the build is now
+  saved with the job (its `parameters`, as `{"parts": [...]}`), and a later export
+  rebuilds from that list, so the file matches what was generated and anchored.
+  STEP, IGES, STL, DXF and PDF all work. (`cad_generator.py`, `assembly.py`)
+- **`assembly.normalize_assembly_spec`** checks a parts list before it is built or
+  stored: a list of up to 50 parts, each with a part type, a parameters dictionary
+  and finite position and rotation. Values are not changed.
+- **`tests/test_assembly_reexport.py`.**
+
+### Changed
+- `CADGenerator._generate_assembly` takes the parts list (a description string is still
+  accepted). Its export step is now `_export_assembly`, shared by first-time generation
+  and re-export, so both write the same files.
+- A failed rebuild raises `AssemblyError` (422) with a plain message instead of a 500.
+
+### Older jobs
+Assembly jobs saved before this change have no stored parts list. They are rebuilt from the exact example they were originally built from (see 3.8.0).
+
+## [3.6.0] - Preview first, pay when you generate; AI tiers; new 3D look; embedded demo
+
+### Added
+- **Preview first, pay when you generate.** Every Studio message builds a free STL
+  preview. Only the Generate button spends credits. Generate charges once per
+  version, builds STEP and unlocks STEP, IGES, DXF and PDF. A failed build refunds
+  exactly what was taken, and a double press never charges twice. Locked formats
+  return an error from the export and download routes. STL stays free. Older, API,
+  MCP and x402 jobs are never locked. (`chat_api.py`, `chat_service.py`,
+  `conversation.py`, `db.py`)
+- **AI tiers** (`ai_models.py`) and an AI picker above the message box. Engine is no
+  AI, Basic is DeepSeek, Plus is GPT or Qwen, Advanced is Claude. Messages per
+  rolling 24 hours are 40, 15 and 4 on the AI tiers, checked before the model is
+  called. Engine has no limit. Generate costs 2, 10, 25 and 40 credits, priced by
+  what actually planned the version, so an AI failure that falls back to the rules
+  costs 2. A model only appears once its key and model name are set.
+- **`frontend/viewer-look.js`**, shared by Studio and the landing viewer: metal or
+  plastic finish from the material, studio lighting, smooth surfaces, CAD edge
+  lines, a ground shadow and filmic tone mapping.
+- **Landing page demo** now embeds the full Free Preview page (`preview.html?embed=1`).
+  The "nitocad.dev/demo" bar, the pop-up preview and its scripts are removed.
+- **Tests** - `tests/test_preview_then_pay.py`, `tests/test_ai_models.py`, and updates
+  to `tests/test_chat_service.py` and `tests/test_conversation.py`.
+
+### Restored
+- **`exporters.py`** the STEP re-import check, topology-based hole detection for
+  drawings, the written-file assertion and safe output path handling had been lost
+  in an earlier merge. They are back, together with `tests/test_exporters_logic.py`
+  and the six tests removed from `tests/test_exporters.py`. The large-part PDF scale
+  from 3.5.0 is kept, and hole callouts now use the validated hole data at any scale.
+
+### Merge notes
+- `preview.html`, `profile.html` and `refine.html` keep the shared `config.js`
+  backend address from 3.5.0, not the hard-coded address from the preview-then-pay
+  build.
+- The embedded demo frame gets a default height, so it is visible before the
+  preview page reports its own.
+
+## [3.5.0] - Civil engineering calculations, file upload in CAD Studio
+
+### Added
+- **`civil/`** - Screening-level civil calculations, pure Python plus numpy:
+  survey point parsing (`survey.py`), a Delaunay terrain surface with height
+  lookup, profiles and an STL export (`terrain.py`), horizontal and vertical
+  alignments (`alignment.py`), cross-sections, earthworks and material
+  quantities by average end area (`earthworks.py`), rational method, Manning
+  pipes and channels and a box culvert screening check (`hydraulics.py`),
+  culvert loads and Rankine earth pressure (`loads.py`), cantilever wall
+  overturning, sliding and base pressure (`wall_stability.py`), and an editable
+  criteria check (`criteria.py`). The criteria are limits the user sets. The
+  built-in set is a generic starting point, and nothing says "complies with".
+- **`civil_api.py`, `frontend/civil.html`** - `/civil/*` routes (signed in, rate
+  limited, free) and a Civil tools page.
+- **`file_analysis.py`, `file_api.py`** - `POST /files/analyze` reads STEP, IGES
+  and BREP files (CAD kernel in a separate, time limited process), PDF text, and
+  images or PDF pages through a vision model. `GET /files/capabilities` reports
+  what the server can read. Free for now, capped per account per day. Nothing is
+  stored.
+- **`frontend/studio.html`, `studio.js`, `studio.css`** - Attach button, drag and
+  drop and paste in the composer. Mesh files (STL, OBJ, GLB, 3MF) open in the
+  browser without uploading. Results show as a card with sizes, a plain
+  description to edit and send, and a 3D preview for CAD files.
+- **`config.py`, `.env.example`** - `RATE_LIMIT_CIVIL`, `CIVIL_MAX_SURVEY_POINTS`,
+  `FILE_*` limits and `VISION_API_KEY` / `VISION_BASE_URL` / `VISION_MODEL`.
+- **`requirements.txt`** - `pypdf`, `pypdfium2`, `Pillow`.
+- **Tests** - `tests/test_civil_engineering.py`, `tests/test_file_analysis.py`.
+
+### Fixed
+- **Two backend addresses.** `auth.js` pointed at one Railway service and
+  `preview.html`, `profile.html` and `refine.html` at another. All pages now read
+  one address from `frontend/config.js` (override in the browser with
+  `localStorage.nitocad_api_base`).
+- **Prices typed into the HTML** drifted from `config.py`. The front page and
+  `pricing.html` now read `/config/chain`, with the printed values as fallback.
+- **`smart_parser.py`** ignored "metre" and "metres". Both convert to millimetres now,
+  for every part type.
+- **"Box culvert" was read as a plain box.** Civil keywords are checked first.
+- **Civil parser regex bugs** found by the new tests: an invalid optional-unit
+  pattern, and a miss on phrasing like "two 3.5 m lanes".
+- **`exporters.py`** PDF drawings of large parts needed a page no viewer can open.
+  Parts over 1500 mm combined size now print at a standard scale, with real sizes
+  in the title block and dimensions. Smaller parts are unchanged.
+- **`civil/terrain.py`** left some convex hull triangles out (the helper triangle was
+  too small). The surface now covers the hull exactly.
+- **`file_analysis.py`** the vision answer cleaner raised an error on a non-list
+  field such as `"features": 5`. It now returns empty lists.
+- **`frontend/civil.html`** read the wrong auth global (`Auth`, should be `NitoAuth`).
+- **`frontend/studio.js`** the size label shows metres for parts over 3 m.
+
+### Front page (3.3.0 follow-ups)
+- "100% Exact B-Rep" replaced with "True B-rep, Solids on OpenCASCADE".
+- Google sign-in placed before Connect Wallet, BOT Chain badge moved out of the header.
+- Spec table and "Who it's for" section removed, headings bold.
+
+### Not included
+No structural or reinforcement design, no seismic or water loads on walls, no
+outlet control or tailwater in culvert hydraulics, no built-in rainfall data, no
+named design standards. Reading dimensions from an image is only as good as the
+picture, so results are shown for review and nothing is built until the person
+sends a message.
+
+## [3.4.0] - Civil elements (preliminary)
+
+### Added
+- **`cad_templates/civil.py`, `cad_templates/_civil_profiles.py`** - Three civil
+  part types: `road_segment` (crowned carriageway, shoulders, optional kerbs),
+  `box_culvert` (1 to 4 cells) and `retaining_wall` (cantilever, tapered stem).
+  Parameters are millimetres like every other template. The cross-section
+  maths is plain Python in `_civil_profiles.py` so it can be tested without
+  the CAD kernel.
+- **`validator.py`** - Geometry checks for the three types. Every civil result
+  carries a notice that it is preliminary, not checked against any design
+  code and not for construction.
+- **`smart_parser.py`** - Regex detection and extraction for the civil types,
+  placed before the generic keywords so "box culvert" is not read as a box.
+  Metres are converted to millimetres, and British spelling (metre, metres)
+  now works for every part type.
+- **`deepseek_parser.py`, `prompt_refine.py`** - The AI parser and the chat
+  planner know the civil types and are told to convert metres to millimetres.
+  `PROMPT_VERSION` bumped so cached parses are not reused.
+- **`tests/test_civil.py`** - Profile maths, validator, parser, and (with
+  CadQuery) solid volumes, bounding boxes and all five exports.
+
+### Changed
+- **`exporters.py`** - PDF drawings keep true 1:1 up to 1500 mm of combined
+  X+Y+Z size. Larger parts are drawn at the first standard scale that fits
+  (1:2 to 1:1000). The title block shows the scale and the real size, and
+  the dimension text is real size. Normal parts are unaffected.
+- **`frontend/studio.js`** - The viewer size label switches to metres for
+  parts over 3 m.
+
+### Not included
+Civil here is geometry only. It has no terrain or survey data, alignments,
+drainage design, quantities, design standards, loads or hydraulics.
+
+## [3.3.0] - Front page redesign, shared frontend config
+
+### Changed
+- **`frontend/index.html`** - Rebuilt front page: airplane/house blueprint
+  scene first, then the demo, "What works today", stats, a compact pricing
+  dropdown and "Who NitoCAD serves". Removed How it works, the Agent
+  Marketplace section and the 23+ templates stat.
+- **`frontend/auth.js`, `studio.html`, `preview.html`, `profile.html`,
+  `refine.html`** - Backend address now comes from one place,
+  `frontend/config.js`. Before, `auth.js` pointed at one Railway service and
+  three pages at another.
+
+### Added
+- **`frontend/config.js`** - Single `apiBase`, a `localStorage`
+  override (`nitocad_api_base`) for testing, and a live price loader.
+- **`frontend/pricing.html`, `frontend/exports.html`** - Own pages for pricing
+  and export formats. Prices fill from `GET /config/chain`, with the printed
+  values as fallback if the request fails.
+
 ## [3.2.0] — Security audit fixes, subscriptions, Google sign-in, Paystack replaces Stripe
 
 ### Fixed

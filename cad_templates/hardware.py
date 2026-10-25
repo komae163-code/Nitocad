@@ -66,7 +66,8 @@ def generate_t_bracket(params: dict) -> cq.Workplane:
     - cap_width_mm: width of the top bar
     - stem_height_mm: height of the vertical stem
     - thickness_mm: material thickness (both cap and stem)
-    - hole_count / hole_diameter_mm: mounting holes through the cap
+    - hole_count / hole_diameter_mm: mounting holes through the cap, `hole_count` in a row
+      on each side of the stem
     - fillet_radius_mm: edge fillet along the length
     """
     length = params.get('length_mm', 60.0)
@@ -99,18 +100,21 @@ def generate_t_bracket(params: dict) -> cq.Workplane:
 
     result = cap.union(stem)
 
+    hole_count = int(hole_count)
     if hole_count > 0 and hole_diameter > 0:
-        spacing = (length - 20) / max(1, hole_count - 1) if hole_count > 1 else 0
-        points = []
+        # Mounting holes go in the flat on each side of the stem, in a row down the length, `hole_count` per
+        # side. Every cutter is placed by explicit coordinates and goes through the cap only. (The earlier
+        # version drilled on the centre line, which is straight above the stem, so the hole went down the
+        # middle of the stem; and it spaced the holes about X = 0 while the bracket runs from X = 0 to
+        # `length`, so on a default bracket one of the two holes missed the part.)
+        flange = (cap_width - thickness) / 2
+        y_centre = thickness / 2 + flange / 2
+        spacing = (length - 20) / (hole_count - 1) if hole_count > 1 else 0
         for i in range(hole_count):
-            x = -((hole_count - 1) * spacing) / 2 + i * spacing
-            points.append((x, 0))
-        result = (
-            result.faces(">Z")
-            .workplane()
-            .pushPoints(points)
-            .hole(hole_diameter)
-        )
+            x = length / 2 - ((hole_count - 1) * spacing) / 2 + i * spacing
+            for y in (y_centre, -y_centre):
+                cutter = cq.Solid.makeCylinder(hole_diameter / 2, thickness + 2, cq.Vector(x, y, stem_height - 1), cq.Vector(0, 0, 1))
+                result = result.cut(cutter)
 
     if fillet_radius > 0 and fillet_radius < thickness / 2:
         result = safe_fillet(result, fillet_radius, "|X")
@@ -122,7 +126,7 @@ def generate_channel_bracket(params: dict) -> cq.Workplane:
     """
     Open channel bracket (U-shaped cross-section), open along one long
     side - a mounting channel, cable raceway, or cradle. Built the same
-    way simple_box.py builds its open-top lid box (Workplane.shell() on
+    way simple_box.py builds a hollow open-top box (Workplane.shell() on
     one open face), just open on a side face instead of the top, with
     mounting holes through the opposite (closed) wall.
 
@@ -143,7 +147,7 @@ def generate_channel_bracket(params: dict) -> cq.Workplane:
 
     outer = cq.Workplane("XY").box(length, width, height)
     # Open along +Y (one long side) - same Workplane.shell() call
-    # simple_box.py already uses for its open-top lid box, just a
+    # simple_box.py already uses for a hollow open-top box, just a
     # different face selector.
     result = outer.faces(">Y").shell(-wall_thickness)
 

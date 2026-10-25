@@ -763,6 +763,8 @@ version, not the old pinned one that caused the conflict.
 - Multi-part assemblies
 - Position and rotation constraints
 - Export as single STEP file
+- A stored assembly job can be exported again in any format. Its parts list is saved with the job and the export rebuilds from it, not from the description text
+- The parts list is read from the description: "a base plate 100mm x 80mm with 4 holes and two l brackets" gives three parts, laid out in a row. Mating positions are not guessed, and fewer than two parts is an error
 
 ### ✅ Freeform Capabilities
 - Revolved parts (from profile)
@@ -975,3 +977,14 @@ These are architectural choices for reliability, not technical limitations.
 ## License
 
 MIT
+
+## Studio: templates, manufacturability check and more downloads
+
+- `GET /templates` lists the template picker's cards. `POST /chats/{id}/templates/{template}` starts a free preview
+  from one (no AI). Add templates in `studio_templates.py`: `tests/test_studio_templates.py` checks that each one validates
+  and uses a real part type.
+- `POST /chats/{id}/parts/{part}/check` with `{"process": "cnc" | "sheet_metal" | "injection_molding" | "fdm" | "resin"}`
+  returns a report and charges `CHECK_CREDITS` (default 5) once per version and process. It runs no AI and is guidance, not a
+  certified review. Rules live in `dfm.py` and `manufacturability.py`.
+- `GET /export/{glb|3mf|urdf}/{job_id}` and the `/link` variant return GLB, 3MF and a URDF zip. They are built on demand
+  like the other formats and need the version to be unlocked with Generate (an attached mesh needs nothing).

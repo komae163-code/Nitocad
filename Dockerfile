@@ -5,7 +5,9 @@
 # defaulting to whatever its current Nix snapshot ships. A Dockerfile
 # sidesteps that guesswork entirely - this is the fix for the
 # Railway/Vercel deployment crashes you were hitting before.
-FROM python:3.11-slim
+# slim-trixie (Debian 13), not plain slim: the PCB pack needs `kicad-cli`, which
+# only exists in KiCad 7+, and Debian 12 (bookworm) ships KiCad 6.
+FROM python:3.11-slim-trixie
 
 WORKDIR /app
 
@@ -20,6 +22,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     && rm -rf /var/lib/apt/lists/*
+
+# KiCad (PCB pack): kicad-cli runs the REAL design-rule check and exports Gerbers /
+# drill / position / STEP; kicad-footprints is the official footprint library the
+# blocks resolve real parts from (USB-C, TQFP-32, ...); python3-kicad gives the
+# system python a `pcbnew` module so copper-pour zones can be filled before DRC.
+# This layer is large (~1-2 GB). If any KiCad package fails to install the build
+# continues and the PCB pack degrades gracefully: boards are still produced but
+# the report says "not_checked_by_kicad" and no Gerbers are offered.
+RUN apt-get update \
+    && (apt-get install -y --no-install-recommends kicad kicad-footprints \
+        || echo "WARNING: KiCad install failed - PCB pack will run without KiCad") \
+    && (apt-get install -y --no-install-recommends python3-kicad \
+        || echo "WARNING: python3-kicad not available - copper pours will be routed as traces") \
+    && rm -rf /var/lib/apt/lists/* \
+    && (kicad-cli --version || echo "WARNING: kicad-cli not on PATH")
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
