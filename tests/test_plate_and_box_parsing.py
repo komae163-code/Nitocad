@@ -65,41 +65,20 @@ def test_no_holes_means_no_holes():
 
 
 def test_a_plate_that_does_not_mention_holes_has_none():
-    for text in ("flat plate 200 x 100 x 6 mm", "steel plate 10mm thick, 300mm by 200mm", "rectangular plate 150mm long 75mm wide 3mm thick"):
+    for text in ("flat plate 200 x 100 x 6 mm", "120 x 80 x 5 mm flat plate", "steel plate 150 mm long, 100 mm wide, 6 mm thick"):
         _, p = parse(text)
         assert (p["hole_count_x"], p["hole_count_y"]) == (0, 0), text
 
 
-def test_a_plate_that_asks_for_holes_without_a_count_gets_one_in_each_corner():
-    for text in ("flat plate 200 x 100 x 6 mm with mounting holes", "plate 120 x 80 x 5 mm with a hole in each corner", "base plate 100 x 60 x 4 mm, drilled holes"):
+def test_a_plate_that_asks_for_holes_without_a_count_gets_the_usual_grid():
+    for text in ("plate 200 x 100 x 6 mm with mounting holes", "flat plate 200 x 100 x 6 mm, drilled for bolts", "plate 100 x 80 x 5 with holes"):
         _, p = parse(text)
-        assert (p["hole_count_x"], p["hole_count_y"]) == (2, 2), text
-
-
-def test_a_count_still_beats_the_empty_default():
-    _, p = parse("flat plate 200 x 100 x 6 mm with 6 holes")
-    assert p["hole_count_x"] * p["hole_count_y"] == 6
+        assert (p["hole_count_x"], p["hole_count_y"]) == (4, 3), text
 
 
 def test_a_bolt_circle_makes_a_circular_pattern():
     _, p = parse("square plate 100 x 100 x 6 mm with 6 holes of 5 mm on a bolt circle")
     assert p["hole_pattern"] == "circular" and p["hole_count_x"] == 6 and p["hole_diameter_mm"] == 5
-
-
-def test_a_plate_with_no_counts_is_not_given_holes_by_the_validator():
-    r = validate_flat_plate({"length_mm": 30, "width_mm": 30, "hole_diameter_mm": 50.0})
-    assert not r.corrections                                    # no holes, so a 50 mm "hole" has nothing to fit
-    fixed, _ = validate_parameters("flat_plate", {"length_mm": 100, "width_mm": 60, "thickness_mm": 5})
-    assert "hole_count_x" not in fixed or fixed["hole_count_x"] == 0
-
-
-def test_a_lone_count_means_a_single_row():
-    # hole_count_x alone is a row of four. The missing direction is 1, not 0, and not an old 3.
-    r = validate_flat_plate({"length_mm": 200, "width_mm": 100, "hole_count_x": 4, "hole_diameter_mm": 20.0})
-    assert "hole_count_y" not in r.corrections and "hole_count_x" not in r.corrections
-    assert r.corrections["hole_diameter_mm"]["new"] == 16.0      # four across keeps centres 10 mm in, one row does not limit Y
-    r = validate_flat_plate({"length_mm": 200, "width_mm": 100, "hole_count_y": 2, "hole_diameter_mm": 5.0})
-    assert not r.corrections
 
 
 def test_zero_holes_survive_validation_but_a_negative_or_half_zero_count_does_not():
@@ -125,7 +104,7 @@ def test_an_enclosure_or_a_box_with_walls_is_hollow():
 def test_a_plain_box_stays_solid():
     for text in ("a box 200 by 150 by 100 mm", "cube 50mm", "solid block 60 x 40 x 30 mm"):
         t, p = parse(text)
-        assert t == "simple_box" and p["hollow"] is False and "has_lid" not in p, text
+        assert t == "simple_box" and p["hollow"] is False, text
 
 
 def test_the_wall_thickness_is_read_from_the_walls():

@@ -180,16 +180,6 @@ def validate_l_bracket(params: dict[str, Any]) -> ValidationResult:
 
     return result
 
-def _plate_hole_counts(params: dict[str, Any]) -> tuple[Any, Any]:
-    """The plate's hole counts as the template reads them. A plate has no holes unless it is given a count, so
-    leaving both out means none. If only one is given the other is 1, so a lone hole_count_x of 4 is a row of four.
-    Keep this in step with generate_flat_plate, which cannot be imported here because it needs CadQuery."""
-    x, y = params.get('hole_count_x'), params.get('hole_count_y')
-    if x is None and y is None:
-        return 0, 0
-    return (1 if x is None else x), (1 if y is None else y)
-
-
 def validate_flat_plate(params: dict[str, Any]) -> ValidationResult:
     """Validate flat plate parameters."""
     result = ValidationResult()
@@ -199,7 +189,8 @@ def validate_flat_plate(params: dict[str, Any]) -> ValidationResult:
     thickness = params.get('thickness_mm', 5.0)
     hole_diameter = params.get('hole_diameter_mm', 3.2)
     corner_fillet = params.get('corner_fillet_mm', 3.0)
-    hole_count_x, hole_count_y = _plate_hole_counts(params)
+    hole_count_x = params.get('hole_count_x', 0)
+    hole_count_y = params.get('hole_count_y', 0)
     
     # Dimensions must be positive
     if length <= 0 or width <= 0 or thickness <= 0:
@@ -209,7 +200,7 @@ def validate_flat_plate(params: dict[str, Any]) -> ValidationResult:
     # 10 mm in from the edges whenever there is more than one in a direction, so 2 mm of metal left at the edge means
     # at most 16 mm across. A single hole sits in the middle and can be as wide as the plate less 2 mm each side.
     pattern = params.get('hole_pattern', 'rectangular')
-    count_x, count_y = hole_count_x, hole_count_y
+    count_x, count_y = params.get('hole_count_x', 0), params.get('hole_count_y', 0)
     has_holes = count_x > 0 and (count_y > 0 or pattern == 'circular')
     if has_holes and length > 0 and width > 0 and thickness > 0:
         if pattern == 'circular':

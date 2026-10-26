@@ -11,7 +11,7 @@ def test_a_hole_wider_than_the_plate_is_thick_is_left_alone():
 
 
 def test_a_hole_that_leaves_less_than_2mm_at_the_edge_is_reduced():
-    r = validate_flat_plate({"length_mm": 120, "width_mm": 80, "hole_count_x": 4, "hole_count_y": 3, "hole_diameter_mm": 20.0})   # a 4 x 3 grid keeps centres 10 mm in
+    r = validate_flat_plate({"length_mm": 120, "width_mm": 80, "hole_count_x": 4, "hole_count_y": 3, "hole_diameter_mm": 20.0})   # a grid keeps centres 10 mm in
     assert r.corrections["hole_diameter_mm"]["new"] == 16.0
     r = validate_flat_plate({"length_mm": 120, "width_mm": 80, "hole_count_x": 1, "hole_count_y": 3, "hole_diameter_mm": 30.0})   # one column can be wider in X only
     assert r.corrections["hole_diameter_mm"]["new"] == 16.0                                    # but the three rows still have 10 mm margins in Y
@@ -43,6 +43,12 @@ def test_a_plate_with_no_holes_is_never_checked_for_them():
 
 def test_the_default_plate_is_untouched():
     assert not validate_flat_plate({}).corrections
+
+
+def test_a_plate_with_no_hole_counts_has_no_holes_to_check():
+    """The default is no holes, so a hole diameter with no count is left alone. (The default used to be a 4 x 3 grid.)"""
+    r = validate_flat_plate({"length_mm": 60, "width_mm": 40, "hole_diameter_mm": 30.0})
+    assert "hole_diameter_mm" not in r.corrections
 
 
 # ---- L-brackets -----------------------------------------------------------------------------

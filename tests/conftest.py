@@ -73,14 +73,6 @@ def client(tmp_db, tmp_output_dir, monkeypatch):
 
     config.get_settings.cache_clear()
 
-    # fastmcp session managers can only run() once per instance. Drop the
-    # cached MCP packages so each test's reload builds fresh ones.
-    for _name in [
-        m for m in sys.modules
-        if m in ("a2mcp", "a2mcp_botchain") or m.startswith(("a2mcp.", "a2mcp_botchain."))
-    ]:
-        del sys.modules[_name]
-
     import web_app
 
     importlib.reload(web_app)

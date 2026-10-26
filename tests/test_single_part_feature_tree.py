@@ -38,7 +38,7 @@ def test_validator_version_was_bumped_so_stale_cache_entries_are_ignored():
 def test_parser_prompt_advertises_feature_tree_and_bumps_prompt_version():
     src = Path(__file__).resolve().parent.parent.joinpath("deepseek_parser.py").read_text(encoding="utf-8")
     assert '- feature_tree: features' in src
-    assert "DSL_HELP" in src and 'PROMPT_VERSION = "freeform-fidelity-v3-' in src   # the exact tag moves with every prompt change
+    assert "DSL_HELP" in src and 'PROMPT_VERSION = "freeform-fidelity-v3-civil1-arch5"' in src
     assert "- building:" in src and "- feature_tree:" in src and "road_segment" in src  # catalogue holds civil and mine
     assert "If the description doesn't clearly match any of these" in src  # anchor the prompt splice relies on
     assert '"freeform", "feature_tree"' in src  # fidelity-style error reporting covers both

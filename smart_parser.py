@@ -564,6 +564,7 @@ def plate_grid_for_count(count: int, length: float, width: float) -> tuple[int, 
     return (big, small) if length >= width else (small, big)
 
 
+_HOLES_MENTIONED_RE = re.compile(r"\bholes?\b|\bdrilled\b|\bmounting\b|\bbolt\b")
 _NO_HOLES_RE = re.compile(r"\b(?:no|without|zero)\s+(?:any\s+|mounting\s+|drilled\s+)?holes?\b|\b(?:solid|plain|blank)\s+(?:rectangular\s+)?plate\b")
 _HOLLOW_RE = re.compile(r"\b(?:enclosure|hollow|open[- ]top|walls?|tray|container|housing|shell|case)\b")
 # "walls of 4 mm" first. Then "3 mm walls", but not a number that is the last of a "100 x 80 x 50" size.
@@ -646,13 +647,15 @@ def infer_missing_dimensions(part_type: str, dimensions: list[ExtractedDimension
                 params['hole_count_x'], params['hole_count_y'] = plate_grid_for_count(p.count, params['length_mm'], params['width_mm'])
             if p.diameter:
                 params['hole_diameter_mm'] = p.diameter
-        else:
-            # No count in the prompt. A plate that never mentions holes has none. One that asks for holes
-            # without saying how many gets one in each corner.
-            asks_for_holes = bool(re.search(r"\bholes?\b", text_lower))
-            params['hole_count_x'] = 2 if asks_for_holes else 0
-            params['hole_count_y'] = 2 if asks_for_holes else 0
+        elif _HOLES_MENTIONED_RE.search(text_lower):
+            # "with holes", "mounting holes", "drilled": holes were asked for but not counted, so the usual grid.
+            params['hole_count_x'] = 4
+            params['hole_count_y'] = 3
             params['hole_diameter_mm'] = dim_map.get('diameter', 3.2)
+        else:
+            # Nothing about holes: a plain plate. (It used to get the 4 x 3 grid whatever the prompt said.)
+            params['hole_count_x'] = 0
+            params['hole_count_y'] = 0
         params['corner_fillet_mm'] = fillet_op_radius if fillet_op_radius is not None else dim_map.get('radius', 3.0)
         
     elif part_type == 'shaft':
@@ -741,8 +744,7 @@ def infer_missing_dimensions(part_type: str, dimensions: list[ExtractedDimension
             params['length_mm'] = params['width_mm'] = params['height_mm'] = dimensions[0].value * UNIT_TO_MM.get(dimensions[0].unit, 1.0)
         wall = _WALL_OF_RE.search(text_lower) or _WALL_RE.search(text_lower)
         params['wall_thickness_mm'] = float(wall.group(1)) if wall else dim_map.get('thickness', 3.0)
-        # The template shells the box (open top) only when hollow is true, and builds a solid block
-        # otherwise. An enclosure, a box with walls, or an open-top box is meant to be hollow.
+        # An enclosure, a box with walls, or an open-top box is meant to be hollow. Anything else is a solid block.
         params['hollow'] = bool(_HOLLOW_RE.search(text_lower))
 
     elif part_type in ('turbofan_engine', 'jet_aircraft', 'fuselage', 'tail_surface'):

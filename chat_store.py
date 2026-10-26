@@ -267,25 +267,6 @@ def add_message(
             "meta": meta or {}, "created_at": now}
 
 
-def get_message(user_id: str, chat_id: str, message_id: str) -> dict | None:
-    """One message of this person's chat, or None. Used to read the candidate designs it offered."""
-    with _conn() as conn:
-        if _owned(conn, user_id, chat_id) is None:
-            return None
-        r = conn.execute("SELECT * FROM chat_messages WHERE id = ? AND chat_id = ?", (message_id, chat_id)).fetchone()
-    return _msg(r) if r else None
-
-
-def update_message_meta(user_id: str, chat_id: str, message_id: str, meta: dict) -> bool:
-    """Replace a message's meta. False when the message is not in this person's chat."""
-    with _conn() as conn:
-        if _owned(conn, user_id, chat_id) is None:
-            return False
-        cur = conn.execute("UPDATE chat_messages SET meta = ? WHERE id = ? AND chat_id = ?",
-                           (_dump(meta) if meta else None, message_id, chat_id))
-        return cur.rowcount > 0
-
-
 def recent_messages(user_id: str, chat_id: str, limit: int) -> list[dict]:
     """The last `limit` messages, oldest first - the conversation the planner reads."""
     with _conn() as conn:

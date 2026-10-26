@@ -10,6 +10,7 @@ Signed-in accounts only, rate limited, and a per-account daily cap. No credit is
 charged for analysis. Files are held in memory (or a temp file for the CAD reader),
 read, and deleted. Nothing is stored.
 """
+from __future__ import annotations
 
 import base64
 import importlib.util
@@ -194,11 +195,7 @@ def build_router(*, limiter) -> APIRouter:
 
     @router.post("/analyze")
     @limiter.limit(settings.RATE_LIMIT_FILES)
-    async def analyze(request: Request, wallet: Wallet, chat_id: str | None = Form(None)):
-        form = await request.form()
-        file = form.get("file")
-        if file is None or not hasattr(file, "read"):
-            raise HTTPException(status_code=422, detail="Attach a file.")
+    async def analyze(request: Request, wallet: Wallet, file: UploadFile = File(...), chat_id: str | None = Form(None)):
         account = wallet["wallet_address"].lower()
         if chat_id is not None and chat_store.get_chat(account, chat_id) is None:
             raise HTTPException(status_code=404, detail="Chat not found")

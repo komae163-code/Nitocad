@@ -1876,7 +1876,6 @@ _EXPORT_MEDIA_TYPES = {
     "step": "application/step", "stl": "model/stl", "iges": "model/iges",
     "dxf": "image/vnd.dxf", "pdf": "application/pdf",
     "glb": "model/gltf-binary", "3mf": "model/3mf", "urdf": "application/zip",
-    "recipe": "application/zip",
 }
 
 # Phones (iOS Safari especially) save attachments reliably when the response

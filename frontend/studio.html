@@ -57,6 +57,14 @@
       <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
       New design
     </button>
+    <div class="side-links" aria-label="Tools">
+      <span class="side-h">Tools</span>
+      <button type="button" class="side-asm" id="openAsm">Assembly</button>
+      <button type="button" class="side-asm" data-tool="aerospace">Aerospace</button>
+      <button type="button" class="side-asm" data-tool="civil">Civil tools</button>
+      <button type="button" class="side-asm" data-tool="import">Import and edit</button>
+      <button type="button" class="side-asm" data-tool="refine">Prompt refine</button>
+    </div>
     <nav class="chat-list" id="chatList" aria-label="Chats"></nav>
     <div class="side-foot">
       <div class="acct">
@@ -94,9 +102,15 @@
 
     <div class="composer-wrap">
       <div class="ai-bar">
-        <label for="aiModel">AI</label>
-        <select id="aiModel" aria-label="Choose the AI that plans your part"></select>
+        <div class="eng-pick" id="tierPick">
+          <button type="button" class="eng-btn" id="tierBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose a plan for this message">
+            <span id="tierLabel">Basic</span>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <ul class="eng-menu" id="tierMenu" role="listbox" hidden></ul>
+        </div>
         <button class="chip" id="tplBtn" type="button">Templates</button>
+        <button class="chip" id="asmChip" type="button">Assembly</button>
         <span class="ai-note" id="aiNote"></span>
       </div>
       <div class="composer" id="composer">
@@ -109,8 +123,47 @@
           <svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
         </button>
       </div>
-      <div class="fineprint">Previews, changes, questions and reading an attached file are free. Generating the full files for a version uses credits, from 2 on Engine up to 40 on Advanced. Check dimensions before you manufacture.</div>
+      <div class="fineprint">Previews, changes and questions are free. Generating the full files uses credits, shown on the button. Check dimensions before you manufacture.</div>
     </div>
+
+
+    <section class="asm-view tool-view" id="toolView" hidden aria-label="Tool">
+      <div class="asm-head">
+        <h3 id="toolTitle">Tool</h3>
+        <button type="button" class="icon-btn" id="toolClose" aria-label="Back to chat"><svg class="icon" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <iframe id="toolFrame" class="tool-frame" title="Tool"></iframe>
+    </section>
+    <section class="asm-view" id="asmView" hidden aria-label="Assembly">
+      <div class="asm-head">
+        <h3>Assembly</h3>
+        <button type="button" class="icon-btn" id="asmClose" aria-label="Back to chat"><svg class="icon" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="asm-body">
+        <p class="asm-lead">Start from a ready assembly, or check how parts fit together before you build them. Checks build nothing and use no credits.</p>
+        <div class="asm-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected="true" data-asm="start">Start</button>
+          <button type="button" role="tab" aria-selected="false" data-asm="check">Check fit</button>
+          <button type="button" role="tab" aria-selected="false" data-asm="whatif">What if</button>
+          <button type="button" role="tab" aria-selected="false" data-asm="catalog">Catalog</button>
+        </div>
+        <div class="asm-panel on" id="asm-start"><div class="tpl-grid" id="asmTpls"></div></div>
+        <div class="asm-panel" id="asm-check">
+          <p class="asm-note">Parts, then mates written as <code>part.interface</code>. The starter is a wheel corner module.</p>
+          <textarea id="asmSpec" spellcheck="false" aria-label="Assembly spec"></textarea>
+          <div class="asm-row"><button type="button" class="btn btn-primary btn-sm" id="asmRun">Check fit</button><button type="button" class="btn btn-ghost btn-sm" id="asmReset">Reset</button></div>
+          <div id="asmOut"></div>
+        </div>
+        <div class="asm-panel" id="asm-whatif">
+          <p class="asm-note">Uses the spec on the Check fit tab. Pick a part and the values to change.</p>
+          <label class="asm-lbl" for="asmPart">Part id</label><input id="asmPart" value="rotor" autocomplete="off">
+          <label class="asm-lbl" for="asmChg">Changes</label><input id="asmChg" value="{&quot;rotor_diameter_mm&quot;: 330}" autocomplete="off" spellcheck="false">
+          <div class="asm-row"><button type="button" class="btn btn-primary btn-sm" id="asmWhat">Show impact</button></div>
+          <div id="asmOutWhat"></div>
+        </div>
+        <div class="asm-panel" id="asm-catalog"><div id="asmCat" class="asm-note">Loading...</div></div>
+      </div>
+    </section>
   </main>
 
   <section class="canvas" id="canvas" aria-label="Part viewer">

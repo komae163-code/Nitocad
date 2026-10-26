@@ -116,7 +116,7 @@ TEMPLATES: tuple[Template, ...] = (
        "Try: add a keyway", _part("shaft", {"diameter_mm": 10, "length_mm": 100, "chamfer_mm": 1}, "C45 steel")),
     # ---- enclosures and tubes
     _T("box-100", "Box", "enclosures", "100 x 80 x 50 mm with 3 mm walls.", ("Enclosure",),
-       "Try: add a vent slot", _part("simple_box", {"length_mm": 100, "width_mm": 80, "height_mm": 50, "wall_thickness_mm": 3, "hollow": True}, "ABS")),
+       "Try: add a vent slot", _part("simple_box", {"length_mm": 100, "width_mm": 80, "height_mm": 50, "wall_thickness_mm": 3}, "ABS")),
     _T("tube-20", "Round tube", "enclosures", "20 mm outside, 2 mm wall, 100 mm long.", ("Tube",),
        "Try: make it square", _part("tube", {"outer_diameter_mm": 20, "wall_thickness_mm": 2, "length_mm": 100}, "6061")),
     # ---- assemblies

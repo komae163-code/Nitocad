@@ -27,18 +27,15 @@ import json
 import re
 import inspect
 import threading
-import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-import candidates as cand
 import chat_store
 import conversation
 import dfm
 import edit_diff
 import import_ops
 import import_store
-import reference_match as refmatch
 import manufacturability
 import requirements as reqmod
 import studio_templates
@@ -87,18 +84,6 @@ class TemplateNotFound(Exception):
     pass
 
 
-class CandidatesUnavailable(Exception):
-    """This part has no candidate designs, or fewer than two could be built. The message is safe to show."""
-
-
-class CandidateNotFound(Exception):
-    pass
-
-
-class ReferenceUnavailable(Exception):
-    """The reference could not be compared. The message is safe to show."""
-
-
 @dataclass
 class Deps:
     # (history, current spec) -> Plan. A planner that also accepts `facts=` is given the measured facts
@@ -119,17 +104,12 @@ class Deps:
     build_files: Callable[[str], None] | None = None                         # raises if the files cannot be built
     # Manufacturability check (see run_check). part_mesh gives (vertices, triangles) in mm or None.
     part_mesh: Callable[[str], Any] | None = None                            # (job_id) -> (verts, tris) | None
-    # Reference match (see reference_match.py): (kind, file bytes, generated STL bytes) -> result dict. It runs
-    # in an isolated process and raises ReferenceUnavailable with a readable message when it cannot score.
-    reference_match: Callable[[str, bytes, bytes], dict] | None = None
     check_cost: int = 5
     charge_credits: Callable[[str, int], str | None] | None = None           # (user_id, amount) -> pool or None
     refund_credits: Callable[[str, str | None, int], Any] | None = None      # (user_id, pool, amount)
     history_limit: int = 30
     max_chats: int = 200
     max_messages: int = 400
-    # When True, the first build of a bracket also offers thin and heavy versions (see candidates.py).
-    offer_candidates: bool = False
 
 
 _locks: dict[str, threading.Lock] = {}
@@ -301,26 +281,7 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
         sentence = _requirement_sentence(results, f"Version {part['version']}")
         if sentence:
             reply += " " + sentence
-        # A first bracket build also gets thin and heavy versions to choose from, unless the person already
-        # said how thick it should be. Never at the cost of the version they asked for.
-        offer = None
-        if (deps.offer_candidates and plan.intent == "build" and not current and cand.applies(spec)
-                and not cand.user_stated_thickness(text)):
-            try:
-                offer = _build_candidates(deps, user_id, description, spec, "rules", part, result)  # no AI planned these, so Engine pricing
-            except Exception:  # noqa: BLE001 - candidates are a bonus; the first version already exists
-                import logging
-                logging.getLogger(__name__).exception("candidate designs failed")
-                offer = None
-            if offer:
-                reply += " " + _candidate_sentence(offer)
-        meta = {}
-        if diff:
-            meta["diff"] = diff
-        if offer:
-            meta["candidates"] = offer
-        return finish(reply, part=part, requirements=results, meta=meta or None, diff=diff,
-                      candidates=_public_offer(offer))
+        return finish(reply, part=part, requirements=results, meta={"diff": diff} if diff else None, diff=diff)
     finally:
         lock.release()
 
@@ -499,13 +460,11 @@ def start_template_part(deps: Deps, user_id: str, chat_id: str, template_id: str
                                          meta=meta, max_messages=deps.max_messages + 1)
             return {"user_message": user_msg, "assistant_message": msg, "part": part, "charged": 0,
                     "balance": deps.balance(user_id), "needs_credits": False, "intent": "build", "plan_source": "rules",
-                    "requirements": evaluate_for(part), "new_requirements": [],
-                    "build": (meta or {}).get("build")}
+                    "requirements": evaluate_for(part), "new_requirements": []}
 
         def evaluate_for(part: dict | None) -> list[dict]:
             return reqmod.evaluate(chat_store.list_requirements(user_id, chat_id), part["facts"]) if part else []
 
-        started = time.perf_counter()
         try:
             result = deps.generate(text, spec, user_id, "rules")
         except Exception as exc:  # noqa: BLE001 - a failed preview must never break the chat
@@ -517,202 +476,9 @@ def start_template_part(deps: Deps, user_id: str, chat_id: str, template_id: str
         part = chat_store.add_part(user_id, chat_id, job_id=result.get("job_id"), title=part_title(built),
                                    part_type=built["part_type"], spec=built, notes=_notes(result),
                                    facts=reqmod.facts_from_result(result, built["part_type"]))
-        elapsed = time.perf_counter() - started
         reply = studio_templates.reply_for(template) + _notes_sentence(part["notes"] or [])
         sentence = _requirement_sentence(evaluate_for(part), f"Version {part['version']}")
-        # What the person was promised ("built with no AI") and what it took, measured here, not claimed.
-        return finish(reply + (" " + sentence if sentence else ""), part=part, meta={"build": build_note(elapsed)})
-    finally:
-        lock.release()
-
-
-def match_reference(deps: Deps, user_id: str, chat_id: str, part_id: str, filename: str, kind: str, data: bytes) -> dict[str, Any]:
-    """How much a part overlaps a reference file the person uploaded. Free, no AI, and the file is not kept."""
-    lock = _lock_for(chat_id)
-    if not lock.acquire(blocking=False):
-        raise ChatBusy()
-    try:
-        if chat_store.get_chat(user_id, chat_id) is None:
-            raise ChatNotFound()
-        part = chat_store.get_part(user_id, chat_id, part_id)
-        if part is None:
-            raise PartNotFound()
-        if deps.reference_match is None or deps.part_mesh is None or not part.get("job_id"):
-            raise ReferenceUnavailable("Comparing with a reference is not available on this server.")
-        if part["part_type"] in ("assembly", "imported"):
-            raise ReferenceUnavailable("The match score is for a single part built from parameters, not an assembly or an attached file.")
-        try:
-            mesh = deps.part_mesh(part["job_id"])
-        except Exception:  # noqa: BLE001
-            mesh = None
-        if not mesh:
-            raise ReferenceUnavailable("I could not read the shape of this part to compare it. Try again in a moment.")
-        import meshes
-        verts, tris = mesh
-        gen_stl = meshes.write_stl(verts[tris])
-        result = deps.reference_match(kind, data, gen_stl)       # raises ReferenceUnavailable
-        result = dict(result, filename=filename[:120], part_id=part["id"], version=part["version"])
-        msg = chat_store.add_message(
-            user_id, chat_id, "assistant",
-            f"Compared version {part['version']} with {filename[:60]}. {refmatch.sentence(result)}",
-            part_id=part["id"], meta={"match": result}, max_messages=deps.max_messages + 1)
-        return {"assistant_message": msg, "match": result, "charged": 0, "balance": deps.balance(user_id)}
-    finally:
-        lock.release()
-
-
-def build_note(seconds: float) -> dict:
-    """The line shown under a template build: how long it took and that no AI was used, so it cost no AI.
-    `seconds` is the wall time of the build call, rounded to a tenth. Never below 0.1 so it never reads as 0."""
-    return {"seconds": max(0.1, round(float(seconds), 1)), "ai": False, "ai_cost": 0}
-
-
-def _build_candidates(deps: Deps, user_id: str, description: str, base_spec: dict, source: str,
-                      base_part: dict, base_result: dict | None = None) -> dict | None:
-    """
-    Build the thin and heavy versions next to an existing standard one. Returns the offer to store with the
-    message, or None when fewer than two versions exist. The standard version is the part already in the chat,
-    so it is not built again. A version that fails to build is left out; it never fails the rest.
-    """
-    plan = cand.variants(base_spec)
-    entries: list[dict] = []
-    skipped = dict(plan["skipped"])
-    ptype = base_spec["part_type"]
-    for c in plan["candidates"]:
-        if c["id"] == "standard":
-            facts = base_part.get("facts") or {}
-            entry = {"id": "standard", "label": c["label"], "thickness_mm": c["thickness_mm"], "spec": base_part["spec"],
-                     "job_id": base_part.get("job_id"), "part_id": base_part["id"], "facts": facts,
-                     "notes": base_part.get("notes") or [], "summary": cand.summarize(c, base_result, facts)}
-            entries.append(entry)
-            continue
-        try:
-            result = deps.generate(description, c["spec"], user_id, source)
-        except Exception as exc:  # noqa: BLE001
-            skipped[c["id"]] = "That version did not build. " + (str(exc)[:120] or "")
-            continue
-        if not result.get("success"):
-            skipped[c["id"]] = "That version did not build."
-            continue
-        built = _spec_from_result(result, c["spec"])
-        try:
-            built_t = float(built["parameters"].get("thickness_mm", c["thickness_mm"]))
-        except (TypeError, ValueError):
-            built_t = c["thickness_mm"]
-        facts = reqmod.facts_from_result(result, ptype)
-        c = dict(c, thickness_mm=built_t)
-        entries.append({"id": c["id"], "label": c["label"], "thickness_mm": built_t, "spec": built,
-                        "job_id": result.get("job_id"), "part_id": None, "facts": facts,
-                        "notes": _notes(result), "summary": cand.summarize(c, result, facts)})
-    # a validator correction can pull a version back onto another one; keep only distinct thicknesses
-    distinct: list[dict] = []
-    for e in entries:
-        if all(abs(e["thickness_mm"] - d["thickness_mm"]) >= 0.01 for d in distinct):
-            distinct.append(e)
-    entries = distinct
-    if len(entries) < 2:
-        return None
-    if not cand.ordering_is_sane(entries):
-        # thicker must weigh more; if the measurements disagree, say nothing rather than show a wrong comparison
-        return None
-    metric = cand.common_metric(entries)
-    for e in entries:
-        e["line"] = cand.describe(e, e["summary"], metric)
-    return {"candidates": entries, "skipped": skipped, "metric": metric, "picked": None, "picked_part_id": None}
-
-
-def _candidate_sentence(offer: dict) -> str:
-    names = [e["label"].lower() for e in offer["candidates"] if e["id"] != "standard"]
-    if not names:
-        return ""
-    return f"This one is the standard version. I also built a {' and a '.join(names)} one. Pick one below, or keep this."
-
-
-def _public_offer(offer: dict | None) -> dict | None:
-    """What the browser needs to draw the cards. Specs and job ids stay in the stored message."""
-    if not offer:
-        return None
-    return {"metric": offer.get("metric"), "skipped": offer.get("skipped") or {},
-            "picked": offer.get("picked"),
-            "candidates": [{k: e[k] for k in ("id", "label", "thickness_mm", "line", "summary")} for e in offer["candidates"]]}
-
-
-def offer_candidates(deps: Deps, user_id: str, chat_id: str, part_id: str) -> dict[str, Any]:
-    """Thin, standard and heavy versions of a part already in the chat. Free previews, no AI."""
-    lock = _lock_for(chat_id)
-    if not lock.acquire(blocking=False):
-        raise ChatBusy()
-    try:
-        if chat_store.get_chat(user_id, chat_id) is None:
-            raise ChatNotFound()
-        part = chat_store.get_part(user_id, chat_id, part_id)
-        if part is None:
-            raise PartNotFound()
-        if not cand.applies(part["spec"]):
-            raise CandidatesUnavailable("Candidate designs are available for motor mounts and L brackets.")
-        description = f"Candidate designs for {part['title']}"
-        offer = _build_candidates(deps, user_id, description, part["spec"], "rules", part)
-        if not offer:
-            why = _candidate_skip_text(part)
-            raise CandidatesUnavailable("I could not make distinct thin and heavy versions of this part." + (f" {why}." if why else ""))
-        msg = chat_store.add_message(
-            user_id, chat_id, "assistant",
-            f"Here are {len(offer['candidates'])} versions of {part['title']}. Pick one to continue from it.",
-            part_id=part["id"], meta={"candidates": offer}, max_messages=deps.max_messages + 1)
-        return {"assistant_message": msg, "candidates": _public_offer(offer), "message_id": msg["id"],
-                "balance": deps.balance(user_id), "charged": 0}
-    finally:
-        lock.release()
-
-
-def _candidate_skip_text(part: dict) -> str:
-    try:
-        return ". ".join(cand.variants(part["spec"])["skipped"].values())
-    except Exception:  # noqa: BLE001
-        return ""
-
-
-def pick_candidate(deps: Deps, user_id: str, chat_id: str, message_id: str, candidate_id: str) -> dict[str, Any]:
-    """Make one offered version the current part. Reads the spec from the stored offer, never from the browser.
-    Choosing the same version again returns the version already made; it never adds a duplicate."""
-    lock = _lock_for(chat_id)
-    if not lock.acquire(blocking=False):
-        raise ChatBusy()
-    try:
-        if chat_store.get_chat(user_id, chat_id) is None:
-            raise ChatNotFound()
-        msg = chat_store.get_message(user_id, chat_id, message_id)
-        offer = (msg or {}).get("meta", {}).get("candidates") if msg else None
-        entry = next((e for e in (offer or {}).get("candidates", []) if e.get("id") == candidate_id), None)
-        if offer is None or entry is None:
-            raise CandidateNotFound()
-
-        made = (offer.get("made") or {})
-        part = chat_store.get_part(user_id, chat_id, made[candidate_id]) if candidate_id in made else None
-        if part is None and entry.get("part_id"):
-            part = chat_store.get_part(user_id, chat_id, entry["part_id"])
-        created = False
-        if part is None:
-            part = chat_store.add_part(user_id, chat_id, job_id=entry.get("job_id"), title=part_title(entry["spec"]),
-                                       part_type=entry["spec"]["part_type"], spec=entry["spec"],
-                                       notes=entry.get("notes") or [], facts=entry.get("facts") or {})
-            created = True
-        offer["picked"] = candidate_id
-        offer["picked_part_id"] = part["id"]
-        offer.setdefault("made", {})[candidate_id] = part["id"]
-        meta = dict(msg["meta"])
-        meta["candidates"] = offer
-        chat_store.update_message_meta(user_id, chat_id, message_id, meta)
-
-        label = entry["label"].lower()
-        text = (f"Using the {label} version ({entry['thickness_mm']:g} mm plate) as version {part['version']}."
-                if created else f"Back to the {label} version, version {part['version']}.")
-        reply = chat_store.add_message(user_id, chat_id, "assistant", text, part_id=part["id"],
-                                       max_messages=deps.max_messages + 1)
-        results = reqmod.evaluate(chat_store.list_requirements(user_id, chat_id), part["facts"])
-        return {"assistant_message": reply, "part": part, "charged": 0, "balance": deps.balance(user_id),
-                "needs_credits": False, "intent": "build", "plan_source": "rules", "requirements": results,
-                "new_requirements": [], "user_message": None}
+        return finish(reply + (" " + sentence if sentence else ""), part=part)
     finally:
         lock.release()
 

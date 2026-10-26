@@ -1,5 +1,5 @@
 /* NitoCAD hero: a blueprint that draws itself stroke by stroke, then lifts into a solid.
-   Thirteen swappable machined-part scenes (gear, bracket, flange, shaft, bearing, pulley, piston, con-rod, crankshaft, brake disc, spring, bolt, enclosure). Uses the same three.js build the page already
+   Sixteen swappable scenes: two complete engines (inline-4, single-cylinder), crankshaft, camshaft and machined parts (gear, bracket, flange, shaft, bearing, pulley, piston, con-rod, brake disc, spring, bolt, enclosure). Uses the same three.js build the page already
    loads through its import map, so it adds no new network dependency.
    Pauses when off-screen or in a background tab, and respects prefers-reduced-motion. */
 import * as THREE from "three";
@@ -540,31 +540,126 @@ function boot() {
     };
   }
 
-  /* Inline-four crankshaft: 80 mm stroke, 100 mm cylinder pitch, five 50 mm mains, four 44 mm pins, eight counterweights,
-     nose and a six-hole flange. Lies along X, crank throws up and down. */
-  function buildCrank(cut) {
-    TEXBY.clear(); GLOSSY.clear();
-    const MET = 0xb9bfc8, R = 40, WT = 16, PX = [-150, -50, 50, 150], SG = [1, -1, -1, 1], P = [];
+  /* ---------- crankshaft pieces for any number of throws ---------- */
+  // PX: pin x positions; SG: +1 pin up, -1 pin down. 80 mm stroke, 50 mm mains, 44 mm pins, a counterweight on every web.
+  function crankParts(PX, SG) {
+    const MET = 0xb9bfc8, R = 40, WT = 16, P = [], n = PX.length;
     const webShape = (sg) => {
       const pts = ngon(27, 40).concat(ngon(21, 32).map((p) => [p[0], p[1] + sg * R]));
       for (let a = -62; a <= 62; a += 8) { const t = (-sg * 90 + a) * (Math.PI / 180); pts.push([50 * Math.cos(t), 50 * Math.sin(t)]); }
       return polyShape(hull(pts));
     };
-    const ax = (name, r, len, x, y, col) => mk(name, new THREE.CylinderGeometry(r, r, len, 56), col || MET, Object.assign({ rot: [0, 0, Math.PI / 2], pos: [x, y || 0, 0] }, STEEL));
+    const ax = (name, r, len, x, y) => mk(name, new THREE.CylinderGeometry(r, r, len, 56), MET, Object.assign({ rot: [0, 0, Math.PI / 2], pos: [x, y || 0, 0] }, STEEL));
     PX.forEach((px, i) => {
       P.push(ax("Rod journal " + (i + 1), 22, 28, px, SG[i] * R));
       [px - 30, px + 14].forEach((x0) => P.push(mk("Web", extrude(webShape(SG[i]), WT), MET, Object.assign({ rot: [0, Math.PI / 2, 0], pos: [x0, 0, 0] }, STEEL))));
     });
-    [-100, 0, 100].forEach((x, i) => P.push(ax("Main journal " + (i + 2), 25, 40, x, 0)));
-    P.push(ax("Main journal 1", 25, 35, -197.5, 0), ax("Main journal 5", 25, 35, 197.5, 0), ax("Nose", 15, 30, -230, 0));
+    for (let i = 0; i < n - 1; i++) { const gap = PX[i + 1] - PX[i]; if (gap > 70) P.push(ax("Main journal " + (i + 2), 25, gap - 60, (PX[i] + PX[i + 1]) / 2, 0)); }
+    const xl = PX[0] - 47.5, xr = PX[n - 1] + 47.5, xf = xr + 17.5;
+    P.push(ax("Main journal 1", 25, 35, xl), ax("Main journal " + (n + 1), 25, 35, xr), ax("Nose", 15, 30, xl - 32.5));
     const fl = discShape(45, 72);
     for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU; fl.holes.push(ring(35 * Math.cos(a), 35 * Math.sin(a), 5, 24)); }
-    P.push(mk("Flywheel flange", extrude(fl, 14), MET, Object.assign({ rot: [0, Math.PI / 2, 0], pos: [215, 0, 0], extra: new Float32Array([-252, 0, 0, 236, 0, 0]) }, STEEL)));
+    P.push(mk("Flywheel flange", extrude(fl, 14), MET, Object.assign({ rot: [0, Math.PI / 2, 0], pos: [xf, 0, 0], extra: new Float32Array([xl - 55, 0, 0, xf + 21, 0, 0]) }, STEEL)));
+    return { parts: P, x0: xl - 47.5, x1: xf + 14 };
+  }
+  function buildCrank(cut) {
+    TEXBY.clear(); GLOSSY.clear();
+    const c = crankParts([-150, -50, 50, 150], [1, -1, -1, 1]);
+    return {
+      parts: c.parts, clip: halfCut(cut), focus: null, gridStep: 10,
+      dims: (box) => cat(
+        dim([c.x0, 0, box.max.z + 10], [c.x1, 0, box.max.z + 10], [0, 0, 1], 3),
+        dim([box.max.x + 10, -45, 0], [box.max.x + 10, 45, 0], [1, 0, 0], 3)),
+      groundOffset: 0.0
+    };
+  }
+
+  /* ---------- engine pieces ---------- */
+  const PISTON_PROF = [[0, 60], [38.6, 60], [39.6, 59], [39.6, 52], [36.5, 52], [36.5, 50], [39.6, 50], [39.6, 46], [36.5, 46], [36.5, 44], [39.6, 44], [39.6, 40],
+    [36.5, 40], [36.5, 36], [39.9, 36], [39.9, 1], [38.9, 0], [33, 0], [33, 52], [0, 52]];
+  // Piston with its pin bosses and wrist pin, pin centre at height yPin on axis x.
+  function pistonParts(P, x, yPin) {
+    P.push(revolve("Piston", PISTON_PROF, 0xcfd3d9, Object.assign({ segs: 72, pos: [x, yPin - 24, 0] }, STEEL)));
+    [-26, 26].forEach((dx) => P.push(mk("Pin boss", new THREE.CylinderGeometry(17, 17, 14, 40), 0xcfd3d9, Object.assign({ rot: [0, 0, Math.PI / 2], pos: [x + dx, yPin, 0] }, STEEL))));
+    P.push(mk("Wrist pin", new THREE.CylinderGeometry(10.9, 10.9, 62, 40), 0x8f98a3, Object.assign({ rot: [0, 0, Math.PI / 2], pos: [x, yPin, 0] }, STEEL)));
+  }
+  // Connecting rod standing up from a big end at height yBig, 150 mm centres, 24 mm wide, I-beam shank.
+  function rodVertical(P, x, yBig) {
+    const L = 150, RB = 34, rb = 25, RS = 18, rs = 11.2, B = 24, WEB = 8, MET = 0xb9bfc8;
+    const big = discShape(RB, 72); big.holes.push(ring(0, 0, rb, 48));
+    const small = polyShape(ngon(RS, 56).map((p) => [p[0], p[1] + L])); small.holes.push(ring(0, L, rs, 36));
+    const tp = (pts) => pts.map((p) => [p[1], p[0]]);
+    const railA = polyShape(tp([[26, 15], [137, 10], [137, 6], [26, 11]]));
+    const railB = polyShape(tp([[26, -15], [26, -11], [137, -6], [137, -10]]));
+    const web = polyShape(tp([[26, 11], [137, 6], [137, -6], [26, -11]]));
+    const o = (dx) => Object.assign({ rot: [0, Math.PI / 2, 0], pos: [x - B / 2 + dx, yBig, 0] }, STEEL);
+    P.push(mk("Rod big end", extrude(big, B), MET, o(0)), mk("Rod small end", extrude(small, B), MET, o(0)),
+      mk("Rod flange", extrude(railA, B), MET, o(0)), mk("Rod flange", extrude(railB, B), MET, o(0)), mk("Rod web", extrude(web, WEB), MET, o((B - WEB) / 2)));
+  }
+  // A complete engine: block, crankshaft, pistons, rods, head, cover, plugs, ports, manifolds, sump, flywheel, pulley.
+  // 80 mm bore, 80 mm stroke, 150 mm rods. Cylinders at the ends of their strokes (TDC or BDC), so every rod stands vertical.
+  function engineParts(PX, SG) {
+    const MET = 0xaab3c0, R = 40, LR = 150, DECK = 227, P = [], n = PX.length, BL = { r: 0.55, m: 0.35 }, flat = [-Math.PI / 2, 0, 0];
+    const c = crankParts(PX, SG);
+    c.parts.forEach((p) => P.push(p));
+    PX.forEach((px, i) => { pistonParts(P, px, SG[i] * R + LR); rodVertical(P, px, SG[i] * R); });
+    const cx = (PX[0] + PX[n - 1]) / 2, Lb = (PX[n - 1] - PX[0]) + 130;
+    const outline = () => polyShape(rrPts(Lb, 110, 6, 6).map((p) => [p[0] + cx, p[1]]));
+    const deck = outline(); PX.forEach((px) => deck.holes.push(ring(px, 0, 40.3, 64)));
+    P.push(mk("Cylinder block", extrude(deck, DECK - 75), MET, Object.assign({ rot: flat, pos: [0, 75, 0] }, BL)));
+    [-1, 1].forEach((s) => P.push(mk("Crankcase wall", new THREE.BoxGeometry(Lb, 165, 10), MET, Object.assign({ pos: [cx, -7.5, s * 50] }, BL))));
+    [-1, 1].forEach((s) => P.push(mk("Crankcase end", new THREE.BoxGeometry(10, 165, 110), MET, Object.assign({ pos: [cx + s * (Lb / 2 - 5), -7.5, 0] }, BL))));
+    P.push(mk("Oil sump", new THREE.BoxGeometry(Lb - 20, 40, 100), 0x8d96a3, Object.assign({ pos: [cx, -110, 0] }, BL)));
+    P.push(mk("Cylinder head", extrude(outline(), 40), 0xb9c1cc, Object.assign({ rot: flat, pos: [0, DECK, 0] }, BL)));
+    P.push(mk("Cam cover", new THREE.BoxGeometry(Math.max(60, Lb - 50), 36, 70), 0x8d96a3, Object.assign({ pos: [cx, DECK + 58, 0] }, BL)));
+    PX.forEach((px) => {
+      P.push(mk("Spark plug", new THREE.CylinderGeometry(7, 7, 38, 24), 0xe3e6ea, { r: 0.35, m: 0.5, pos: [px, DECK + 95, 0] }));
+      [-1, 1].forEach((s) => P.push(mk("Port", new THREE.CylinderGeometry(15, 15, 30, 32), MET, Object.assign({ rot: [Math.PI / 2, 0, 0], pos: [px, DECK + 22, s * 70] }, BL))));
+    });
+    const ml = Math.max(40, (PX[n - 1] - PX[0]) + 60);
+    [-1, 1].forEach((s) => P.push(mk("Manifold", new THREE.CylinderGeometry(21, 21, ml, 40), 0x8d96a3, Object.assign({ rot: [0, 0, Math.PI / 2], pos: [cx, DECK + 22, s * 90] }, BL))));
+    P.push(revolve("Flywheel", [[0, 0], [126, 0], [130, 4], [130, 24], [126, 28], [0, 28]], 0x9aa0a8, Object.assign({ segs: 96, rot: [0, 0, Math.PI / 2], pos: [c.x1 + 28, 0, 0] }, STEEL)));
+    P.push(revolve("Crank pulley", [[0, 0], [24, 0], [24, 8], [50, 8], [50, 12], [46, 17], [50, 22], [50, 26], [24, 26], [24, 36], [0, 36]], 0x9aa0a8, Object.assign({ segs: 72, rot: [0, 0, Math.PI / 2], pos: [c.x0 + 24, 0, 0] }, STEEL)));
+    return P;
+  }
+  const engineDims = (box) => cat(
+    dim([box.min.x, box.min.y, box.max.z + 12], [box.max.x, box.min.y, box.max.z + 12], [0, 0, 1], 4),
+    dim([box.max.x + 12, box.min.y, 0], [box.max.x + 12, box.max.y, 0], [1, 0, 0], 4));
+  function buildEngine4(cut) {
+    TEXBY.clear(); GLOSSY.clear();
+    return { parts: engineParts([-150, -50, 50, 150], [1, -1, -1, 1]), clip: halfCut(cut), focus: null, gridStep: 10, dims: engineDims, groundOffset: 0.0 };
+  }
+  function buildEngine1(cut) {
+    TEXBY.clear(); GLOSSY.clear();
+    return { parts: engineParts([0], [1]), clip: halfCut(cut), focus: null, gridStep: 10, dims: engineDims, groundOffset: 0.0 };
+  }
+
+  /* Camshaft for a four-cylinder engine: five journals, eight lobes (base circle 32 mm, 8 mm lift), timing sprocket. Lies along X. */
+  function buildCamshaft(cut) {
+    TEXBY.clear(); GLOSSY.clear();
+    const MET = 0xb9bfc8, P = [];
+    const ax = (name, r, len, x) => mk(name, new THREE.CylinderGeometry(r, r, len, 48), MET, Object.assign({ rot: [0, 0, Math.PI / 2], pos: [x, 0, 0] }, STEEL));
+    [-200, -100, 0, 100, 200].forEach((x, i) => P.push(ax("Journal " + (i + 1), 14, 30, x)));
+    P.push(mk("Core", new THREE.CylinderGeometry(10, 10, 460, 40), MET, Object.assign({ rot: [0, 0, Math.PI / 2], pos: [-10, 0, 0], extra: new Float32Array([-262, 0, 0, 232, 0, 0]) }, STEEL)));
+    const lobe = (psi) => {
+      const pts = [];
+      for (let k = 0; k < 90; k++) {
+        const a = (k / 90) * TAU, d = Math.atan2(Math.sin(a - psi), Math.cos(a - psi)), r = 16 + 8 * Math.pow(Math.max(0, Math.cos(d * 1.8)), 2);
+        pts.push([r * Math.cos(a), r * Math.sin(a)]);
+      }
+      return polyShape(pts);
+    };
+    [-150, -50, 50, 150].forEach((px, i) => [-25, 25].forEach((dx, j) =>
+      P.push(mk("Cam lobe", extrude(lobe(((i * 90 + j * 45 + 20) * Math.PI) / 180), 12), MET, Object.assign({ rot: [0, Math.PI / 2, 0], pos: [px + dx - 6, 0, 0] }, STEEL)))));
+    const teeth = [];
+    for (let k = 0; k < 72; k++) { const a = (k / 72) * TAU, r = k % 2 === 0 ? 38 : 34; teeth.push([r * Math.cos(a), r * Math.sin(a)]); }
+    const spr = polyShape(teeth); spr.holes.push(ring(0, 0, 10, 32));
+    P.push(mk("Timing sprocket", extrude(spr, 12), MET, Object.assign({ rot: [0, Math.PI / 2, 0], pos: [-246, 0, 0] }, STEEL)));
     return {
       parts: P, clip: halfCut(cut), focus: null, gridStep: 10,
       dims: (box) => cat(
-        dim([-245, 0, box.max.z + 10], [229, 0, box.max.z + 10], [0, 0, 1], 3),
-        dim([box.max.x + 10, -45, 0], [box.max.x + 10, 45, 0], [1, 0, 0], 3)),
+        dim([-246, 0, box.max.z + 8], [220, 0, box.max.z + 8], [0, 0, 1], 3),
+        dim([box.max.x + 8, -38, 0], [box.max.x + 8, 38, 0], [1, 0, 0], 3)),
       groundOffset: 0.0
     };
   }
@@ -674,6 +769,30 @@ function boot() {
 
   const SCENES = [
     {
+      id: "engine-4", label: "Inline-4 engine", build: buildEngine4, unit: "mm", partCount: 26,
+      prompt: "Inline-4 engine, 80 mm bore, 80 mm stroke, 100 mm bore pitch, 150 mm connecting rods",
+      alt: "An inline four-cylinder engine with pistons, connecting rods and crankshaft drawn as a blueprint line by line, then turning into a solid 3D model",
+      envelope: "length × depth × height",
+      cam: { from: { az: 0.0, el: 0.7 }, to: { az: 0.5, el: 0.3 } },
+      camCut: { from: { az: 0.0, el: 0.7 }, to: { az: 0.12, el: 0.22 } }
+    },
+    {
+      id: "engine-1", label: "Single-cyl engine", build: buildEngine1, unit: "mm", partCount: 14,
+      prompt: "Single-cylinder engine, 80 mm bore, 80 mm stroke, 150 mm connecting rod",
+      alt: "A single-cylinder engine with piston, connecting rod and crankshaft drawn as a blueprint line by line, then turning into a solid 3D model",
+      envelope: "length × depth × height",
+      cam: { from: { az: 0.0, el: 0.7 }, to: { az: 0.55, el: 0.3 } },
+      camCut: { from: { az: 0.0, el: 0.7 }, to: { az: 0.14, el: 0.22 } }
+    },
+    {
+      id: "camshaft", label: "Camshaft", build: buildCamshaft, unit: "mm", partCount: 1,
+      prompt: "Camshaft for a 4-cylinder engine, 8 lobes, 5 journals, 100 mm cylinder pitch",
+      alt: "A camshaft with eight lobes drawn as a blueprint line by line, then turning into a solid 3D model",
+      envelope: "length × depth × height",
+      cam: { from: { az: 0.0, el: 1.0 }, to: { az: 0.4, el: 0.35 } },
+      camCut: { from: { az: 0.0, el: 1.0 }, to: { az: 0.14, el: 0.3 } }
+    },
+    {
       id: "gear", label: "Gear", build: buildGear, unit: "mm", partCount: 1,
       prompt: "Spur gear, module 2, 20 teeth, 10 mm thick, 5 mm bore",
       alt: "A 20-tooth spur gear drawn as a blueprint line by line, then turning into a solid 3D model",
@@ -778,9 +897,21 @@ function boot() {
       camCut: { from: { az: 0.2, el: 1.0 }, to: { az: 0.25, el: 0.5 } }
     }
   ];
+  { const ORDER = ["gear","engine-4","engine-1","crankshaft","camshaft","piston","conrod","bearing","pulley","brake-disc","flange","shaft","bracket","spring","bolt","enclosure"]; SCENES.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id)); }
 
   /* ---------- runtime state ---------- */
   const cutBtn = document.getElementById("bpCut");
+  // The tab row is built from the scene list, so the tabs can never disagree with the scenes that are loaded.
+  const tabRow = stage.parentNode.querySelector(".bp-tabs");
+  if (tabRow) {
+    tabRow.innerHTML = "";
+    SCENES.forEach((sc, k) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "bp-tab mono"; b.setAttribute("data-scene", sc.id);
+      b.setAttribute("aria-pressed", k === 0 ? "true" : "false"); b.textContent = sc.label;
+      tabRow.appendChild(b);
+    });
+  }
   const el = {
     tabs: Array.prototype.slice.call(stage.parentNode.querySelectorAll(".bp-tab")),
     prompt: document.getElementById("bpPrompt"),
@@ -992,7 +1123,7 @@ function boot() {
       S.t += dt;
       S.idle += dt * 0.16 * clamp((S.t - 5.4) / 1.5, 0, 1);
       update(S.t, 1);
-      if (!S.userPicked && S.t > 12.5) switchTo((S.index + 1) % Math.min(SCENES.length, el.tabs.length), false);
+      if (!S.userPicked && S.t > 12.5) switchTo((S.index + 1) % SCENES.length, false);
     }
     if (S.visible) renderer.render(scene, camera);
     if (dockOn) {

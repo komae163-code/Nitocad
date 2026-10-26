@@ -112,8 +112,6 @@ def facts_from_result(result: dict[str, Any], part_type: str | None = None) -> d
     if bb:
         facts["size_mm"] = [round(bb["xmax"] - bb["xmin"], 3), round(bb["ymax"] - bb["ymin"], 3), round(bb["zmax"] - bb["zmin"], 3)]
     vol, dens = measured.get("volume"), materials.density_g_cm3(material)
-    if vol:
-        facts["volume_mm3"] = round(vol, 2)  # lets candidate designs be compared with or without a material
     if vol and dens:
         facts["mass_g"] = round(vol / 1000.0 * dens, 3)
     elif vol:

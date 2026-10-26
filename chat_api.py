@@ -16,9 +16,6 @@ delete another's chat.
   POST   /chats/{id}/messages            send a message: plan -> free preview -> reply (never charges)
   POST   /chats/{id}/parts/{part}/generate   pay once for that version and unlock its full files
   POST   /chats/{id}/parts/{part}/check      manufacturability check for one process (paid once per version and process)
-  POST   /chats/{id}/parts/{part}/candidates thin, standard and heavy versions of a bracket (free previews, no AI)
-  POST   /chats/{id}/candidates/{message}/{candidate}  make one offered version the current part
-  POST   /chats/{id}/parts/{part}/match      upload a STEP or STL reference, get how much it overlaps the part (free, not kept)
   GET    /templates                          the template picker's catalogue
   POST   /chats/{id}/templates/{template}    start a free preview from a template
   POST   /chats/import                   one-time upload of chats saved in the browser
@@ -26,12 +23,11 @@ delete another's chat.
 /generate itself is unchanged and stays for API and MCP callers that send one finished
 description. The studio talks to POST /chats/{id}/messages instead.
 """
-
-import os
+from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -112,29 +108,6 @@ def _with_checks(chat: dict, user_id: str) -> dict:
     for p in chat["parts"]:
         p["checks"] = saved.get(p["id"], {})
     return chat
-
-
-def _isolated_match(kind: str, data: bytes, gen_stl: bytes) -> dict:
-    """Run the scorer in a fresh process with a time limit, like file analysis does, so an odd upload cannot hang the server."""
-    import file_analysis as fa
-    import reference_match
-    try:
-        return fa.run_isolated(reference_match.match_upload, (kind, data, gen_stl), settings.FILE_ANALYSIS_TIMEOUT_SECONDS * 2)
-    except fa.FileRejected as exc:
-        raise chat_service.ReferenceUnavailable(str(exc).replace("The file could not be read: MatchError: ", "")) from exc
-
-
-def _decorate_part(part: dict, user_id: str) -> dict:
-    """The same per-part fields a freshly built part carries (anchor, paid, AI tier, price), read from its job."""
-    part["anchor_tx"] = None
-    part["paid"] = False
-    job = db.get_job(part["job_id"]) if part.get("job_id") else None
-    if job and (job.get("user_id") or "").lower() == user_id:
-        part["anchor_tx"] = job.get("anchor_tx")
-        part["paid"] = not db.is_job_locked(job)
-        part["ai_tier"] = job.get("ai_tier") or "basic"
-        part["generate_credits"] = ai_models.generate_credits(settings, job.get("ai_tier"))
-    return part
 
 
 def _part_mesh_from(generator):
@@ -229,7 +202,6 @@ def build_router(*, generator, limiter) -> APIRouter:
             history_limit=settings.CHAT_MAX_HISTORY_MESSAGES,
             max_chats=settings.CHAT_MAX_CHATS_PER_USER,
             max_messages=settings.CHAT_MAX_MESSAGES_PER_CHAT,
-            offer_candidates=True,
         )
 
     @router.get("/chat-config")
@@ -412,77 +384,6 @@ def build_router(*, generator, limiter) -> APIRouter:
             out["part"]["ai_tier"] = "engine"
             out["part"]["generate_credits"] = ai_models.generate_credits(settings, "engine")
         return out
-
-    @router.post("/chats/{chat_id}/parts/{part_id}/candidates")
-    @limiter.limit(settings.RATE_LIMIT_GENERATE)
-    async def part_candidates(request: Request, chat_id: str, part_id: str, wallet: Wallet):
-        """Thin, standard and heavy versions of a motor mount or L bracket. Free previews, built with no AI."""
-        uid = _uid(wallet)
-        try:
-            return await run_in_threadpool(chat_service.offer_candidates, make_deps(ai_models.find(settings, "engine:rules")), uid, chat_id, part_id)
-        except (chat_service.ChatNotFound, chat_service.PartNotFound):
-            raise HTTPException(status_code=404, detail="Part not found")
-        except chat_service.CandidatesUnavailable as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except chat_service.ChatBusy:
-            raise HTTPException(status_code=409, detail="This chat is still working on your last message.")
-        except chat_store.ChatLimitError as exc:
-            raise HTTPException(status_code=429, detail=str(exc)) from exc
-
-    @router.post("/chats/{chat_id}/candidates/{message_id}/{candidate_id}")
-    @limiter.limit(settings.RATE_LIMIT_GENERATE)
-    async def pick_candidate(request: Request, chat_id: str, message_id: str, candidate_id: str, wallet: Wallet):
-        """Make one offered version the current part. The spec comes from the stored offer, not from the request."""
-        uid = _uid(wallet)
-        try:
-            out = await run_in_threadpool(chat_service.pick_candidate, make_deps(ai_models.find(settings, "engine:rules")), uid, chat_id, message_id, candidate_id)
-        except (chat_service.ChatNotFound, chat_service.CandidateNotFound):
-            raise HTTPException(status_code=404, detail="That version is no longer available.")
-        except chat_service.ChatBusy:
-            raise HTTPException(status_code=409, detail="This chat is still working on your last message.")
-        except chat_store.ChatLimitError as exc:
-            raise HTTPException(status_code=429, detail=str(exc)) from exc
-        if out.get("part"):
-            await run_in_threadpool(_decorate_part, out["part"], uid)
-        return out
-
-    @router.post("/chats/{chat_id}/parts/{part_id}/match")
-    @limiter.limit(settings.RATE_LIMIT_FILES)
-    async def match_reference(request: Request, chat_id: str, part_id: str, wallet: Wallet):
-        """How much a part overlaps a reference file (STEP, IGES, BREP, STL or OBJ). Free; the file is read and dropped."""
-        form = await request.form()
-        file = form.get("file")
-        if file is None or not hasattr(file, "read"):
-            raise HTTPException(status_code=422, detail="Attach a reference file.")
-        import file_analysis as fa
-        uid = _uid(wallet)
-        limit = settings.FILE_MAX_UPLOAD_MB * 1024 * 1024
-        data = bytearray()
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            data.extend(chunk)
-            if len(data) > limit:
-                raise HTTPException(status_code=413, detail=f"That file is over {settings.FILE_MAX_UPLOAD_MB} MB.")
-        name = os.path.basename(file.filename or "reference")[:120]
-        try:
-            kind = fa.sniff_kind(name, bytes(data))
-            if kind not in ("step", "iges", "brep", "stl", "obj"):
-                raise HTTPException(status_code=422, detail="Only STEP, IGES, BREP, STL and OBJ files can be compared.")
-            deps = make_deps(ai_models.find(settings, "engine:rules"))
-            deps.reference_match = _isolated_match
-            return await run_in_threadpool(chat_service.match_reference, deps, uid, chat_id, part_id, name, kind, bytes(data))
-        except fa.FileRejected as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except chat_service.ReferenceUnavailable as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except (chat_service.ChatNotFound, chat_service.PartNotFound):
-            raise HTTPException(status_code=404, detail="Part not found")
-        except chat_service.ChatBusy:
-            raise HTTPException(status_code=409, detail="This chat is still working on your last message.")
-        except chat_store.ChatLimitError as exc:
-            raise HTTPException(status_code=429, detail=str(exc)) from exc
 
     @router.post("/chats/{chat_id}/parts/{part_id}/check")
     @limiter.limit(settings.RATE_LIMIT_GENERATE)

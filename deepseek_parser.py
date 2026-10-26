@@ -38,7 +38,7 @@ USAGE_HOOK = None
 from domain_packs import prompt_section as _pack_prompt_section
 from feature_tree import DSL_HELP
 
-PROMPT_VERSION = "freeform-fidelity-v3-civil1+aero1+automotive-v1+arch5+housing1"
+PROMPT_VERSION = "freeform-fidelity-v3-civil1+aero1+automotive-v1+arch5"
 
 SYSTEM_PROMPT = """You are a CAD parameter extraction system. Parse natural language descriptions of mechanical parts into structured JSON.
 
@@ -47,7 +47,7 @@ Choose exactly one part_type from this list, and extract only the parameters rel
 - motor_mount: motor_size_mm, thickness_mm, hole_diameter_mm, fillet_radius_mm
 - l_bracket: width_mm, height_mm, depth_mm, thickness_mm, hole_count, hole_diameter_mm, fillet_radius_mm
 - flat_plate: length_mm, width_mm, thickness_mm, hole_pattern ("rectangular"|"circular"), hole_count_x, hole_count_y, hole_diameter_mm, corner_fillet_mm
-- simple_box: length_mm, width_mm, height_mm, wall_thickness_mm, has_lid (bool), lid_fit_tolerance_mm
+- simple_box: length_mm, width_mm, height_mm, wall_thickness_mm, hollow (bool: true for an enclosure, a box with walls or an open-top box, false for a solid block)
 - shaft: diameter_mm, length_mm, chamfer_mm, keyway_width_mm, keyway_depth_mm
 - bearing: inner_diameter_mm, outer_diameter_mm, width_mm
 - spacer: outer_diameter_mm, inner_diameter_mm, length_mm
@@ -111,7 +111,7 @@ Worked examples (illustrative shapes, not to be copied):
 3. "Loft from a 30mm square base to a 10mm square top, 25mm tall" ->
 {"part_type":"freeform","parameters":{"operation":"loft","profiles":[{"points":[[-15,-15],[15,-15],[15,15],[-15,15]],"z":0},{"points":[[-5,-5],[5,-5],[5,5],[-5,5]],"z":25}]},"material":null,"operations":[],"confidence":0.8}
 
-HOUSING RULES: a bearing housing, pillow block, plummer block, bearing cap or any block that holds or surrounds a bearing is NOT part_type "bearing" or "std_bearing". Those two types are the bearing itself. Describe a housing as a feature_tree: a base body, a boss, a bore cut to the bearing outside diameter (a 6205 is 52 mm outside, 25 mm bore, 15 mm wide), then the mounting holes. Use "bearing" or "std_bearing" only when the person asks for the bearing itself. Never leave a required diameter out and let it default.\n\nPCB RULES: for a circuit board, return part_type "pcb_board" with only the description. The pcb planner chooses circuit blocks and checks the design, so do not put dimensions or components in parameters.
+PCB RULES: for a circuit board, return part_type "pcb_board" with only the description. The pcb planner chooses circuit blocks and checks the design, so do not put dimensions or components in parameters.
 
 CIVIL RULES: road_segment, box_culvert and retaining_wall are usually described in metres. Every _mm parameter must still be in millimetres, so 3.5 m is 3500 and a 50 m road is length_mm 50000. lane_count and barrel_count are whole numbers. Never claim a civil element meets a design code.
 

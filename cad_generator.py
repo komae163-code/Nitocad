@@ -676,9 +676,6 @@ class CADGenerator:
         if not job["success"]:
             raise GenerationError(f"Job {job_id} did not complete successfully; nothing to export")
 
-        if str(fmt).strip().lower() == "recipe":
-            return self._export_recipe(job, anchor)
-
         resolved_formats = exporters.validate_formats([fmt])
         resolved_fmt = resolved_formats[0]
         part_type = job["part_type"]
@@ -771,25 +768,6 @@ class CADGenerator:
         # /api/jobs/{job_id}/anchor/* routes in web_app.py). The `anchor`
         # argument is kept only so existing callers don't break.
 
-        return out_path, part_type
-
-    def _export_recipe(self, job: dict, anchor: bool) -> tuple[Path, str]:
-        """The recipe zip: the STEP file, spec.json and a CadQuery build script (see recipe.py)."""
-        import recipe
-
-        job_id, part_type = job["id"], job["part_type"]
-        out_path = self.output_dir / f"{job_id}_recipe.zip"
-        if out_path.exists():
-            return out_path, part_type
-        try:
-            built = recipe.build_recipe(job)
-        except recipe.RecipeUnsupported as exc:
-            raise UnsupportedFormatError(str(exc)) from exc
-        step_path, _ = self._export_format_for_job(job_id, "step", anchor)
-        try:
-            recipe.write_zip(out_path, built, step_path)
-        except OSError as exc:
-            raise GenerationError(f"RECIPE export failed: {exc}") from exc
         return out_path, part_type
 
     def _generate_single_part(

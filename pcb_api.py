@@ -14,6 +14,7 @@ A Studio PCB part is a normal job (part_type "pcb_board"), so it is charged, loc
 existing Generate flow. The package routes only add the electronics files, and refuse a job that has not
 been paid for, exactly like the STEP / IGES / DXF / PDF exports.
 """
+from __future__ import annotations
 
 import tempfile
 from pathlib import Path

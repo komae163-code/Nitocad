@@ -1,5 +1,5 @@
 """Real-geometry checks for the templates that were fixed: gear, sprocket, pulley, L-bracket, angle,
-shaft chamfer, the plate (no holes unless asked), the box (solid or hollow), the hinge and the T-bracket. Needs CadQuery/OCCT:
+shaft chamfer, the plate with no holes, the hinge and the T-bracket. Needs CadQuery/OCCT:
 
     pytest -m requires_cadquery tests/test_template_fixes.py
 
@@ -201,41 +201,6 @@ def test_plate_with_no_holes_has_none():
     assert volume(TEMPLATES["flat_plate"](fixed)) == pytest.approx(100 * 60 * 5, rel=1e-6)
 
 
-def test_a_plate_given_no_hole_counts_has_no_holes():
-    # The template used to fill in a 4 x 3 grid when the counts were left out. A plate has holes only when asked.
-    wp = TEMPLATES["flat_plate"]({"length_mm": 100, "width_mm": 60, "thickness_mm": 5, "corner_fillet_mm": 0})
-    assert volume(wp) == pytest.approx(100 * 60 * 5, rel=1e-6)
-
-
-def test_one_hole_count_on_its_own_is_a_single_row():
-    p = {"length_mm": 100, "width_mm": 60, "thickness_mm": 5, "hole_count_x": 4, "hole_diameter_mm": 5, "corner_fillet_mm": 0}
-    one_valid_solid(TEMPLATES["flat_plate"](dict(p)))
-    assert volume(TEMPLATES["flat_plate"](dict(p))) == pytest.approx(100 * 60 * 5 - 4 * math.pi / 4 * 5 ** 2 * 5, rel=1e-6)
-    p = {"length_mm": 100, "width_mm": 60, "thickness_mm": 5, "hole_count_y": 2, "hole_diameter_mm": 5, "corner_fillet_mm": 0}
-    assert volume(TEMPLATES["flat_plate"](dict(p))) == pytest.approx(100 * 60 * 5 - 2 * math.pi / 4 * 5 ** 2 * 5, rel=1e-6)
-
-
-# ---------------------------------------------------------------------------------- box
-BOX = {"length_mm": 100, "width_mm": 80, "height_mm": 50, "wall_thickness_mm": 3}
-CAVITY = 94 * 74 * 47                                                  # 3 mm walls and floor, open top
-
-
-def test_a_box_is_solid_unless_it_is_hollow():
-    assert volume(TEMPLATES["simple_box"](dict(BOX))) == pytest.approx(100 * 80 * 50, rel=1e-6)
-    wp = TEMPLATES["simple_box"](dict(BOX, hollow=True))
-    one_valid_solid(wp)
-    assert volume(wp) == pytest.approx(100 * 80 * 50 - CAVITY, rel=1e-6)
-    assert not inside(wp, 0, 0, 10) and inside(wp, 0, 0, -24)         # the cavity is open at the top, the floor is there
-
-
-def test_the_old_has_lid_name_still_hollows_the_box_and_hollow_wins_when_both_are_given():
-    assert volume(TEMPLATES["simple_box"](dict(BOX, has_lid=True))) == pytest.approx(100 * 80 * 50 - CAVITY, rel=1e-6)
-    assert volume(TEMPLATES["simple_box"](dict(BOX, has_lid=False))) == pytest.approx(100 * 80 * 50, rel=1e-6)
-    assert volume(TEMPLATES["simple_box"](dict(BOX, hollow=False, has_lid=True))) == pytest.approx(100 * 80 * 50, rel=1e-6)
-    assert volume(TEMPLATES["simple_box"](dict(BOX, hollow=True, has_lid=False))) == pytest.approx(100 * 80 * 50 - CAVITY, rel=1e-6)
-    assert volume(TEMPLATES["simple_box"](dict(BOX, hollow=True, lid_fit_tolerance_mm=0.2))) == pytest.approx(100 * 80 * 50 - CAVITY, rel=1e-6)
-
-
 # ---------------------------------------------------------------------------------- hinge
 HINGE = {"length_mm": 100, "width_mm": 30, "thickness_mm": 2, "knuckle_count": 5, "pin_diameter_mm": 3}
 
@@ -299,3 +264,27 @@ def test_t_bracket_holes_stay_on_the_part_for_any_count():
 
 def test_t_bracket_default_fillet_still_builds_one_valid_solid():
     one_valid_solid(TEMPLATES["t_bracket"]({"length_mm": 60, "cap_width_mm": 40, "stem_height_mm": 30, "thickness_mm": 4}))
+
+
+def test_a_plate_with_no_hole_counts_is_a_plain_plate():
+    """The template used to default to a 4 x 3 grid, so a plate that never mentioned holes came out with twelve."""
+    wp = TEMPLATES["flat_plate"]({"length_mm": 100, "width_mm": 60, "thickness_mm": 5, "corner_fillet_mm": 0})
+    assert volume(wp) == pytest.approx(100 * 60 * 5, rel=1e-6)
+    holes = TEMPLATES["flat_plate"]({"length_mm": 100, "width_mm": 60, "thickness_mm": 5, "corner_fillet_mm": 0, "hole_count_x": 2, "hole_count_y": 2, "hole_diameter_mm": 4})
+    assert volume(holes) == pytest.approx(100 * 60 * 5 - 4 * math.pi / 4 * 16 * 5, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------------- box
+def test_box_is_solid_by_default_and_hollow_when_asked():
+    solid = TEMPLATES["simple_box"]({"length_mm": 100, "width_mm": 80, "height_mm": 50})
+    assert volume(solid) == pytest.approx(100 * 80 * 50, rel=1e-6)
+    shell = TEMPLATES["simple_box"]({"length_mm": 100, "width_mm": 80, "height_mm": 50, "wall_thickness_mm": 3, "hollow": True})
+    one_valid_solid(shell)
+    assert volume(shell) == pytest.approx(100 * 80 * 50 - 94 * 74 * 47, rel=1e-3)         # open top: the cavity is 47 high
+    assert inside(shell, 0, 0, -24) and not inside(shell, 0, 0, 0) and not inside(shell, 0, 0, 24)   # floor, cavity, and open at the top
+
+
+def test_box_still_accepts_the_old_name_for_hollow():
+    old = TEMPLATES["simple_box"]({"length_mm": 100, "width_mm": 80, "height_mm": 50, "wall_thickness_mm": 3, "has_lid": True})
+    new = TEMPLATES["simple_box"]({"length_mm": 100, "width_mm": 80, "height_mm": 50, "wall_thickness_mm": 3, "hollow": True})
+    assert volume(old) == pytest.approx(volume(new), rel=1e-9)

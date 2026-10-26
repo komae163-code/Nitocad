@@ -21,10 +21,6 @@ def generate_flat_plate(params: dict) -> cq.Workplane:
       count evenly spaced on a circle ("circular")
     - hole_count_y: Holes in Y direction ("rectangular" only, ignored for
       "circular")
-
-    A plate has no holes unless it is given a count. Leave both counts out,
-    or set both to 0, for a plain plate. If only one count is given, the
-    other is 1, so hole_count_x=4 alone is a row of four.
     - hole_diameter_mm: Hole diameter
     - corner_fillet_mm: Corner fillet radius
     """
@@ -32,14 +28,10 @@ def generate_flat_plate(params: dict) -> cq.Workplane:
     width = params.get("width_mm", 80.0)
     thickness = params.get("thickness_mm", 5.0)
     hole_pattern = params.get("hole_pattern", "rectangular")
-    # No count means no holes. A grid is only drawn when the caller asks for one.
-    hole_count_x = params.get("hole_count_x")
-    hole_count_y = params.get("hole_count_y")
-    if hole_count_x is None and hole_count_y is None:
-        hole_count_x = hole_count_y = 0
-    else:
-        hole_count_x = 1 if hole_count_x is None else hole_count_x
-        hole_count_y = 1 if hole_count_y is None else hole_count_y
+    # A plate has no holes unless the request asks for some. (It used to default to a 4 x 3 grid, so a plate
+    # that never mentioned holes came out with twelve.)
+    hole_count_x = params.get("hole_count_x", 0)
+    hole_count_y = params.get("hole_count_y", 0)
     hole_diameter = params.get("hole_diameter_mm", 3.2)
     corner_fillet = params.get("corner_fillet_mm", 3.0)
     

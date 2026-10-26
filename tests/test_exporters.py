@@ -45,7 +45,11 @@ def flat_plate_workplane():
             "length_mm": 40.0,
             "thickness_mm": 5.0,
             "hole_diameter_mm": 6.0,
-            "hole_positions": [[10, 10], [50, 10], [10, 30], [50, 30]],
+            # Four holes, 2 x 2. A plate has no holes unless it is given a count, so this has to say so.
+            # (This fixture used to rely on the template's old default grid of 4 x 3, and passed a
+            # "hole_positions" list the template never read.)
+            "hole_count_x": 2,
+            "hole_count_y": 2,
         }
     )
 

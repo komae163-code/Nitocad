@@ -126,7 +126,7 @@ def generate_channel_bracket(params: dict) -> cq.Workplane:
     """
     Open channel bracket (U-shaped cross-section), open along one long
     side - a mounting channel, cable raceway, or cradle. Built the same
-    way simple_box.py builds a hollow open-top box (Workplane.shell() on
+    way simple_box.py builds its open-top lid box (Workplane.shell() on
     one open face), just open on a side face instead of the top, with
     mounting holes through the opposite (closed) wall.
 
@@ -147,7 +147,7 @@ def generate_channel_bracket(params: dict) -> cq.Workplane:
 
     outer = cq.Workplane("XY").box(length, width, height)
     # Open along +Y (one long side) - same Workplane.shell() call
-    # simple_box.py already uses for a hollow open-top box, just a
+    # simple_box.py already uses for its open-top lid box, just a
     # different face selector.
     result = outer.faces(">Y").shell(-wall_thickness)
 
