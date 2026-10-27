@@ -213,6 +213,14 @@ _GENERAL = ("This usually means a hole or bore is as wide as the material around
             "Check that holes and bores fit inside the part, then try again.")
 
 
+_BUILDING_GENERAL = ("The room sizes were accepted, so the problem is in building the 3D model, not in your numbers. "
+                     "Try again without furniture or schedules, or with a slightly bigger footprint.")
+
+
+def _is_building_request(text: str) -> bool:
+    return bool(re.search(r"\b(house|bungalow|duplex|villa|storey|story|bedrooms?|floor plan)\b", (text or "").lower()))
+
+
 def explain_failure(request_text: str, reason: str) -> str | None:
     """A friendly reply for a refused geometry build, or None when the failure is something else."""
     if not is_geometry_failure(reason):
@@ -223,4 +231,6 @@ def explain_failure(request_text: str, reason: str) -> str | None:
         items = []
     if items:
         return _LEAD + " Here is what in the request conflicts:\n\n" + "\n\n".join(items)
+    if _is_building_request(request_text):
+        return _LEAD + " " + _BUILDING_GENERAL + " Technical reason: " + (reason or "").strip()[:240]
     return _LEAD + " " + _GENERAL
