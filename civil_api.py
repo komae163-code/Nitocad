@@ -19,7 +19,6 @@ runs in a worker thread so it does not block other requests.
   POST /civil/loads/culvert           pressures on a buried box culvert
   POST /civil/wall/stability          cantilever wall overturning, sliding, bearing
 """
-from __future__ import annotations
 
 from dataclasses import asdict
 from typing import Annotated, Any, Callable, Literal
