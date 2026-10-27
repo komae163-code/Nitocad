@@ -30,6 +30,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable
 
+import build_hints
 import chat_store
 import conversation
 import dfm
@@ -251,11 +252,17 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
         try:
             result = deps.generate(description, plan.spec, user_id, plan.source)
         except Exception as exc:  # noqa: BLE001 - a failed preview must never break the chat
+            friendly = build_hints.explain_failure(text, str(exc))
+            if friendly:
+                return finish(friendly, meta={"error": True})
             return finish("That preview failed. You were not charged. " + (str(exc)[:200] or "Try rewording the change."),
                           meta={"error": True})
 
         if not result.get("success"):
             reason = (result.get("error") or "The preview did not complete.").strip()
+            friendly = build_hints.explain_failure(text, reason)   # plain-language reasons from the request's own numbers
+            if friendly:
+                return finish(friendly, meta={"error": True})
             return finish(f"{reason} You were not charged." if "not charged" not in reason.lower() else reason,
                           meta={"error": True})
 
