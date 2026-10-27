@@ -7,7 +7,7 @@ from typing import Any
 from .flat import resolve_flat
 from .furniture import place_furniture
 from .sheet import Sheet, merge_sheets, to_dxf, to_pdf_multi
-from .sheets import elevation_sheet, plan_sheet, section_defs, section_sheet
+from .sheets import elevation_sheet, plan_sheet, schedule_sheet, section_defs, section_sheet
 
 
 def building_sheets(model: dict[str, Any]) -> list[Sheet]:
@@ -15,6 +15,7 @@ def building_sheets(model: dict[str, Any]) -> list[Sheet]:
     out = [plan_sheet(model, k, items) for k in range(len(model["levels"]))]
     out += [elevation_sheet(model, s) for s in ("south", "east", "north", "west")]
     out += [section_sheet(model, sd) for sd in section_defs(model)]
+    out.append(schedule_sheet(model))
     return out
 
 

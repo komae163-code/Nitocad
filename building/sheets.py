@@ -10,6 +10,7 @@ import math
 from typing import Any
 
 from .model3d import ROOF_THICKNESS, gable_triangle, roof_polygon
+from .schedule import build_schedules, opening_marks
 from .sheet import Sheet
 
 WALL_FILL = "#2b2b2b"
@@ -60,6 +61,92 @@ def section_defs(model: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 # ------------------------------------------------------------------------------------ plan
+# ------------------------------------------------------------------------ plan annotation helpers
+_DIMS = "A-ANNO-DIMS"
+_MIN_LABEL_MM = 500.0       # shorter pieces get a tick but no number, so the text never overprints
+
+
+def _chain_h(sh: Sheet, xs: list[float], y: float) -> None:
+    """A continuous horizontal dimension string through the sorted positions xs, drawn at model height y."""
+    xs = sorted({round(x, 1) for x in xs})
+    if len(xs) < 2:
+        return
+    sh.line((xs[0], y), (xs[-1], y), _DIMS)
+    for x in xs:
+        sh.line((x, y - 120), (x, y + 120), _DIMS)
+    for a, b in zip(xs, xs[1:]):
+        if b - a >= _MIN_LABEL_MM:
+            sh.text(((a + b) / 2, y + 290), f"{b - a:,.0f}", 2.0, _DIMS)
+
+
+def _chain_v(sh: Sheet, ys: list[float], x: float) -> None:
+    ys = sorted({round(y, 1) for y in ys})
+    if len(ys) < 2:
+        return
+    sh.line((x, ys[0]), (x, ys[-1]), _DIMS)
+    for y in ys:
+        sh.line((x - 120, y), (x + 120, y), _DIMS)
+    for a, b in zip(ys, ys[1:]):
+        if b - a >= _MIN_LABEL_MM:
+            sh.text((x + 290, (a + b) / 2), f"{b - a:,.0f}", 2.0, _DIMS, "middle", rot=90)
+
+
+def _tag(sh: Sheet, x: float, y: float, mark: str) -> None:
+    """A door or window mark in a small box. The same mark is a row of the schedule sheet."""
+    sh.rect(x - 270, y - 170, x + 270, y + 170, "A-ANNO-TEXT")
+    sh.text((x, y), mark, 2.0, "A-ANNO-TEXT", bold=True)
+
+
+def _opening_edges(lv: dict[str, Any], wall_id: str, lo: float, hi: float) -> list[float]:
+    """Positions along one exterior wall where an opening starts or ends, plus the two ends."""
+    edges = [lo, hi]
+    for w in lv["walls"]:
+        if w["id"] != wall_id:
+            continue
+        origin = w["a"][0] if w["orient"] == "x" else w["a"][1]
+        for o in w["openings"]:
+            edges += [origin + o["offset"], origin + o["offset"] + o["width"]]
+    return edges
+
+
+def _tag_openings(sh: Sheet, model: dict[str, Any], lv: dict[str, Any]) -> None:
+    marks = opening_marks(model)
+    outward = {"ext_s": (0, -1), "ext_n": (0, 1), "ext_w": (-1, 0), "ext_e": (1, 0)}
+    for w in lv["walls"]:
+        t = w["t"]
+        origin = w["a"][0] if w["orient"] == "x" else w["a"][1]
+        for o in w["openings"]:
+            mark = marks.get(o["id"])
+            if not mark:
+                continue
+            c = origin + o["offset"] + o["width"] / 2
+            gap = t / 2 + 330
+            if o["wall"] in outward:
+                sx, sy = outward[o["wall"]]
+            elif o.get("swing"):
+                sx, sy = -o["swing"]["into"][0], -o["swing"]["into"][1]     # opposite side to the door leaf
+            else:
+                sx, sy = (0, 1) if w["orient"] == "x" else (1, 0)
+            if w["orient"] == "x":
+                _tag(sh, c, w["a"][1] + sy * gap, mark)
+            else:
+                _tag(sh, w["a"][0] + sx * (t / 2 + 400), c, mark)
+
+
+def _plan_dimensions(sh: Sheet, lv: dict[str, Any], W: float, D: float) -> None:
+    """Three strings from the building outwards, as drawn in practice: openings, wall positions, overall."""
+    xs_int = [w["a"][0] for w in lv["walls"] if w["orient"] == "y" and w["kind"] == "int"]
+    ys_int = [w["a"][1] for w in lv["walls"] if w["orient"] == "x" and w["kind"] == "int"]
+    _chain_h(sh, _opening_edges(lv, "ext_s", 0.0, W), -1100)
+    _chain_h(sh, [0.0, W] + xs_int, -2000)
+    sh.dim_h(0, W, 0, f"{W:,.0f}", -2900)
+    _chain_h(sh, _opening_edges(lv, "ext_n", 0.0, W), D + 750)
+    _chain_v(sh, [0.0, D] + ys_int, W + 900)
+    sh.dim_v(0, D, W + 1800, f"{D:,.0f}")
+    sh.text((0, -3800), "ALL DIMENSIONS IN MM. INTERNAL WALLS DIMENSIONED TO THEIR CENTRE LINES. DO NOT SCALE.",
+            2.0, "A-ANNO-TEXT", "start")
+
+
 def plan_sheet(model: dict[str, Any], level: int, furniture: list[dict[str, Any]] | None = None,
                sheet_no: str | None = None) -> Sheet:
     g, levels = model["geometry"], model["levels"]
@@ -134,8 +221,8 @@ def plan_sheet(model: dict[str, Any], level: int, furniture: list[dict[str, Any]
         sh.text((cx, cy - 50), f"{(x1 - x0) / 1000:.2f} x {(y1 - y0) / 1000:.2f} m", 2.0)
         sh.text((cx, cy - 300), f"{r['area_m2']:.1f} m2", 2.2)
 
-    sh.dim_h(0, W, 0, f"{W:,.0f}", -900)
-    sh.dim_v(0, D, W + 900, f"{D:,.0f}")
+    _tag_openings(sh, model, lv)
+    _plan_dimensions(sh, lv, W, D)
     if level == 0:
         for sd in section_defs(model):
             if sd["axis"] == "y":
@@ -300,4 +387,127 @@ def section_sheet(model: dict[str, Any], sd: dict[str, Any], sheet_no: str | Non
                 sh.poly([(p[0], p[1]) for p in gable_triangle(g, roof, z_top)], "A-WALL-CUT", True, CUT_FILL)
     sh.dim_v(0, z_top, -1500, f"{z_top:,.0f}")
     sh.text((along / 2, -g["slab"] - 900), f"SECTION {sd['id']}", 4.0, bold=True)
+    return sh
+
+
+# --------------------------------------------------------------------------------- schedules
+_ROW_PAD = 190.0
+_LINE_H = 250.0
+_CHAR_MM = 60.0          # model mm one character of the 2.2 mm schedule text takes at 1:50, with a margin
+
+
+def _where(grp: dict[str, Any], one_level: bool) -> str:
+    """'Living x2, Dining' from the stored 'L0 Living' locations, in first-seen order."""
+    counts: dict[str, int] = {}
+    for loc in grp["locations"]:
+        name = loc.split(" ", 1)[1] if one_level and " " in loc else loc
+        counts[name] = counts.get(name, 0) + 1
+    return ", ".join(n if c == 1 else f"{n} x{c}" for n, c in counts.items())
+
+
+def _wrap(text: str, width_mm: float) -> list[str]:
+    import textwrap
+    return textwrap.wrap(str(text), max(6, int((width_mm - 240) / _CHAR_MM))) or [""]
+
+
+def _table(sh: Sheet, title: str, cols: list[tuple[str, float, str]], rows: list[list[str]], y: float,
+           bold_last: bool = False, ox: float = 0.0) -> float:
+    """Draw a ruled table whose top-left corner is (ox, y). Returns the y just below it."""
+    total = sum(w for _, w, _ in cols)
+    sh.text((ox, y), title, 3.5, "A-ANNO-TEXT", "start", bold=True)
+    y -= 650.0
+    head_h = 620.0
+    sh.rect(ox, y - head_h, ox + total, y, _DIMS, "#d9d9d9")
+
+    def put(x0: float, w: float, align: str, yc: float, s: str, bold: bool = False) -> None:
+        if align == "l":
+            sh.text((x0 + 120, yc), s, 2.2, "A-ANNO-TEXT", "start", bold=bold)
+        elif align == "r":
+            sh.text((x0 + w - 120, yc), s, 2.2, "A-ANNO-TEXT", "end", bold=bold)
+        else:
+            sh.text((x0 + w / 2, yc), s, 2.2, "A-ANNO-TEXT", "middle", bold=bold)
+
+    x = ox
+    for head, w, al in cols:
+        put(x, w, al, y - head_h / 2, head, True)
+        x += w
+    top = y
+    y -= head_h
+    for ri, row in enumerate(rows):
+        wrapped = [_wrap(cell, w) for cell, (_, w, _) in zip(row, cols)]
+        h = max(len(c) for c in wrapped) * _LINE_H + _ROW_PAD
+        sh.line((ox, y - h), (ox + total, y - h), _DIMS)
+        x = ox
+        last = bold_last and ri == len(rows) - 1
+        for lines, (_, w, al) in zip(wrapped, cols):
+            for li, ln in enumerate(lines):
+                put(x, w, al, y - _ROW_PAD / 2 - _LINE_H / 2 - li * _LINE_H, ln, last)
+            x += w
+        y -= h
+    bottom = y
+    sh.rect(ox, bottom, ox + total, top, _DIMS)
+    x = ox
+    for _, w, _ in cols[:-1]:
+        x += w
+        sh.line((x, top), (x, bottom), _DIMS)
+    return bottom
+
+
+def schedule_sheet(model: dict[str, Any], sheet_no: str = "A-601") -> Sheet:
+    """Door, window and room schedules. Every mark here is the tag printed on the plans."""
+    sched = build_schedules(model)
+    one_level = len(model["levels"]) == 1
+    sh = Sheet("DOOR, WINDOW AND ROOM SCHEDULES", model["spec"]["name"], sheet_no)
+
+    door_rows = [[r["mark"], r["description"], f"{r['width']:,}", f"{r['height']:,}", str(r["count"]),
+                  _where(r, one_level)] for r in sched["doors"]]
+    if door_rows:
+        door_rows.append(["", "TOTAL", "", "", str(sum(r["count"] for r in sched["doors"])), ""])
+    win_rows = [[r["mark"], r["description"], f"{r['width']:,}", f"{r['height']:,}", f"{r['sill']:,}",
+                 f"{r['sill'] + r['height']:,}", str(r["count"]), _where(r, one_level)] for r in sched["windows"]]
+    if win_rows:
+        win_rows.append(["", "TOTAL", "", "", "", "", str(sum(r["count"] for r in sched["windows"])), ""])
+
+    y = 0.0
+    if door_rows:
+        y = _table(sh, "DOOR SCHEDULE", [("MARK", 800, "c"), ("DESCRIPTION", 2300, "l"), ("WIDTH mm", 1200, "c"),
+                                         ("HEIGHT mm", 1200, "c"), ("QTY", 700, "c"), ("LOCATIONS", 7300, "l")],
+                   door_rows, y, bold_last=True) - 1100.0
+    if win_rows:
+        y = _table(sh, "WINDOW SCHEDULE", [("MARK", 800, "c"), ("DESCRIPTION", 2300, "l"), ("WIDTH mm", 1000, "c"),
+                                           ("HEIGHT mm", 1000, "c"), ("SILL mm", 1000, "c"), ("HEAD mm", 1000, "c"),
+                                           ("QTY", 700, "c"), ("LOCATIONS", 5700, "l")],
+                   win_rows, y, bold_last=True) - 1100.0
+
+    glaz: dict[str, float] = {}
+    for lv in model["levels"]:
+        for o in lv["openings"]:
+            if o["kind"] == "window":
+                glaz[o["room"]] = glaz.get(o["room"], 0.0) + o["width"] * o["height"] / 1e6
+    room_rows, total_area = [], 0.0
+    for lv in model["levels"]:
+        for r in lv["rooms"]:
+            x0, y0, x1, y1 = r["net"]
+            g = glaz.get(r["id"], 0.0)
+            total_area += r["area_m2"]
+            room_rows.append([r["name"], f"L{lv['index']}", f"{(x1 - x0) / 1000:.2f} x {(y1 - y0) / 1000:.2f}",
+                              f"{r['area_m2']:.1f}", f"{g:.2f}" if g else "-", f"{100 * g / r['area_m2']:.0f}" if g else "-"])
+    room_rows.append(["TOTAL NET AREA", "", "", f"{total_area:.1f}", "", ""])
+    ox = 14700.0           # rooms and notes sit in a second column so the sheet stays on A2 at 1:50
+    y = _table(sh, "ROOM SCHEDULE", [("ROOM", 4100, "l"), ("LEVEL", 1000, "c"), ("SIZE m", 2300, "c"),
+                                     ("AREA m2", 1500, "c"), ("GLAZING m2", 1600, "c"), ("GLAZING %", 1500, "c")],
+               room_rows, 0.0, bold_last=True, ox=ox) - 1100.0
+
+    notes = ["NOTES",
+             "1. Marks (D1, W1 ...) are the tags printed beside each opening on the floor plans.",
+             "2. Sizes are nominal opening sizes in mm. Check them against the chosen product before ordering.",
+             "3. Sill is the height from finished floor level to the bottom of the glass. Head is sill plus height.",
+             "4. Frame, material, finish, ironmongery, glazing type and fire rating are not specified in this concept set.",
+             "5. Glazing % is window area divided by room floor area. It is a planning figure, not a daylight calculation.",
+             "6. Concept design. Not for construction."]
+    for i, line in enumerate(notes):
+        for j, part in enumerate(_wrap(line, 12000.0 + 240.0)):
+            sh.text((ox, y), part, 3.0 if i == 0 else 2.2, "A-ANNO-TEXT", "start", bold=(i == 0))
+            y -= 330.0
+        y -= 90.0
     return sh
