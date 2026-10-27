@@ -428,7 +428,7 @@ def build_router(*, generator, limiter) -> APIRouter:
         except chat_service.FilesFailed as exc:
             logger.warning("part files failed after charge, refunded: %s", exc)
             raise HTTPException(
-                status_code=500, detail="I could not build the files, so you were not charged. Please try again."
+                status_code=500, detail=f"I could not build the files, so you were not charged. Reason: {exc}"
             ) from exc
 
     return router
