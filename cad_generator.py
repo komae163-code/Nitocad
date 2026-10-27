@@ -308,6 +308,7 @@ class CADGenerator:
                     solid=workplane_for_verify,
                     stl_path=stl_path,
                     expected=None,  # expected volume/bbox filled when compiler provides them
+                    allow_multi_body=(params.part_type == "building"),
                 )
             if not vreport.passed:
                 raise GeometryValidationError(
