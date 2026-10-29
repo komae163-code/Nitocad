@@ -8,6 +8,37 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 Base is Nitocad-merged (master-v7 with the PCB, aerospace and automotive packs). The mechanical, building and
 feature-tree work from Nitocad-merged-v8 was ported on top. Both grew from 3.6.0.
 
+### Picture and drawing to CAD (raster tracing, richer DXF)
+Images and scanned drawings used to go to the vision model only, which returns a description. They now also produce
+real geometry that extrudes, edits and exports like any DXF.
+- `raster_trace.py`: traces PNG, JPG and WEBP into a flat profile. Two modes, chosen automatically: a filled silhouette
+  (photo of a part, cut-out, transparent PNG whose alpha is used as the shape) or a line drawing (scan, plot, screenshot).
+  Line drawings are moved out to the middle of the line using the line width measured around each region, so thin and
+  thick lines both land on the true outline. Even-odd nesting gives holes. Round shapes stay exact circles (radius from
+  pixel counting, no edge bias). A sheet border is dropped, text and specks are counted and ignored, and a noisy or
+  textured picture is refused. Accuracy is about half a pixel and the report says what that is in millimetres.
+- Size is never guessed. It comes from `scale_mm_per_px`, `overall_width_mm` or `overall_height_mm`. With none, the shape
+  is returned at 1 pixel = 1 mm and flagged, so the normal "make it 150 mm long" edit sets it. A dimension the vision
+  model reads is offered as a suggestion and never applied.
+- `POST /files/analyze` takes the new form fields `scale_mm_per_px`, `overall_width_mm`, `overall_height_mm`,
+  `trace_mode` (auto, silhouette, outline), `largest_only` (keep the biggest shape, for title blocks and several views) and
+  `trace_pdf` (trace page 1 of a PDF drawing, scaled from the page size and flagged as right only at 1:1).
+  `GET /files/capabilities` adds `image_tracing` and `pdf_tracing`, and lists pictures as editable when tracing is on.
+  Tracing needs no vision key. Without tracing, images behave as before (503 when no vision model is on).
+- `image_import.py`: the orchestration (trace, vision, combine), kept free of the web layer so it is tested without a
+  server. A failed vision call keeps the traced shape, and a failed trace falls back to the vision notes.
+- The file card shows how the shape was traced, where the size came from, the accuracy, and a preview of the traced
+  outline (an image data URI, so nothing in it can run). The card builder now also shows the server's rows for flat shapes.
+- `profiles.py` DXF reader: splines (rational B-splines and fit-point splines), ellipses and elliptical arcs, blocks and
+  `INSERT` (nested, scaled, rotated, arrayed, with block base points, bounded by a depth and size limit), and the mirrored
+  extrusion flag that flips arcs, circles and polylines in many exports. Units now apply through blocks. Entities that still
+  cannot be read are reported as before.
+- Dependency: `opencv-python-headless>=4.8,<4.11` (pinned for `numpy<2`).
+- Tests: `test_raster_trace.py`, `test_image_import.py` and `test_profiles_dxf_extended.py` (new), plus updates to
+  `test_file_api.py`. Pictures in the tests are drawn with known sizes, and DXF areas are worked out by hand.
+- Not covered: multi-view orthographic drawings are not reconstructed into 3D (a drawing gives one flat profile),
+  perspective photos are not rectified, and dimension annotations are read by the vision model, not by the tracer.
+
 ### Frontend design update (frontend-v14-writeup)
 Visual layer only: the new write-up, colours and styles across the site. The site is now dark only (black with a navy
 tint and glow), so the light/dark toggle and its code were removed from the Studio, `theme.js` no longer builds one, and

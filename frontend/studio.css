@@ -271,6 +271,8 @@ html[data-theme="dark"] .modal-card{background:var(--surface);}
 .filecard .fc-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
 .filecard details{margin-top:8px;font-size:.85rem;} .filecard pre{white-space:pre-wrap;max-height:160px;overflow:auto;font-size:.78rem;background:var(--fog);padding:8px;border-radius:8px;}
 html[data-theme="dark"] .filecard .fc-warn{background:#3a2f12;border-color:#5b4a1c;}
+.filecard .fc-trace{display:block;width:100%;max-height:220px;object-fit:contain;background:#fff;border:1px solid #d7dde8;border-radius:8px;margin:8px 0;}
+html[data-theme="dark"] .filecard .fc-trace{background:#1b2230;border-color:#2c3648;}
 
 /* preview-then-pay */
 .preview-tag{font-size:.75rem;color:var(--muted,#767676);align-self:center;margin-left:4px;}

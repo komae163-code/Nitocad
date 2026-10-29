@@ -62,6 +62,7 @@ class TestAccess:
         r = client.get("/files/capabilities", headers=wallet_session["auth_headers"]).json()
         assert r["max_upload_mb"] == 15 and r["cad_files"] is True and "step" in r["accepted"]
         assert r["images"] is False            # no vision key in the test environment
+        assert isinstance(r["image_tracing"], bool) and isinstance(r["pdf_tracing"], bool)
 
 
 class TestRefusals:
@@ -80,7 +81,9 @@ class TestRefusals:
         r = _post(client, wallet_session["auth_headers"], "big.step", b"0" * (16 * 1024 * 1024))
         assert r.status_code == 413 and "15 MB" in r.json()["detail"]
 
-    def test_images_say_so_when_the_reader_is_not_switched_on(self, client, wallet_session):
+    def test_images_say_so_when_no_reader_is_available(self, client, wallet_session, monkeypatch):
+        import raster_trace
+        monkeypatch.setattr(raster_trace, "available", lambda: False)      # no tracing and no vision model
         r = _post(client, wallet_session["auth_headers"], "a.png", _png())
         assert r.status_code == 503 and "not switched on" in r.json()["detail"]
 
@@ -146,3 +149,46 @@ class TestCadFiles:
         data = b"ISO-10303-21;\nHEADER;\nthis is not valid\nENDSEC;\n"
         r = _post(client, wallet_session["auth_headers"], "bad.step", data)
         assert r.status_code == 422 and "could not be read" in r.json()["detail"]
+
+
+def _plate_png() -> bytes:
+    cv2 = pytest.importorskip("cv2")
+    np = pytest.importorskip("numpy")
+    from PIL import Image
+    img = np.full((800, 1200), 255, np.uint8)
+    cv2.rectangle(img, (100, 100), (1100, 700), 0, -1)
+    cv2.circle(img, (600, 400), 50, 255, -1)
+    buf = io.BytesIO()
+    Image.fromarray(img).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _post_form(client, headers, name, data, form):
+    return client.post("/files/analyze", files={"file": (name, data, "image/png")}, data=form, headers=headers)
+
+
+class TestTracedPictures:
+    def test_a_picture_is_traced_into_an_editable_part_without_a_vision_model(self, client, wallet_session):
+        r = _post_form(client, wallet_session["auth_headers"], "plate.png", _plate_png(), {"overall_width_mm": "100"})
+        assert r.status_code == 200
+        d = r.json()
+        assert d["import_id"] and d["card"]["editable"] and d["card"]["preview_svg"].startswith("<svg")
+        assert d["analysis"]["width_mm"] == pytest.approx(100, abs=0.05) and d["analysis"]["round_holes"][0]["diameter_mm"] == pytest.approx(10, abs=0.1)
+        assert dict(d["card"]["rows"])["Size from"] == "the width you gave"
+
+    def test_without_a_scale_it_says_the_size_is_not_set(self, client, wallet_session):
+        d = _post(client, wallet_session["auth_headers"], "plate.png", _plate_png(), "image/png").json()
+        assert d["analysis"]["trace"]["needs_scale"] and any("No scale" in w for w in d["warnings"])
+
+    @pytest.mark.parametrize("form", [{"scale_mm_per_px": "0"}, {"overall_width_mm": "-5"}, {"trace_mode": "wireframe"}])
+    def test_bad_trace_options_are_refused(self, client, wallet_session, form):
+        assert _post_form(client, wallet_session["auth_headers"], "plate.png", _plate_png(), form).status_code == 422
+
+    def test_the_capabilities_list_pictures_as_editable_when_tracing_is_on(self, client, wallet_session):
+        pytest.importorskip("cv2")
+        r = client.get("/files/capabilities", headers=wallet_session["auth_headers"]).json()
+        assert r["image_tracing"] is True and "png" in r["editable"]
+
+    def test_a_blank_picture_is_refused_with_the_reason(self, client, wallet_session):
+        r = _post(client, wallet_session["auth_headers"], "blank.png", _png(), "image/png")
+        assert r.status_code == 422 and "contrast" in r.json()["detail"]

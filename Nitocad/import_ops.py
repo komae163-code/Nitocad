@@ -22,7 +22,7 @@ and so on, so the same list always gives the same part. Edits are dictionaries:
 
 x and y in a hole are millimetres from the middle of the part's footprint.
 Meshes (STL, OBJ) take only the moves: scale, scale_to, translate, rotate, mirror, ground and
-center. Solids (STEP, IGES, BREP) and shapes extruded from drawings (DXF, SVG, KiCad, Gerber)
+center. Solids (STEP, IGES, BREP) and shapes extruded from drawings (DXF, SVG, KiCad, Gerber, traced pictures)
 take scale, scale_to, hole, fillet, chamfer, translate, rotate and mirror. Drawings also have a
 thickness.
 """
@@ -34,7 +34,7 @@ import re
 from typing import Any
 
 BREP_KINDS = {"step", "iges", "brep"}
-PROFILE_KINDS = {"dxf", "svg", "kicad", "gerber"}
+PROFILE_KINDS = {"dxf", "svg", "kicad", "gerber", "image"}   # "image": a traced picture (raster_trace.py)
 MESH_KINDS = {"stl", "obj"}
 ALL_KINDS = BREP_KINDS | PROFILE_KINDS | MESH_KINDS
 MAX_EDITS = 40

@@ -431,7 +431,7 @@ def card_from_result(filename: str, kind: str, size_bytes: int, result: dict[str
         "name": filename, "kind": kind, "size_bytes": size_bytes, "rows": [], "dims": [], "features": [], "missing": [],
         "notes": [], "warnings": list(result.get("warnings") or []), "description": result.get("description") or "",
         "text": "", "numbers": [], "summary": "", "import_id": result.get("import_id"), "editable": bool(result.get("import_id")),
-        "has_preview": bool(result.get("stl_base64")),
+        "has_preview": bool(result.get("stl_base64")), "preview_svg": a.get("preview_svg"),
     }
     fmt = lambda v: f"{round(float(v), 2):g}"   # noqa: E731
     if a.get("bbox_mm"):
@@ -452,6 +452,13 @@ def card_from_result(filename: str, kind: str, size_bytes: int, result: dict[str
         if a.get("other_cutouts"):
             card["rows"].append(["Other cut-outs", str(a["other_cutouts"])])
         card["rows"].append(["Thickness used", f"{fmt(a.get('thickness_mm', 3))} mm (you can change it)"])
+        t = a.get("trace")
+        if t:
+            card["rows"].append(["Traced as", "a filled shape" if t.get("mode") == "silhouette" else "a line drawing"])
+            card["rows"].append(["Size from", {"mm_per_px": "the scale you gave", "overall_width": "the width you gave",
+                                               "overall_height": "the height you gave", "pdf_page_1_to_1": "the page size (1:1)"}
+                                .get(t.get("scale_source"), "nothing yet: 1 pixel = 1 mm, set the real size")])
+            card["rows"].append(["Accuracy", f"about {fmt(t.get('accuracy_mm', 0))} mm"])
     if a.get("triangles") is not None:
         x, y, z = a["size_mm"]
         card["rows"].append(["Overall size", f"{fmt(x)} x {fmt(y)} x {fmt(z)} mm"])

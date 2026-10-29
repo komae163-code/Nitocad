@@ -49,3 +49,4 @@ fastmcp==2.14.7
 pypdf>=4.0,<6          # text from PDF drawings
 pypdfium2>=4.30,<5     # renders PDF pages to pictures for the vision model (wheels bundle PDFium, no poppler)
 Pillow>=10.0           # checks and shrinks uploaded images
+opencv-python-headless>=4.8,<4.11   # raster_trace.py - traces pictures and scanned drawings into flat shapes (no GUI libraries, so it installs in a slim container). Pinned below 4.11 to stay compatible with numpy<2 above

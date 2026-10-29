@@ -24,9 +24,11 @@ from starlette.concurrency import run_in_threadpool
 
 import chat_store
 import file_analysis as fa
+import image_import
 import import_store
 import meshes
 import profiles
+import raster_trace
 import wallet_auth
 from config import settings
 from logging_config import get_logger
@@ -140,7 +142,7 @@ def _analyze_mesh(data: bytes, kind: str, filename: str, account: str) -> dict:
             "import_id": import_id, "warnings": warnings}
 
 
-def _analyze_pdf(data: bytes) -> dict:
+def _analyze_pdf(data: bytes, filename: str = "", account: str = "", trace_opts: dict | None = None) -> dict:
     text = fa.pdf_text(data)
     out: dict = {"text_excerpt": text[:1500], "numbers_found": fa.numbers_with_units(text), "vision": None}
     warnings: list[str] = []
@@ -158,24 +160,30 @@ def _analyze_pdf(data: bytes) -> dict:
             warnings.append("The drawing reader did not answer, so only the text and numbers found in the PDF are shown.")
     else:
         warnings.append("Reading drawings as pictures is not switched on, so only the PDF's own text is shown.")
-    if not text.strip() and out["vision"] is None:
+    if not text.strip() and out["vision"] is None and trace_opts is None:
         warnings.append("This PDF has no text, it is probably a scan. It needs the picture reader to be read.")
-    return {"analysis": out, "description": description, "stl_base64": None, "warnings": warnings}
+    result = {"analysis": out, "description": description, "stl_base64": None, "warnings": warnings}
+    if trace_opts is not None:                       # asked for: trace the first page into a shape
+        def keep(kind: str, payload: bytes, meta: dict, w: list[str]) -> str | None:
+            return _keep(account, kind, filename, payload, meta, w)
+        got = image_import.trace_pdf(data, options=trace_opts, keep=keep)
+        out.update(got["analysis"])
+        result.update(description=got["description"], import_id=got["import_id"])
+        warnings.extend(got["warnings"])
+    return result
 
 
-def _analyze_image(data: bytes) -> dict:
-    if not _vision_ready():
-        raise HTTPException(status_code=503, detail="Reading images is not switched on for this server yet.")
-    jpeg, media = fa.prepare_image(data)
+def _analyze_image(data: bytes, filename: str, account: str, opts: dict) -> dict:
+    """A picture or scanned drawing: traced into an editable flat shape, and read by the vision model if one is on."""
+    def keep(kind: str, payload: bytes, meta: dict, warnings: list[str]) -> str | None:
+        return _keep(account, kind, filename, payload, meta, warnings)
     try:
-        v = _vision([(jpeg, media)], "")
-    except fa.FileRejected:
-        raise
-    except Exception as e:                           # noqa: BLE001
-        logger.warning("vision call failed on an image: %s", type(e).__name__)
-        raise HTTPException(status_code=502, detail="The image reader did not answer. Try again in a moment.") from e
-    return {"analysis": {"vision": v}, "description": v["description"] or None, "stl_base64": None,
-            "warnings": ["Check every number against your drawing before you build. Photos without a scale give no reliable sizes."]}
+        return image_import.analyze_image(data, options=opts, vision=_vision if _vision_ready() else None, keep=keep)
+    except image_import.ReaderUnavailable:
+        raise HTTPException(status_code=503, detail="Reading images is not switched on for this server yet.") from None
+    except image_import.ReaderFailed:
+        logger.warning("vision call failed on an image")
+        raise HTTPException(status_code=502, detail="The image reader did not answer. Try again in a moment.") from None
 
 
 def build_router(*, limiter) -> APIRouter:
@@ -189,12 +197,20 @@ def build_router(*, limiter) -> APIRouter:
                 "cad_files": _have("cadquery"), "pdf_text": _have("pypdf"),
                 "pdf_pages_as_images": _have("pypdfium2") and _vision_ready(),
                 "images": _vision_ready() and _have("PIL"),
-                "editable": ["step", "stp", "iges", "igs", "brep", "dxf", "svg", "kicad_pcb", "gbr", "zip", "stl", "obj"],
+                "image_tracing": raster_trace.available(),
+                "pdf_tracing": raster_trace.available() and _have("pypdfium2"),
+                "editable": ["step", "stp", "iges", "igs", "brep", "dxf", "svg", "kicad_pcb", "gbr", "zip", "stl", "obj"]
+                            + (["png", "jpg", "jpeg", "webp"] if raster_trace.available() else []),
                 "accepted": ["step", "stp", "iges", "igs", "brep", "dxf", "svg", "kicad_pcb", "gbr", "gtl", "gbl", "gko", "gm1", "drl", "zip", "stl", "obj", "pdf", "png", "jpg", "jpeg", "webp"]}
 
     @router.post("/analyze")
     @limiter.limit(settings.RATE_LIMIT_FILES)
-    async def analyze(request: Request, wallet: Wallet, file: UploadFile = File(...), chat_id: str | None = Form(None)):
+    async def analyze(request: Request, wallet: Wallet, file: UploadFile = File(...), chat_id: str | None = Form(None),
+                      scale_mm_per_px: float | None = Form(None, gt=0, le=1e6),
+                      overall_width_mm: float | None = Form(None, gt=0, le=1e6),
+                      overall_height_mm: float | None = Form(None, gt=0, le=1e6),
+                      trace_mode: str = Form("auto", pattern="^(auto|silhouette|outline)$"),
+                      largest_only: bool = Form(False), trace_pdf: bool = Form(False)):
         account = wallet["wallet_address"].lower()
         if chat_id is not None and chat_store.get_chat(account, chat_id) is None:
             raise HTTPException(status_code=404, detail="Chat not found")
@@ -208,6 +224,8 @@ def build_router(*, limiter) -> APIRouter:
                 raise HTTPException(status_code=413, detail=f"That file is over {settings.FILE_MAX_UPLOAD_MB} MB.")
         data = bytes(data)
         name = os.path.basename(file.filename or "")[:120]
+        trace_opts = {"mm_per_px": scale_mm_per_px, "overall_width_mm": overall_width_mm,
+                      "overall_height_mm": overall_height_mm, "mode": trace_mode, "largest_only": largest_only}
         try:
             kind = fa.sniff_kind(name, data)
             _count_use(account)
@@ -222,9 +240,9 @@ def build_router(*, limiter) -> APIRouter:
             elif kind == "pdf":
                 if not _have("pypdf"):
                     raise HTTPException(status_code=503, detail="Reading PDFs is not available on this server.")
-                result = await run_in_threadpool(_analyze_pdf, data)
+                result = await run_in_threadpool(_analyze_pdf, data, name, account, trace_opts if trace_pdf else None)
             else:
-                result = await run_in_threadpool(_analyze_image, data)
+                result = await run_in_threadpool(_analyze_image, data, name, account, trace_opts)
         except fa.FileRejected as e:
             raise HTTPException(status_code=422, detail=str(e)) from e
         card = fa.card_from_result(name, kind, len(data), result)

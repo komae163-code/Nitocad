@@ -269,8 +269,9 @@ def build_profile(loops: list[list[Point]], circles: list[tuple[float, float, fl
 _DXF_UNITS_TO_MM = {0: 1.0, 1: 25.4, 2: 304.8, 3: 1609344.0, 4: 1.0, 5: 10.0, 6: 1000.0, 7: 1e6, 8: 25.4e-6, 9: 0.0254,
                     10: 914.4, 13: 1e-3, 14: 100.0, 15: 1e4, 16: 1e5, 17: 1e9}
 _SKIPPED_DXF = {"TEXT", "MTEXT", "DIMENSION", "HATCH", "POINT", "LEADER", "MLEADER", "ATTDEF", "ATTRIB", "VIEWPORT", "IMAGE", "SOLID", "3DFACE"}
-
-
+_REPORTED_DXF = ("ELLIPSE", "SPLINE", "INSERT")
+_DXF_MAX_ITEMS = 200_000          # shapes after blocks are expanded, so a block that inserts itself cannot run away
+_DXF_MAX_DEPTH = 8
 def _dxf_pairs(text: str) -> list[tuple[int, str]]:
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     out = []
@@ -280,6 +281,273 @@ def _dxf_pairs(text: str) -> list[tuple[int, str]]:
         except ValueError:
             raise ProfileError("This does not look like a text DXF file") from None
     return out
+
+
+Record = tuple[str, list[tuple[int, str]], list[list[tuple[int, str]]]]   # type, group codes, VERTEX records of a POLYLINE
+
+
+def _dxf_sections(pairs: list[tuple[int, str]]) -> dict[str, list[Record]]:
+    """Split the file into sections, and each section into entity records at every group code 0."""
+    out: dict[str, list[Record]] = {}
+    i = 0
+    while i < len(pairs):
+        c, v = pairs[i]
+        if c == 0 and v == "SECTION" and i + 1 < len(pairs) and pairs[i + 1][0] == 2:
+            name = pairs[i + 1][1]
+            recs: list[Record] = []
+            i += 2
+            while i < len(pairs) and not (pairs[i][0] == 0 and pairs[i][1] == "ENDSEC"):
+                if pairs[i][0] == 0:
+                    recs.append((pairs[i][1], [], []))
+                elif recs:
+                    recs[-1][1].append(pairs[i])
+                i += 1
+            out[name] = _join_polylines(recs)
+            continue
+        i += 1
+    return out
+
+
+def _join_polylines(recs: list[Record]) -> list[Record]:
+    """A POLYLINE is a header record followed by VERTEX records and a SEQEND. Fold them into one record."""
+    out: list[Record] = []
+    cur: Record | None = None
+    for etype, data, _ in recs:
+        if etype == "POLYLINE":
+            cur = (etype, data, [])
+            out.append(cur)
+        elif etype == "VERTEX" and cur is not None:
+            cur[2].append(data)
+        elif etype == "SEQEND":
+            cur = None
+        else:
+            cur = None
+            out.append((etype, data, []))
+    return out
+
+
+def _dxf_blocks(recs: list[Record]) -> dict[str, tuple[Point, list[Record]]]:
+    blocks: dict[str, tuple[Point, list[Record]]] = {}
+    name: str | None = None
+    base: Point = (0.0, 0.0)
+    body: list[Record] = []
+    for etype, data, extra in recs:
+        if etype == "BLOCK":
+            name = next((v for c, v in data if c == 2), None)
+            base = (_num_code(data, 10), _num_code(data, 20))
+            body = []
+        elif etype == "ENDBLK":
+            if name is not None:
+                blocks[name] = (base, body)
+            name = None
+        elif name is not None:
+            body.append((etype, data, extra))
+    return blocks
+
+
+def _num_code(data: list[tuple[int, str]], code: int, default: float = 0.0, nth: int = 0) -> float:
+    vals = [float(v) for c, v in data if c == code]
+    return vals[nth] if len(vals) > nth else default
+
+
+def _bspline_points(deg: int, knots: list[float], ctrl: list[Point], weights: list[float]) -> list[Point]:
+    """Points along a (rational) B-spline, sampled about every 0.25 mm of control polygon length."""
+    n = len(ctrl)
+    if deg < 1 or n < deg + 1 or len(knots) != n + deg + 1:
+        raise ValueError("spline data is inconsistent")
+    lo, hi = knots[deg], knots[n]
+    if not hi > lo:
+        raise ValueError("spline has no span")
+    poly_len = sum(_dist(ctrl[i], ctrl[i + 1]) for i in range(n - 1))
+    samples = int(min(3000, max(48, poly_len / 0.25)))
+    pts: list[Point] = []
+    span = deg
+    for k in range(samples + 1):
+        u = lo + (hi - lo) * k / samples
+        while span < n - 1 and u >= knots[span + 1]:
+            span += 1
+        left, right, basis = [0.0] * (deg + 1), [0.0] * (deg + 1), [0.0] * (deg + 1)
+        basis[0] = 1.0
+        for j in range(1, deg + 1):
+            left[j], right[j] = u - knots[span + 1 - j], knots[span + j] - u
+            saved = 0.0
+            for r in range(j):
+                den = right[r + 1] + left[j - r]
+                tmp = basis[r] / den if den else 0.0
+                basis[r] = saved + right[r + 1] * tmp
+                saved = left[j - r] * tmp
+            basis[j] = saved
+        sx = sy = sw = 0.0
+        for j in range(deg + 1):
+            idx = span - deg + j
+            w = basis[j] * weights[idx]
+            sx, sy, sw = sx + w * ctrl[idx][0], sy + w * ctrl[idx][1], sw + w
+        if sw == 0.0:
+            raise ValueError("spline weights cancel")
+        pts.append((sx / sw, sy / sw))
+    return pts
+
+
+def _catmull_rom(fit: list[Point], closed: bool) -> list[Point]:
+    pts: list[Point] = []
+    n = len(fit)
+    segs = n if closed else n - 1
+    for i in range(segs):
+        p0 = fit[(i - 1) % n] if (closed or i > 0) else fit[0]
+        p1, p2 = fit[i], fit[(i + 1) % n]
+        p3 = fit[(i + 2) % n] if (closed or i + 2 < n) else fit[-1]
+        for t in [k / 16 for k in range(16)]:
+            t2, t3 = t * t, t * t * t
+            pts.append(tuple(0.5 * ((2 * p1[a]) + (-p0[a] + p2[a]) * t + (2 * p0[a] - 5 * p1[a] + 4 * p2[a] - p3[a]) * t2
+                                    + (-p0[a] + 3 * p1[a] - 3 * p2[a] + p3[a]) * t3) for a in (0, 1)))  # type: ignore[arg-type]
+    if not closed:
+        pts.append(fit[-1])
+    return pts
+
+
+def _entity_geometry(etype: str, data: list[tuple[int, str]], verts: list[list[tuple[int, str]]]) -> list[tuple]:
+    """Shapes of one entity, in the drawing's own coordinates: ("path", pts), ("loop", pts) or ("circle", cx, cy, r).
+    Raises ValueError for an entity that cannot be read."""
+    f = lambda code, default=0.0, nth=0: _num_code(data, code, default, nth)      # noqa: E731
+    flip = f(230, 1.0) < 0                         # extrusion pointing down: the entity's x axis is mirrored
+    fx = (lambda x: -x) if flip else (lambda x: x)
+    if etype == "LINE":
+        return [("path", [(f(10), f(20)), (f(11), f(21))])]
+    if etype == "CIRCLE":
+        return [("circle", fx(f(10)), f(20), f(40))]
+    if etype == "ARC":
+        pts = arc_points(f(10), f(20), f(40), math.radians(f(50)), math.radians(f(51)), True)
+        return [("path", [(fx(x), y) for x, y in pts])]
+    if etype in ("LWPOLYLINE", "POLYLINE"):
+        flags = int(f(70, 0))
+        closed = flags & 1 == 1
+        if etype == "LWPOLYLINE":
+            xs = [float(v) for c, v in data if c == 10]
+            ys = [float(v) for c, v in data if c == 20]
+            cur_v, bulges = -1, {}
+            for c, v in data:                      # a bulge belongs to the vertex that precedes it
+                if c == 10:
+                    cur_v += 1
+                elif c == 42 and cur_v >= 0:
+                    bulges[cur_v] = float(v)
+            vs = [(fx(xs[n]), ys[n], bulges.get(n, 0.0) * (-1.0 if flip else 1.0)) for n in range(min(len(xs), len(ys)))]
+        else:
+            if flags & 64:
+                raise ValueError("polyface mesh")
+            vs = [(fx(_num_code(vd, 10)), _num_code(vd, 20), _num_code(vd, 42, 0.0) * (-1.0 if flip else 1.0)) for vd in verts]
+        if len(vs) < 2:
+            return []
+        pts: list[Point] = []
+        for n in range(len(vs) if closed else len(vs) - 1):
+            p0, p1 = vs[n], vs[(n + 1) % len(vs)]
+            seg = bulge_arc((p0[0], p0[1]), (p1[0], p1[1]), p0[2])
+            pts += seg if not pts else seg[1:]
+        return [("loop" if closed else "path", pts)]
+    if etype == "ELLIPSE":
+        cx, cy, mx, my, ratio = f(10), f(20), f(11), f(21), f(40, 1.0)
+        a0, a1 = f(41, 0.0), f(42, 2 * math.pi)
+        major = math.hypot(mx, my)
+        if major <= 0 or not 0 < ratio <= 1.0 + 1e-9:
+            raise ValueError("bad ellipse")
+        span = (a1 - a0) % (2 * math.pi)
+        full = span < 1e-9 or abs(span - 2 * math.pi) < 1e-9
+        span = 2 * math.pi if full else span
+        step = min(math.pi / 12, 2 * math.acos(max(0.0, 1.0 - CHORD_TOL_MM / major))) if major > CHORD_TOL_MM else math.pi / 2
+        n = int(min(4000, max(24, math.ceil(span / max(step, 1e-3)))))
+        pts = [(cx + math.cos(a0 + span * i / n) * mx - math.sin(a0 + span * i / n) * ratio * my,
+                cy + math.cos(a0 + span * i / n) * my + math.sin(a0 + span * i / n) * ratio * mx) for i in range(n + (0 if full else 1))]
+        return [("loop" if full else "path", pts)]
+    if etype == "SPLINE":
+        flags = int(f(70, 0))
+        xs = [float(v) for c, v in data if c == 10]
+        ys = [float(v) for c, v in data if c == 20]
+        ctrl = list(zip(xs, ys))
+        if ctrl:
+            deg = int(f(71, 3))
+            knots = [float(v) for c, v in data if c == 40]
+            w = [float(v) for c, v in data if c == 41]
+            weights = w if len(w) == len(ctrl) else [1.0] * len(ctrl)
+            pts = _bspline_points(deg, knots, ctrl, weights)
+        else:
+            fit = list(zip([float(v) for c, v in data if c == 11], [float(v) for c, v in data if c == 21]))
+            if len(fit) < 2:
+                raise ValueError("spline has no points")
+            pts = _catmull_rom(fit, flags & 1 == 1)
+        if len(pts) >= 4 and (flags & 1 or _dist(pts[0], pts[-1]) < 1e-6):
+            return [("loop", pts[:-1] if _dist(pts[0], pts[-1]) < 1e-6 else pts)]
+        return [("path", pts)]
+    raise ValueError("not a shape")
+
+
+def _affine(a: float, b: float, c: float, d: float, e: float, f: float):
+    return (a, b, c, d, e, f)
+
+
+def _compose(m1, m2):
+    """m1 after m2 (apply m2 first)."""
+    a1, b1, c1, d1, e1, f1 = m1
+    a2, b2, c2, d2, e2, f2 = m2
+    return (a1 * a2 + c1 * b2, b1 * a2 + d1 * b2, a1 * c2 + c1 * d2, b1 * c2 + d1 * d2,
+            a1 * e2 + c1 * f2 + e1, b1 * e2 + d1 * f2 + f1)
+
+
+def _transform_items(items: list[tuple], m) -> list[tuple]:
+    a, b, c, d, e, f = m
+
+    def pt(p: Point) -> Point:
+        return (a * p[0] + c * p[1] + e, b * p[0] + d * p[1] + f)
+    sx, sy = math.hypot(a, b), math.hypot(c, d)
+    similar = abs(sx - sy) <= 1e-9 * max(sx, sy, 1e-12) and abs(a * c + b * d) <= 1e-9 * max(sx * sy, 1e-12)
+    out: list[tuple] = []
+    for it in items:
+        if it[0] == "circle":
+            _, cx, cy, r = it
+            if similar:
+                x, y = pt((cx, cy))
+                out.append(("circle", x, y, r * sx))
+            else:                                  # a circle stretched unevenly is an ellipse
+                out.append(("loop", [pt((cx + r * math.cos(t), cy + r * math.sin(t))) for t in [2 * math.pi * i / 180 for i in range(180)]]))
+        else:
+            out.append((it[0], [pt(p) for p in it[1]]))
+    return out
+
+
+def _expand_dxf(recs: list[Record], blocks, m, depth: int, out: list[tuple], skipped: dict[str, int]) -> None:
+    for etype, data, verts in recs:
+        if len(out) > _DXF_MAX_ITEMS:
+            raise ProfileError("The drawing is too detailed")
+        if etype == "INSERT":
+            name = next((v for c, v in data if c == 2), None)
+            blk = blocks.get(name) if name else None
+            if blk is None or depth >= _DXF_MAX_DEPTH:
+                skipped["INSERT"] = skipped.get("INSERT", 0) + 1
+                continue
+            base, body = blk
+            g = lambda code, default=0.0: _num_code(data, code, default)      # noqa: E731
+            sx, sy = g(41, 1.0), g(42, 1.0)
+            rot = math.radians(g(50))
+            cols, rows = max(1, int(g(70, 1))), max(1, int(g(71, 1)))
+            if cols * rows > 10_000:
+                skipped["INSERT"] = skipped.get("INSERT", 0) + 1
+                continue
+            cr, sr = math.cos(rot), math.sin(rot)
+            for rr in range(rows):
+                for cc in range(cols):
+                    ox, oy = cc * g(44), rr * g(45)
+                    place = _affine(cr * sx, sr * sx, -sr * sy, cr * sy,
+                                    g(10) + cr * ox - sr * oy, g(20) + sr * ox + cr * oy)
+                    local = _compose(place, _affine(1, 0, 0, 1, -base[0], -base[1]))
+                    _expand_dxf(body, blocks, _compose(m, local), depth + 1, out, skipped)
+            continue
+        if etype in _SKIPPED_DXF or etype in ("VERTEX", "SEQEND", "BLOCK", "ENDBLK"):
+            skipped[etype] = skipped.get(etype, 0) + 1
+            continue
+        try:
+            items = _entity_geometry(etype, data, verts)
+        except (ValueError, ZeroDivisionError, OverflowError):
+            skipped[etype] = skipped.get(etype, 0) + 1
+            continue
+        out.extend(_transform_items(items, m))
 
 
 def parse_dxf(text: str) -> Profile:
@@ -299,90 +567,25 @@ def parse_dxf(text: str) -> Profile:
     if units == 0:
         notes.append("The drawing has no units set, so its numbers are read as millimetres")
 
-    # entity records: split at every group code 0 inside the ENTITIES section
-    ents: list[tuple[str, list[tuple[int, str]]]] = []
-    in_entities = False
-    cur: tuple[str, list[tuple[int, str]]] | None = None
-    i = 0
-    while i < len(pairs):
-        c, v = pairs[i]
-        if c == 0 and v == "SECTION" and i + 1 < len(pairs) and pairs[i + 1] == (2, "ENTITIES"):
-            in_entities = True
-            i += 2
-            continue
-        if c == 0 and v == "ENDSEC":
-            in_entities = False
-        if in_entities:
-            if c == 0:
-                cur = (v, [])
-                ents.append(cur)
-            elif cur is not None:
-                cur[1].append((c, v))
-        i += 1
+    sections = _dxf_sections(pairs)
+    ents = sections.get("ENTITIES") or []
     if not ents:
         raise ProfileError("No drawing entities were found in the DXF")
+    blocks = _dxf_blocks(sections.get("BLOCKS") or [])
 
-    paths: list[list[Point]] = []
-    loops: list[list[Point]] = []
-    circles: list[tuple[float, float, float]] = []
+    items: list[tuple] = []
     skipped: dict[str, int] = {}
+    _expand_dxf(ents, blocks, _affine(k, 0, 0, k, 0, 0), 0, items, skipped)
 
-    def f(data, code, default=0.0, nth=0):
-        vals = [float(v) for c, v in data if c == code]
-        return vals[nth] if len(vals) > nth else default
-
-    j = 0
-    while j < len(ents):
-        etype, data = ents[j]
-        j += 1
-        try:
-            if etype == "LINE":
-                paths.append([(f(data, 10) * k, f(data, 20) * k), (f(data, 11) * k, f(data, 21) * k)])
-            elif etype == "CIRCLE":
-                circles.append((f(data, 10) * k, f(data, 20) * k, f(data, 40) * k))
-            elif etype == "ARC":
-                cx, cy, r = f(data, 10) * k, f(data, 20) * k, f(data, 40) * k
-                paths.append(arc_points(cx, cy, r, math.radians(f(data, 50)), math.radians(f(data, 51)), True))
-            elif etype in ("LWPOLYLINE", "POLYLINE"):
-                verts: list[tuple[float, float, float]] = []
-                closed = int(f(data, 70, 0)) & 1 == 1
-                if etype == "LWPOLYLINE":
-                    xs = [float(v) for c, v in data if c == 10]
-                    ys = [float(v) for c, v in data if c == 20]
-                    # bulges attach to the vertex that precedes them, so walk the codes in order
-                    cur_v = -1
-                    bulges: dict[int, float] = {}
-                    for c, v in data:
-                        if c == 10:
-                            cur_v += 1
-                        elif c == 42 and cur_v >= 0:
-                            bulges[cur_v] = float(v)
-                    verts = [(xs[n] * k, ys[n] * k, bulges.get(n, 0.0)) for n in range(min(len(xs), len(ys)))]
-                else:
-                    while j < len(ents) and ents[j][0] in ("VERTEX", "SEQEND"):
-                        vt, vd = ents[j]
-                        j += 1
-                        if vt == "VERTEX":
-                            verts.append((f(vd, 10) * k, f(vd, 20) * k, f(vd, 42, 0.0)))
-                if len(verts) < 2:
-                    continue
-                pts: list[Point] = []
-                last = len(verts) if closed else len(verts) - 1
-                for n in range(last):
-                    p0, p1 = verts[n], verts[(n + 1) % len(verts)]
-                    seg = bulge_arc((p0[0], p0[1]), (p1[0], p1[1]), p0[2])
-                    pts += seg if not pts else seg[1:]
-                (loops if closed else paths).append(pts)
-            elif etype in _SKIPPED_DXF or etype in ("ELLIPSE", "SPLINE", "INSERT", "VERTEX", "SEQEND"):
-                skipped[etype] = skipped.get(etype, 0) + 1
-        except (ValueError, ZeroDivisionError):
-            skipped[etype] = skipped.get(etype, 0) + 1
-
+    paths = [it[1] for it in items if it[0] == "path"]
+    loops = [it[1] for it in items if it[0] == "loop"]
+    circles = [(it[1], it[2], it[3]) for it in items if it[0] == "circle"]
     joined, open_left = chain_paths(paths)
     loops += joined
-    for t, n in skipped.items():
-        if t in ("ELLIPSE", "SPLINE", "INSERT"):
-            notes.append(f"{n} {t.lower()} entit{'y' if n == 1 else 'ies'} skipped, which this reader does not turn into a shape")
+    for t in _REPORTED_DXF:
+        n = skipped.get(t, 0)
+        if n:
+            notes.append(f"{n} {t.lower()} entit{'y' if n == 1 else 'ies'} could not be read and {'was' if n == 1 else 'were'} skipped")
     if open_left:
         notes.append(f"{open_left} open path(s) were dropped because their ends do not meet")
     return build_profile(loops, circles, source="dxf", warnings=notes)
