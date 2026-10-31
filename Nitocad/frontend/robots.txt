@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://nitocad.vercel.app/sitemap.xml
