@@ -10,3 +10,6 @@ node_modules/
 .tanstack/
 artifacts/
 .env
+
+# Learned vehicle specs (vehicle_chat.py)
+data/spec_library/

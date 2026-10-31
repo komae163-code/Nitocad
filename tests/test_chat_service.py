@@ -11,8 +11,10 @@ U = "0xuser"
 
 
 class World:
-    def __init__(self, credits=5, plans=None, gen=None, messages_left=100, build_error=None, cost=1):
+    def __init__(self, credits=5, plans=None, gen=None, messages_left=100, build_error=None, cost=1,
+                 answer_cost=0, uses_ai=False):
         self.credits, self.refunds, self.generated, self.charges = credits, [], [], 0
+        self.answer_cost, self.uses_ai, self.answer_charges = answer_cost, uses_ai, 0
         self.plans = list(plans or [])
         self.gen = gen
         self.messages_left = messages_left
@@ -58,8 +60,16 @@ class World:
             if self.build_error:
                 raise self.build_error
 
+        def charge_credits(u, amount):
+            if self.credits < amount:
+                return None
+            self.credits -= amount
+            self.answer_charges += amount
+            return "purchased"
+
         return svc.Deps(plan=plan, generate=generate, balance=lambda u: self.credits,
                         ai_allowed=lambda u: self.messages_left > 0, ai_used=ai_used,
+                        answer_cost=self.answer_cost, uses_ai=self.uses_ai, charge_credits=charge_credits,
                         job_cost=lambda job_id: self.cost,
                         charge_job=charge_job, refund_job=refund_job, build_files=build_files)
 
@@ -309,3 +319,56 @@ def test_not_enough_credits_for_a_higher_price_reports_the_price():
     except svc.NeedCredits as exc:
         assert exc.balance == 24 and exc.cost == 25
     assert w.built == [] and w.credits == 24
+
+
+# --- credits for conversation: an AI answer costs credits, a preview does not, and nothing runs at zero ---
+
+def answer_plan(reply="Use 3 mm for a bracket this size.", source="llm"):
+    return Plan("answer", reply, None, source)
+
+
+def test_an_ai_answer_costs_one_credit():
+    cid, w = setup(), World(plans=[answer_plan()], answer_cost=1, uses_ai=True)
+    out = svc.run_turn(w.deps(), U, cid, "what thickness should a 50 mm motor bracket be?")
+    assert out["charged"] == 1 and w.credits == 4 and out["balance"] == 4 and out["part"] is None
+    assert out["assistant_message"]["content"] == "Use 3 mm for a bracket this size."
+
+
+def test_a_preview_built_by_the_ai_is_still_free():
+    cid, w = setup(), World(plans=[build_plan()], answer_cost=1, uses_ai=True)
+    out = svc.run_turn(w.deps(), U, cid, "a bracket for a motor")
+    assert out["charged"] == 0 and w.credits == 5 and out["part"]["version"] == 1
+
+
+def test_a_reply_from_the_built_in_rules_is_free():
+    cid, w = setup(), World(plans=[answer_plan("Which size?", source="rules")], answer_cost=1, uses_ai=True)
+    out = svc.run_turn(w.deps(), U, cid, "bracket")
+    assert out["charged"] == 0 and w.credits == 5
+
+
+def test_no_credits_stops_an_ai_message_before_the_model_is_asked():
+    cid, w = setup(), World(credits=0, plans=[build_plan()], answer_cost=1, uses_ai=True)
+    out = svc.run_turn(w.deps(), U, cid, "a bracket for a motor")
+    assert out["needs_credits"] is True and out["assistant_message"]["meta"]["needs_credits"] is True
+    assert w.seen_history == [] and w.generated == [] and out["part"] is None
+    assert "upgrade" in out["assistant_message"]["content"].lower()
+
+
+def test_the_engine_plan_is_never_blocked_at_zero_credits():
+    cid, w = setup(), World(credits=0, plans=[Plan("build", "", copy.deepcopy(BRACKET), "rules")], answer_cost=1, uses_ai=False)
+    out = svc.run_turn(w.deps(), U, cid, "a bracket for a motor")
+    assert out["needs_credits"] is False and out["part"]["version"] == 1 and out["charged"] == 0
+
+
+def test_the_last_credit_pays_for_one_answer_then_the_next_message_asks_to_upgrade():
+    cid, w = setup(), World(credits=1, plans=[answer_plan(), answer_plan("again")], answer_cost=1, uses_ai=True)
+    first = svc.run_turn(w.deps(), U, cid, "what material suits this?")
+    assert first["charged"] == 1 and w.credits == 0 and first["needs_credits"] is False
+    second = svc.run_turn(w.deps(), U, cid, "and the thickness?")
+    assert second["needs_credits"] is True and second["charged"] == 0 and len(w.seen_history) == 1
+
+
+def test_noting_a_requirement_is_not_charged():
+    cid, w = setup(), World(plans=[answer_plan("")], answer_cost=1, uses_ai=True)
+    out = svc.run_turn(w.deps(), U, cid, "must fit in 100 x 80 x 60 mm")
+    assert out["new_requirements"] and out["charged"] == 0 and w.credits == 5

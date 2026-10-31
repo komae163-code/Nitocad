@@ -35,8 +35,9 @@ from typing import Any, Iterable
 import mating as M
 
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
-MAX_PARTS = 40
-MAX_MATES = 120
+# No part or mate cap. Set either to an int to bring a limit back; None means unlimited.
+MAX_PARTS: int | None = None
+MAX_MATES: int | None = None
 MAX_GAP_MM = 200.0
 
 
@@ -174,7 +175,7 @@ def _validate_structure(spec: Any) -> list[str]:
     parts = spec.get("parts")
     if not isinstance(parts, list) or not parts:
         return ["assembly needs a non-empty 'parts' list"]
-    if len(parts) > MAX_PARTS:
+    if MAX_PARTS is not None and len(parts) > MAX_PARTS:
         errs.append(f"too many parts ({len(parts)}); max is {MAX_PARTS}")
     seen: set[str] = set()
     for i, p in enumerate(parts):
@@ -201,7 +202,7 @@ def _validate_structure(spec: Any) -> list[str]:
     if not isinstance(mates, list):
         errs.append("'mates' must be a list")
     else:
-        if len(mates) > MAX_MATES:
+        if MAX_MATES is not None and len(mates) > MAX_MATES:
             errs.append(f"too many mates ({len(mates)}); max is {MAX_MATES}")
         for i, m in enumerate(mates):
             if not isinstance(m, dict) or not isinstance(m.get("a"), str) or not isinstance(m.get("b"), str):

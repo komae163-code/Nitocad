@@ -8,6 +8,53 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 Base is Nitocad-merged (master-v7 with the PCB, aerospace and automotive packs). The mechanical, building and
 feature-tree work from Nitocad-merged-v8 was ported on top. Both grew from 3.6.0.
 
+### Vehicles and picture tracing in the studio (merge of Nitocad-merged-vehicle-studio and Nitocad-studio-vehicles)
+- Studio: the Assembly view starts a vehicle from five starters or free text, the chat shows the plan and edits it, the
+  Specs tab shows sizes, groups and design checks, the Files tab has the Exploded view and the Vehicle package (after
+  Generate). A **Vehicles** category in Templates lists the wheelbarrow, bicycle, two-axle cart and RC helicopter.
+- Generate teaches the vehicle library (`vehicle_chat.on_generated`). An AI plan is marked accepted; a version the person
+  changed by chatting is added as its own accepted record. The person's own words are never stored, and free-text notes
+  stay out of prompts. `VEHICLE_LIBRARY_DIR` is now a real setting (empty = `data/spec_library`, memory if unwritable).
+- Pictures: the newer tracer (silhouette and line-drawing modes, scale options, PDF page 1), the image import layer and the
+  wider DXF reader replace the earlier simple tracer. The file card has a **Trace again** form: real width, height or
+  mm per pixel, trace mode, keep-biggest-shape, and **Trace page 1** for PDFs. Free, no AI.
+- Derived vehicle values resolve in any order, so a spec read back from a database (sorted keys) still validates.
+
+### Vehicle robustness (ported from Nitocad-vehicle-fixes)
+- Planning has a time budget (`VEHICLE_PLAN_TIME_BUDGET_S`, default 120 s) shared by all model retries. No retry starts with
+  under 25 s left. A timeout builds nothing and charges nothing; the chat says it took too long and, for a new vehicle,
+  offers the closest built-in example. One model call is still limited only by `AI_TIMEOUT_SECONDS`.
+- Built vehicle packages are cached in memory (`package_cache.py`, `VEHICLE_PACKAGE_CACHE_TTL_S`, default 900 s, 0 = off).
+  The payment check always runs first. Packages over 40 MB are served but not kept. Per process.
+- Size edits are free and need no AI: "set tray_len to 900", "make the tray 900 long", "increase the wheel diameter by
+  10%", "decrease the track by 50 mm". A message that is only sizes is answered by the rules even when an AI is selected;
+  anything that also asks for parts still goes to the model. "Increase ... by N" was previously read as "set to N".
+  Whole-number sizes reject fractions.
+- Library review queue (`VEHICLE_LIBRARY_REVIEW`, default on): pressing Generate on a planned vehicle queues it instead of
+  making it an example other people's prompts can see. `python spec_library.py pending | show <id> | approve <id> | decline <id>`.
+  A queued design is never pruned to make room. Approve refuses a spec whose own design checks fail.
+- Exploded view: a flat 2D side view when three.js or WebGL is unavailable, so the page is never blank.
+- Studio: the manufacturability check button shows its price again ("Run check · 5 credits"). This fixes the two
+  `studio_panels` JS tests that failed in every earlier build.
+
+### Vehicles in the studio chat
+
+- Say what you want ("I want to create a wheelbarrow") and the chat builds a free preview of a vehicle assembly, then
+  changes it as you talk ("make the tray 900 mm long", "make the handles 100 mm longer"). Planning and editing stay free;
+  only Generate costs credits, exactly as before. With the Engine plan (no AI) the request is matched to a shipped example
+  and sizes change by plain sentences; with an AI plan the model drafts the vehicle and is checked and corrected.
+- New Vehicles category in Templates and in the Assembly view: wheelbarrow, bicycle and RC helicopter (with internals).
+  Vehicles are concept layouts: the chat says so, and nothing about them is load-rated or flight-tested.
+- Assembly details get an Exploded view button (parts drawn as bounding boxes, free, shows no paid files).
+- No limit on the number of parts or mates in an assembly (the 12-line and 20-per-line chat limits, the 40 and 50 part
+  limits and the 120 mate limit are gone). A guard at 20,000 parts stops a typo from hanging the server, and a chat
+  preview is limited to 500 parts for the same reason. The 50-part limit of the aerospace assessment endpoint is unchanged.
+- Generating a vehicle teaches its library: a version someone pays to generate becomes an example for similar requests.
+  A person's own words are never stored with it. Set VEHICLE_LIBRARY_DIR to keep what it learns across restarts.
+- Back in this build: picture and drawing to CAD (raster tracing, image import, the wider DXF reader and their tests).
+- New modules: vehicle_chat, vehicle_planner, vehicle_spec, vehicle_build, spec_library, asset_providers,
+  assembly_package, assembly_exploded.
+
 ### Picture and drawing to CAD (raster tracing, richer DXF)
 Images and scanned drawings used to go to the vision model only, which returns a description. They now also produce
 real geometry that extrudes, edits and exports like any DXF.

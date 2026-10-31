@@ -15,7 +15,9 @@ from logging_config import get_logger
 
 logger = get_logger(__name__)
 
-MAX_ASSEMBLY_PARTS = 50
+# No part cap. Set MAX_ASSEMBLY_PARTS to an int to bring one back; None means unlimited.
+MAX_ASSEMBLY_PARTS = None
+RUNAWAY_PARTS = 20_000   # not a design limit: stops a typo such as "1000000000 bolts" from hanging the server
 _MAX_COORD_MM = 1_000_000.0
 
 
@@ -26,8 +28,9 @@ def normalize_assembly_spec(raw: Any) -> list[dict[str, Any]]:
     plain message if the list is unusable."""
     if not isinstance(raw, list) or not raw:
         raise ValueError("the assembly has no parts")
-    if len(raw) > MAX_ASSEMBLY_PARTS:
-        raise ValueError(f"the assembly has more than {MAX_ASSEMBLY_PARTS} parts")
+    limit = MAX_ASSEMBLY_PARTS if MAX_ASSEMBLY_PARTS is not None else RUNAWAY_PARTS
+    if len(raw) > limit:
+        raise ValueError(f"the assembly has more than {limit} parts")
     out: list[dict[str, Any]] = []
     for i, part in enumerate(raw, start=1):
         if not isinstance(part, dict):
@@ -145,7 +148,7 @@ _LEADING_COUNT = re.compile(r"^\s*(\d{1,2}|one|two|three|four|five|six|seven|eig
 _NAME_SKIP = {"a", "an", "the", "of", "mm", "cm", "m", "x", "by", "wide", "long", "thick", "tall", "high",
               "diameter", "with", "for", "in", "on", "to", "each"}
 ASSEMBLY_PART_GAP_MM = 10.0
-MAX_COUNT_PER_PART = 20
+MAX_COUNT_PER_PART = None   # per-line count in a text description; None means unlimited (RUNAWAY_PARTS still applies)
 
 
 def legacy_assembly_example() -> list[dict[str, Any]]:
@@ -212,7 +215,7 @@ def split_assembly_description(description: str) -> list[tuple[str, int]]:
         if re.search(r"\bbrackets?\b", body, re.I) and not re.search(r"\b(?:l|t|tee|angle|channel)[- ]?brackets?\b", body, re.I):
             body = re.sub(r"\bbrackets?\b", "l bracket", body, flags=re.I)   # a plain "bracket" means the L-bracket template
         if _recognized_part_type(body):
-            parts.append({"text": body, "count": max(1, min(count, MAX_COUNT_PER_PART))})
+            parts.append({"text": body, "count": max(1, min(count, MAX_COUNT_PER_PART or RUNAWAY_PARTS))})
         elif parts:
             parts[-1]["text"] += " " + seg
     return [(p["text"], p["count"]) for p in parts]
@@ -308,16 +311,18 @@ def assembly_spec_from_parts(
             count = int(part.get("count", 1))
         except (TypeError, ValueError):
             raise ValueError(f"part {i} count must be a whole number") from None
-        if not 1 <= count <= MAX_COUNT_PER_PART:
-            raise ValueError(f"part {i} count must be from 1 to {MAX_COUNT_PER_PART}")
+        count_limit = MAX_COUNT_PER_PART or RUNAWAY_PARTS
+        if not 1 <= count <= count_limit:
+            raise ValueError(f"part {i} count must be from 1 to {count_limit}")
         corrected = _check_params(ptype, params)
         base = _snake(part.get("name") or "") or _snake(ptype)
         for _ in range(count):
             expanded.append((_unique_name(base, used), ptype, corrected, part))
     if len(expanded) < 2:
         raise ValueError("Describe at least two parts, for example: a base plate and an L bracket")
-    if len(expanded) > MAX_ASSEMBLY_PARTS:
-        raise ValueError(f"The assembly would have more than {MAX_ASSEMBLY_PARTS} parts")
+    part_limit = MAX_ASSEMBLY_PARTS if MAX_ASSEMBLY_PARTS is not None else RUNAWAY_PARTS
+    if len(expanded) > part_limit:
+        raise ValueError(f"The assembly would have more than {part_limit} parts")
 
     if layout == "custom":
         out = []

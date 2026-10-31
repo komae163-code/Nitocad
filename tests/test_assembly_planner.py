@@ -78,9 +78,17 @@ class TestValidateSpec:
         _, errors = validate_spec({"parts": [good_part(position=[0, 0])]})
         assert any("position" in e for e in errors)
 
-    def test_caps_part_count(self):
-        many = [good_part(f"p{i}") for i in range(MAX_PARTS + 1)]
-        _, errors = validate_spec({"parts": many})
+    def test_no_part_cap_by_default(self):
+        assert MAX_PARTS is None
+        many = [good_part(f"p{i}") for i in range(300)]
+        parts, errors = validate_spec({"parts": many})
+        assert not any("Too many parts" in e for e in errors)
+        assert len(parts) == 300
+
+    def test_cap_can_still_be_switched_on(self, monkeypatch):
+        import assembly_planner
+        monkeypatch.setattr(assembly_planner, "MAX_PARTS", 5)
+        _, errors = validate_spec({"parts": [good_part(f"p{i}") for i in range(6)]})
         assert any("Too many parts" in e for e in errors)
 
     def test_string_parameters_checked_against_default_type(self):

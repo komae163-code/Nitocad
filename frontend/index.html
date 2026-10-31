@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NitoCAD | The engineer that checks its own work</title>
-<meta name="description" content="Gears, shafts, pistons, brackets and more. Set what the part must do once; NitoCAD checks every version and answers PASS, FAIL or UNKNOWN. Preview free.">
+<title>NitoCAD | AI Text-to-CAD, STEP Files and Engineering Verification</title>
+<meta name="description" content="Turn plain-English descriptions into 3D CAD models. NitoCAD builds B-rep solids, checks every version against your requirements with PASS, FAIL or UNKNOWN, and exports STEP, IGES, DXF, PDF and STL.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -674,6 +674,74 @@
 <link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="adam-look.css?v=25">
 <script src="theme.js"></script>
+<!-- seo:begin -->
+<link rel="canonical" href="https://nitocad.vercel.app/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NitoCAD">
+<meta property="og:title" content="NitoCAD | AI Text-to-CAD, STEP Files and Engineering Verification">
+<meta property="og:description" content="Turn plain-English descriptions into 3D CAD models. NitoCAD builds B-rep solids, checks every version against your requirements with PASS, FAIL or UNKNOWN, and exports STEP, IGES, DXF, PDF and STL.">
+<meta property="og:url" content="https://nitocad.vercel.app/">
+<meta property="og:image" content="https://nitocad.vercel.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="NitoCAD | AI Text-to-CAD, STEP Files and Engineering Verification">
+<meta name="twitter:description" content="Turn plain-English descriptions into 3D CAD models. NitoCAD builds B-rep solids, checks every version against your requirements with PASS, FAIL or UNKNOWN, and exports STEP, IGES, DXF, PDF and STL.">
+<meta name="twitter:image" content="https://nitocad.vercel.app/og-image.png">
+<!-- seo:end -->
+<script type="application/ld+json">
+[
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "NitoCAD",
+    "url": "https://nitocad.vercel.app/",
+    "logo": "https://nitocad.vercel.app/logo-mark.png"
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "NitoCAD",
+    "url": "https://nitocad.vercel.app/",
+    "applicationCategory": "DesignApplication",
+    "operatingSystem": "Web",
+    "description": "Turn plain-English descriptions into 3D CAD models. NitoCAD builds B-rep solids, checks every version against your requirements with PASS, FAIL or UNKNOWN, and exports STEP, IGES, DXF, PDF and STL.",
+    "offers": [
+      {
+        "@type": "Offer",
+        "name": "Free",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      {
+        "@type": "Offer",
+        "name": "Pro",
+        "price": "20",
+        "priceCurrency": "USD",
+        "priceSpecification": {
+          "@type": "UnitPriceSpecification",
+          "price": "20",
+          "priceCurrency": "USD",
+          "billingDuration": "P1M"
+        }
+      },
+      {
+        "@type": "Offer",
+        "name": "Max",
+        "price": "80",
+        "priceCurrency": "USD",
+        "priceSpecification": {
+          "@type": "UnitPriceSpecification",
+          "price": "80",
+          "priceCurrency": "USD",
+          "billingDuration": "P1M"
+        }
+      }
+    ]
+  }
+]
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body class="adam">
 
@@ -899,7 +967,7 @@
       <div class="pv-foot">
         <div>
           <b>Happy with the preview?</b>
-          <span>The preview is free. Generating the STEP, IGES, DXF and PDF files uses credits, from 2 on Engine up to 40 with the strongest AI. Sign in to CAD Studio to generate and keep refining the part in the same chat.</span>
+          <span>The preview is free. The STEP, IGES, DXF and PDF files are generated in CAD Studio and are included in every plan. Sign in to CAD Studio to generate and keep refining the part in the same chat.</span>
         </div>
         <div class="pv-cta">
           <button type="button" class="btn btn-primary" id="pvGenerate">Generate files in Studio</button>
@@ -974,11 +1042,11 @@
       <div class="why-grid">
         <div class="why-item"><h3>Your numbers stay yours</h3><p>Every value you type is kept exactly as written. If NitoCAD sees a problem with a dimension, it flags it and leaves the value alone.</p></div>
         <div class="why-item"><h3>Unknown stays unknown</h3><p>When NitoCAD cannot measure something or an input is missing, it says so. It never fills the gap and calls it a pass.</p></div>
-        <div class="why-item"><h3>No charge for a failed build</h3><p>Preview every part free. If a generation fails, the credit comes back.</p></div>
+        <div class="why-item"><h3>No charge for a failed build</h3><p>Preview every part free. If a generation fails, it does not count against your plan.</p></div>
       </div>
       <ul class="today-list">
         <li><span class="k">01</span><span>Free STL preview, no wallet required</span></li>
-        <li><span class="k">02</span><span>STEP, IGES, DXF and PDF with one <span data-price="credit">0.01</span> BOT credit</span></li>
+        <li><span class="k">02</span><span>STEP, IGES, DXF and PDF in every plan</span></li>
         <li><span class="k">03</span><span>Callable by AI agents over MCP on BOT Chain</span></li>
         <li><span class="k">04</span><span>On-chain design provenance</span></li>
       </ul>
@@ -997,32 +1065,32 @@
     <div class="wrap">
       <div class="sec-head">
         <div>
-          <h2>Pay for the <em>files</em>, not the preview.</h2>
-          <p>One credit covers one generation. Every export format is included.</p>
+          <h2>Subscribe for <em>unlimited</em> projects.</h2>
+          <p>Start free. Pro and Max add Expert AI and a weekly AI allowance. Every export format is included.</p>
         </div>
         <span class="sec-idx">№ 07</span>
       </div>
       <div class="plans">
-        <div class="plan hot">
-          <span class="tier">Preview</span>
-          <div class="amt">Free</div>
+        <div class="plan">
+          <span class="tier">Free</span>
+          <div class="amt">$0</div>
           <p>Describe a part and see it in 3D. A free STL preview, no wallet required.</p>
-          <a href="#demo" class="btn btn-primary arrow">Preview free</a>
+          <a href="#demo" class="btn btn-white arrow">Preview free</a>
+        </div>
+        <div class="plan hot">
+          <span class="tier">Pro</span>
+          <div class="amt">$20<small>/month</small></div>
+          <p>Unlimited chats and projects, Standard and Expert AI, and an allowance that resets every week.</p>
+          <a href="pricing.html" class="btn btn-primary arrow">See Pro</a>
         </div>
         <div class="plan">
-          <span class="tier"><span data-price="pack1000_credits">1,000</span> credits</span>
-          <div class="amt"><span data-price="pack1000">1</span><small>BOT</small></div>
-          <p>Works out to <span data-price="rate1000">0.001</span> BOT per credit.</p>
-          <a href="pricing.html" class="btn btn-white arrow">See pricing</a>
-        </div>
-        <div class="plan">
-          <span class="tier"><span data-price="pack10000_credits">10,000</span> credits</span>
-          <div class="amt"><span data-price="pack10000">10</span><small>BOT</small></div>
-          <p>Works out to <span data-price="rate10000">0.001</span> BOT per credit.</p>
-          <a href="pricing.html" class="btn btn-white arrow">See pricing</a>
+          <span class="tier">Max</span>
+          <div class="amt">$80<small>/month</small></div>
+          <p>Everything in Pro, our most capable Expert model and a much larger weekly allowance.</p>
+          <a href="pricing.html" class="btn btn-white arrow">See Max</a>
         </div>
       </div>
-      <p class="plans-foot">Single credit: <span data-price="credit">0.01</span> BOT. Failed builds are refunded. Payments settle in native BOT on BOT Chain. <a href="pricing.html">Full pricing</a></p>
+      <p class="plans-foot">Subscriptions are billed in US dollars by card. You can also add AI usage with BOT inside CAD Studio. Failed builds do not count against your plan. <a href="pricing.html">Full pricing</a></p>
     </div>
   </section>
 
@@ -1037,11 +1105,11 @@
         <details><summary><span class="k">01</span><span>Will it tell me when it is not sure?</span></summary><div class="ans">Yes. Every check answers PASS, FAIL or UNKNOWN. UNKNOWN means NitoCAD could not measure it or an input was missing, and it is never shown as a pass.</div></details>
         <details><summary><span class="k">02</span><span>Can it certify my design?</span></summary><div class="ans">No. Aerospace results stop at &ldquo;ready for engineering review&rdquo;, civil checks are screening level and building rules are conceptual. A licensed engineer must verify anything that gets built.</div></details>
         <details><summary><span class="k">03</span><span>Does it change the numbers I type?</span></summary><div class="ans">No. Every value you type is kept exactly as written. If NitoCAD sees a problem with a dimension, it flags it and leaves the value alone.</div></details>
-        <details><summary><span class="k">04</span><span>Is the preview really free?</span></summary><div class="ans">Yes. The preview is a free STL mesh and needs no wallet. Generating the STEP, IGES, DXF and PDF files uses credits, from 2 on Engine up to 40 with the strongest AI.</div></details>
+        <details><summary><span class="k">04</span><span>Is the preview really free?</span></summary><div class="ans">Yes. The preview is a free STL mesh and needs no wallet. The STEP, IGES, DXF and PDF files are generated in CAD Studio and included in every plan.</div></details>
         <details><summary><span class="k">05</span><span>What if a build fails?</span></summary><div class="ans">You are not charged. A failed generation is refunded.</div></details>
         <details><summary><span class="k">06</span><span>Can I start from my own file?</span></summary><div class="ans">Yes. Type the part in plain English, or attach a STEP file, a DXF or a sketch.</div></details>
         <details><summary><span class="k">07</span><span>Which formats can I export?</span></summary><div class="ans">STEP, STL, IGES, DXF, PDF, GLB, 3MF and URDF.</div></details>
-        <details><summary><span class="k">08</span><span>How do I pay?</span></summary><div class="ans">Payments settle in native BOT on BOT Chain. One credit covers one generation. <a href="pricing.html">See full pricing</a>.</div></details>
+        <details><summary><span class="k">08</span><span>How do I pay?</span></summary><div class="ans">Pro and Max are billed monthly in US dollars by card. You can also add AI usage with BOT on BOT Chain inside CAD Studio. <a href="pricing.html">See full pricing</a>.</div></details>
       </div>
     </div>
   </section>

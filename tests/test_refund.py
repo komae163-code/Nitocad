@@ -8,9 +8,10 @@ WALLET = "0x" + "ab" * 20
 
 def test_purchased_credit_is_refunded(tmp_db):
     tmp_db.add_credits(WALLET, 5)
-    assert tmp_db.charge_generation(WALLET) == "purchased"
+    pool = tmp_db.charge_generation(WALLET)
+    assert pool.startswith("ledger:")
     assert tmp_db.get_credit_balance(WALLET) == 4
-    tmp_db.refund_generation(WALLET, "purchased")
+    tmp_db.refund_generation(WALLET, pool)
     assert tmp_db.get_credit_balance(WALLET) == 5
 
 
@@ -20,10 +21,11 @@ def test_subscription_credit_is_refunded(tmp_db):
         status="active", tier="starter", subscription_credits=3,
         current_period_end=(datetime.now(timezone.utc) + timedelta(days=20)).isoformat(),
     )
-    assert tmp_db.charge_generation(WALLET) == "subscription_credit"
-    assert tmp_db.get_subscription(WALLET)["subscription_credits"] == 2
-    tmp_db.refund_generation(WALLET, "subscription_credit")
-    assert tmp_db.get_subscription(WALLET)["subscription_credits"] == 3
+    pool = tmp_db.charge_generation(WALLET)
+    assert pool.startswith("ledger:")
+    assert tmp_db.get_subscription_credits(WALLET) == 2
+    tmp_db.refund_generation(WALLET, pool)
+    assert tmp_db.get_subscription_credits(WALLET) == 3
 
 
 def test_failed_jobs_do_not_count_toward_the_daily_cap(tmp_db):

@@ -78,11 +78,10 @@ class TestValidatorHook:
 
 
 class TestDrawingSet:
-    def test_nine_sheets_for_a_two_storey_house(self):
+    def test_eight_sheets_for_a_two_storey_house(self):
         model = resolve_flat(TWO_STOREY)["model"]
         titles = [s.title for s in building_sheets(model)]
-        assert len(titles) == 9 and titles[0] == "GROUND FLOOR PLAN" and "SECTION A-A" in titles
-        assert titles[-1] == "DOOR, WINDOW AND ROOM SCHEDULES"
+        assert len(titles) == 8 and titles[0] == "GROUND FLOOR PLAN" and "SECTION A-A" in titles
 
     def test_the_pdf_has_one_page_per_sheet(self):
         with tempfile.TemporaryDirectory() as d:
@@ -91,7 +90,7 @@ class TestDrawingSet:
             assert p.read_bytes().startswith(b"%PDF")
             out = subprocess.run(["qpdf", "--show-npages", str(p)], capture_output=True, text=True)
             if out.returncode == 0:
-                assert out.stdout.strip() == "9"
+                assert out.stdout.strip() == "8"
 
 
 def test_the_building_template_is_registered_and_builds_one_compound():

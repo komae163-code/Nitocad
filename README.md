@@ -988,19 +988,3 @@ MIT
   certified review. Rules live in `dfm.py` and `manufacturability.py`.
 - `GET /export/{glb|3mf|urdf}/{job_id}` and the `/link` variant return GLB, 3MF and a URDF zip. They are built on demand
   like the other formats and need the version to be unlocked with Generate (an attached mesh needs nothing).
-
-## Picture and drawing to CAD
-
-Attach a PNG, JPG or WEBP of a part or a 2D drawing and Nitocad traces it into a flat shape you can extrude, edit and export.
-
-- Works for: a dark part on a plain background (photo from straight above, cut-out), a transparent PNG, and a line drawing
-  with closed outlines (scan, plot, screenshot). Holes are found by nesting, round holes stay exact circles.
-- Does not do: a 3D model from a single photo, multi-view drawings (front, top, side) rebuilt into one solid, tilted or
-  distorted photos, or reading dimension text (the vision model does that, as a suggestion).
-- Size: pass `scale_mm_per_px`, `overall_width_mm` or `overall_height_mm` to `/files/analyze`. With none, 1 pixel = 1 mm
-  and the card says so. Then say "make it 150 mm long" in the chat to set it.
-- Accuracy is about half a pixel. A 1500 pixel wide picture of a 100 mm part is good to about 0.03 mm, and the card
-  reports the figure for your picture. Check the outline preview and the holes before you build.
-- Title blocks and several views in one drawing become several shapes. Pass `largest_only=true` to keep the biggest.
-- PDF drawings: pass `trace_pdf=true`. The size comes from the page, so it is right only if the sheet was printed 1:1.
-- DXF files now also read splines, ellipses, blocks and inserts.

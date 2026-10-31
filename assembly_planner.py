@@ -32,7 +32,8 @@ from typing import Any, Callable
 from feature_tree import DSL_HELP, validate_feature_tree
 from mates import MATE_HELP, validate_mate
 
-MAX_PARTS = 40
+# No part-count cap. Set to an int to bring one back (tests do); None means unlimited.
+MAX_PARTS: int | None = None
 POSITION_LIMIT_MM = 10_000.0
 ROTATION_LIMIT_DEG = 360.0
 # freeform takes an open-ended nested spec; "assembly" would recurse.
@@ -119,7 +120,7 @@ def validate_spec(spec: Any, catalog: dict[str, dict[str, Any]] | None = None
     parts_in = spec.get("parts") if isinstance(spec, dict) else None
     if not isinstance(parts_in, list) or not parts_in:
         return [], ['Response must be a JSON object with a non-empty "parts" list.']
-    if len(parts_in) > MAX_PARTS:
+    if MAX_PARTS is not None and len(parts_in) > MAX_PARTS:
         errors.append(f"Too many parts ({len(parts_in)}); the limit is {MAX_PARTS}.")
         parts_in = parts_in[:MAX_PARTS]
 
@@ -228,8 +229,9 @@ def planner_system_prompt(catalog: dict[str, dict[str, Any]] | None = None) -> s
         "(defaults shown; omit a parameter to keep its default).\n"
         "- Each part's local axis is +Z (shafts, tubes and plates extrude along +Z from their origin); "
         "use rotation to orient them.\n"
-        "- name: unique lowercase snake_case. Maximum "
-        f"{MAX_PARTS} parts. Parts must not overlap each other except where a fit is intended "
+        "- name: unique lowercase snake_case. "
+        + (f"Maximum {MAX_PARTS} parts. " if MAX_PARTS is not None else "")
+        + "Parts must not overlap each other except where a fit is intended "
         "(shaft through bearing bore: bore diameter equal to shaft diameter).\n"
         "- If the request cannot be built from these part types, return {\"parts\": [], \"unsupported\": \"why\"}.\n\n"
         "Placement: " + MATE_HELP + "\n\n"

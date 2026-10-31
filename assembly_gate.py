@@ -247,8 +247,8 @@ def _check(spec: Any, rep: Report) -> None:
     parts = [p for p in (params.get("parts") or []) if isinstance(p, dict)]
     labels = _labels(parts)
     _check_names(parts, labels, rep)
-    if params.get("layout") != "custom":
-        return
+    if params.get("layout") != "custom" or params.get("vehicle") is not None:
+        return        # a vehicle is checked by its own spec's design checks; parts that share a bore are meant to touch
     bodies: list[Body] = []
     for p, label in zip(parts, labels):
         if p.get("position") is not None and _vec(p.get("position")) is None:

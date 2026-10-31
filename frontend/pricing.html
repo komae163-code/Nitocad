@@ -4,20 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pricing | NitoCAD</title>
-<meta name="description" content="NitoCAD pricing: buy credits in native BOT and spend one per generation. Every export format is included.">
+<meta name="description" content="NitoCAD plans: start free, or subscribe to Pro or Max for unlimited projects, Expert AI and every export format, including STEP, IGES, DXF and PDF.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root{--ink:#1C1C1E;--ink-soft:#5E5E63;--orange:#1C1C1E;--dot:#E8601C;--orange-deep:#0E0E10;--gold:#C9A24B;--paper:#FAFAF8;--fog:#F0F0EE;--line:#E3E3E0;--radius:14px;--botchain-bright:#13A57D;}
+  :root{--ink:#1C1C1E;--ink-soft:#5E5E63;--orange:#1C1C1E;--dot:#E8601C;--orange-deep:#0E0E10;--gold:#C9A24B;--paper:#FAFAF8;--fog:#F0F0EE;--line:#E3E3E0;--radius:14px;--accent:#3B82F6;--ok:#13A57D;}
   *{box-sizing:border-box;}
   html{scroll-behavior:smooth;}
   body{margin:0;background:var(--paper);color:var(--ink);font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased;}
   a{color:var(--orange-deep);}
-  h1,h2,h3{font-family:'Fraunces',serif;color:var(--ink);font-weight:500;margin:0;}
-  h1,h2,h3{font-weight:700;}
-  main .lead,.note{font-weight:600;}
-  .mono{font-family:'IBM Plex Mono',monospace;}
+  h1,h2,h3{font-family:'Fraunces',serif;color:var(--ink);font-weight:700;margin:0;}
   .wrap{max-width:1080px;margin:0 auto;padding:0 32px;}
   :focus-visible{outline:2px solid var(--orange-deep);outline-offset:3px;}
   .sp-head{border-bottom:1px solid var(--line);}
@@ -27,43 +24,88 @@
   .sp-nav{display:flex;gap:26px;align-items:center;}
   .sp-nav a{text-decoration:none;color:var(--ink-soft);font-size:.92rem;font-weight:500;}
   .sp-nav a:hover,.sp-nav a[aria-current="page"]{color:var(--ink);}
-  .btn{display:inline-flex;align-items:center;padding:12px 22px;border-radius:999px;font-weight:600;font-size:.92rem;text-decoration:none;border:1.5px solid transparent;transition:background .15s ease,color .15s ease;}
+  .btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 22px;border-radius:999px;font:inherit;font-weight:600;font-size:.92rem;text-decoration:none;border:1.5px solid transparent;cursor:pointer;transition:background .15s ease,color .15s ease;}
   .btn-primary{background:var(--orange);color:#fff;}
   .btn-primary:hover{background:var(--orange-deep);}
   .btn-ghost{background:transparent;color:var(--ink);border-color:var(--ink);}
-  .btn-ghost:hover{background:var(--ink);color:#fff;}
+  .btn-ghost:hover{background:var(--ink);color:var(--paper);}
+  .btn[disabled]{opacity:.55;cursor:not-allowed;}
   main{padding:64px 0 88px;}
   main h1{font-size:2.6rem;line-height:1.12;margin-bottom:14px;}
-  main .lead{color:var(--ink-soft);font-size:1.08rem;line-height:1.65;max-width:58ch;margin:0 0 44px;}
-  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
-  .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:28px;display:flex;flex-direction:column;gap:12px;}
-  .card.best{border-color:var(--botchain-bright);box-shadow:0 0 0 1px var(--botchain-bright);}
+  .lead{color:var(--ink-soft);font-size:1.08rem;line-height:1.65;max-width:60ch;margin:0 0 40px;font-weight:600;}
+  .plans{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;align-items:stretch;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:28px;display:flex;flex-direction:column;gap:12px;position:relative;}
+  .card.best{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+  .badge{position:absolute;top:-12px;left:24px;background:var(--accent);color:#fff;font-size:.74rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:4px 10px;border-radius:999px;}
   .card h3{font-size:1.3rem;}
-  .amount b{font-family:'Fraunces',serif;font-size:2rem;font-weight:500;}
+  .amount b{font-family:'Fraunces',serif;font-size:2.2rem;font-weight:500;}
   .amount span{color:var(--ink-soft);font-size:.9rem;margin-left:6px;}
   .card p{margin:0;color:var(--ink-soft);line-height:1.6;font-size:.96rem;}
-  .card ul{margin:0;padding-left:18px;color:var(--ink);line-height:1.65;font-size:.94rem;}
-  .card .btn{align-self:flex-start;margin-top:auto;}
-  .note{margin-top:32px;color:var(--ink-soft);font-size:.92rem;line-height:1.65;max-width:70ch;}
-  .fmt{display:grid;grid-template-columns:140px 1fr;gap:8px 28px;padding:22px 0;border-top:1px solid var(--line);}
-  .fmt:last-of-type{border-bottom:1px solid var(--line);}
-  .fmt b{font-family:'IBM Plex Mono',monospace;font-size:1.05rem;}
-  .fmt p{margin:0;line-height:1.65;color:var(--ink-soft);}
-  .cta-row{margin-top:36px;display:flex;gap:14px;flex-wrap:wrap;}
+  .card ul{margin:0;padding-left:18px;line-height:1.7;font-size:.94rem;}
+  .card .btn{margin-top:auto;}
+  .status{font-size:.88rem;color:var(--ok);font-weight:600;min-height:1.2em;}
+  .meterbox{font-size:.88rem;color:var(--ink-soft);}
+  .meter{height:8px;border-radius:999px;background:var(--line);overflow:hidden;margin:6px 0;}
+  .meter i{display:block;height:100%;background:var(--accent);border-radius:999px;}
+  .msg{margin:18px 0 0;padding:12px 16px;border-radius:10px;border:1px solid var(--line);font-size:.94rem;display:none;}
+  .msg.show{display:block;}
+  .msg.err{border-color:#d9534f;color:#d9534f;}
+  h2.section{font-size:1.7rem;margin:64px 0 18px;}
+  .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);}
+  table{border-collapse:collapse;width:100%;min-width:640px;font-size:.95rem;}
+  th,td{padding:14px 18px;text-align:center;border-bottom:1px solid var(--line);}
+  th:first-child,td:first-child{text-align:left;color:var(--ink);font-weight:500;}
+  thead th{font-family:'Fraunces',serif;font-size:1.05rem;}
+  th.pro,td.pro{color:var(--accent);font-weight:600;}
+  th.max,td.max{color:#8B5CF6;font-weight:600;}
+  tbody tr:last-child td{border-bottom:0;}
+  .yes{color:var(--ok);font-weight:700;}
+  .no{color:var(--ink-soft);}
+  .fine{margin-top:14px;color:var(--ink-soft);font-size:.9rem;line-height:1.65;max-width:72ch;}
+  .packs{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:18px;}
+  .pack{border:1px solid var(--line);border-radius:var(--radius);padding:20px;display:flex;flex-direction:column;gap:6px;background:#fff;}
+  .pack b{font-family:'Fraunces',serif;font-size:1.3rem;font-weight:500;}
+  .pack span{color:var(--ink-soft);font-size:.9rem;}
+  .pack .btn{margin-top:10px;align-self:flex-start;}
+  details{border-top:1px solid var(--line);padding:16px 0;}
+  details:last-of-type{border-bottom:1px solid var(--line);}
+  summary{cursor:pointer;font-weight:600;}
+  details p{margin:10px 0 0;color:var(--ink-soft);line-height:1.65;max-width:70ch;}
+  dialog{border:1px solid var(--line);border-radius:var(--radius);padding:26px;max-width:420px;width:calc(100% - 32px);background:var(--paper);color:var(--ink);}
+  dialog::backdrop{background:rgba(0,0,0,.55);}
+  dialog h3{margin-bottom:8px;font-size:1.25rem;}
+  dialog p{color:var(--ink-soft);line-height:1.6;font-size:.94rem;margin:0 0 14px;}
+  dialog .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;}
+  dialog input{width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink);font:inherit;}
   footer{border-top:1px solid var(--line);padding:28px 0;color:var(--ink-soft);font-size:.88rem;}
   footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;}
   footer a{color:var(--ink-soft);}
-  html[data-theme="dark"] .card{background:var(--surface);}
+  html[data-theme="dark"] .card,html[data-theme="dark"] .pack{background:var(--surface);}
   @media (max-width:860px){
-    .grid3{grid-template-columns:1fr;}
+    .plans,.packs{grid-template-columns:1fr;}
     .sp-nav a:not(.btn){display:none;}
     main h1{font-size:2rem;}
-    .fmt{grid-template-columns:1fr;gap:4px;}
   }
 </style>
 <link rel="stylesheet" href="theme.css">
 <script src="theme.js"></script>
 <script src="config.js"></script>
+<!-- seo:begin -->
+<link rel="canonical" href="https://nitocad.vercel.app/pricing.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NitoCAD">
+<meta property="og:title" content="Pricing | NitoCAD">
+<meta property="og:description" content="NitoCAD plans: start free, or subscribe to Pro or Max for unlimited projects, Expert AI and every export format, including STEP, IGES, DXF and PDF.">
+<meta property="og:url" content="https://nitocad.vercel.app/pricing.html">
+<meta property="og:image" content="https://nitocad.vercel.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Pricing | NitoCAD">
+<meta name="twitter:description" content="NitoCAD plans: start free, or subscribe to Pro or Max for unlimited projects, Expert AI and every export format, including STEP, IGES, DXF and PDF.">
+<meta name="twitter:image" content="https://nitocad.vercel.app/og-image.png">
+<!-- seo:end -->
+<script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
 <header class="sp-head">
@@ -80,44 +122,91 @@
 <main>
   <div class="wrap">
 
-    <h1>Pricing</h1>
-    <p class="lead">Connect a wallet, sign in for free, then buy credits in BOT. One credit covers one generation, and every export format is included. Payments settle in native BOT on BOT Chain.</p>
-    <div class="grid3">
-      <div class="card">
-        <h3>Single credit</h3>
-        <div class="amount"><b><span data-price="credit">0.01</span> BOT</b><span>per credit</span></div>
-        <p>For one part at a time. Top up whenever you need another.</p>
+    <h1>Plans</h1>
+    <p class="lead">Build without counting. Subscribers get unlimited projects and every export format, and AI generation runs on a usage allowance that resets every week.</p>
+
+    <div class="plans">
+      <section class="card" aria-labelledby="plan-free">
+        <h3 id="plan-free">Free</h3>
+        <div class="amount"><b>$0</b><span>to start</span></div>
+        <p>Try NitoCAD on a real part before you commit.</p>
         <ul>
-          <li>Free STL preview first, no wallet needed</li>
-          <li>1 credit is 1 generation</li>
-          <li>Same price for people and for agents over MCP</li>
+          <li>A starter allowance of AI generations, valid for 90 days</li>
+          <li>Standard AI</li>
+          <li>Free STL preview before you pay</li>
+          <li>Every export format</li>
         </ul>
-        <a href="studio.html" class="btn btn-ghost">Open CAD Studio</a>
-      </div>
-      <div class="card best">
-        <h3><span data-price="pack1000_credits">1,000</span> credits</h3>
-        <div class="amount"><b><span data-price="pack1000">1</span> BOT</b><span><span data-price="rate1000">0.001</span> BOT per credit</span></div>
-        <p>Ten times cheaper per credit than buying one at a time.</p>
+        <div class="meterbox" data-meter="free" hidden></div>
+        <div class="status" data-status="free"></div>
+        <a href="studio.html" class="btn btn-ghost">Start free</a>
+      </section>
+
+      <section class="card best" aria-labelledby="plan-pro">
+        <span class="badge">Most popular</span>
+        <h3 id="plan-pro">Pro</h3>
+        <div class="amount"><b>$<span data-usd="pro">20</span></b><span>per month</span></div>
+        <p>For engineers who design in NitoCAD every week.</p>
         <ul>
-          <li><span data-price="pack1000_credits">1,000</span> generations, no expiry</li>
-          <li>Works across every CAD Studio chat</li>
-          <li>Full MCP endpoint access for agents</li>
+          <li>Unlimited chats and projects</li>
+          <li>Standard and Expert AI</li>
+          <li>An AI allowance that resets every week</li>
+          <li>When Expert use reaches the allowance, Standard keeps working</li>
         </ul>
-        <a href="studio.html" class="btn btn-primary">Open CAD Studio</a>
-      </div>
-      <div class="card">
-        <h3><span data-price="pack10000_credits">10,000</span> credits</h3>
-        <div class="amount"><b><span data-price="pack10000">10</span> BOT</b><span><span data-price="rate10000">0.001</span> BOT per credit</span></div>
-        <p>The same rate as the 1,000 pack, in a bigger batch.</p>
+        <div class="meterbox" data-meter="pro" hidden></div>
+        <div class="status" data-status="pro"></div>
+        <button type="button" class="btn btn-primary" data-subscribe="pro">Subscribe to Pro</button>
+      </section>
+
+      <section class="card" aria-labelledby="plan-max">
+        <h3 id="plan-max">Max</h3>
+        <div class="amount"><b>$<span data-usd="max">80</span></b><span>per month</span></div>
+        <p>For heavy daily use and the hardest designs.</p>
         <ul>
-          <li><span data-price="pack10000_credits">10,000</span> generations, no expiry</li>
-          <li>For teams and agents working in CAD Studio all day</li>
-          <li>Full MCP endpoint access for agents</li>
+          <li>Everything in Pro</li>
+          <li>Our most capable Expert model</li>
+          <li>A weekly allowance about five times larger than Pro's</li>
+          <li>Standard keeps working when the allowance is used</li>
         </ul>
-        <a href="studio.html" class="btn btn-ghost">Open CAD Studio</a>
-      </div>
+        <div class="meterbox" data-meter="max" hidden></div>
+        <div class="status" data-status="max"></div>
+        <button type="button" class="btn btn-ghost" data-subscribe="max">Subscribe to Max</button>
+      </section>
     </div>
-    <p class="note">Exports in STEP, IGES, DXF, PDF and STL are built on request and covered by the credit you already spent on the generation. <a href="exports.html">See the export formats</a>.</p>
+    <div class="msg" id="msg" role="status" aria-live="polite"></div>
+
+    <h2 class="section">Compare plans</h2>
+    <div class="tbl">
+      <table>
+        <thead>
+          <tr><th scope="col">Feature</th><th scope="col">Free</th><th scope="col" class="pro">Pro</th><th scope="col" class="max">Max</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Price</td><td>$0</td><td class="pro">$<span data-usd="pro">20</span> / month</td><td class="max">$<span data-usd="max">80</span> / month</td></tr>
+          <tr><td>AI generation</td><td>Starter allowance</td><td class="pro">Included, resets weekly</td><td class="max">Included, about 5x Pro, resets weekly</td></tr>
+          <tr><td>AI model intelligence</td><td>Standard</td><td class="pro">Standard and Expert</td><td class="max">Standard and our most capable Expert</td></tr>
+          <tr><td>When the allowance is used up</td><td>Add a boost</td><td class="pro">Standard keeps working</td><td class="max">Standard keeps working</td></tr>
+          <tr><td>Chats and projects</td><td>Up to 200</td><td class="pro">Unlimited</td><td class="max">Unlimited</td></tr>
+          <tr><td>Free STL preview before you pay</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+          <tr><td>B-rep solid models</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+          <tr><td>STEP and IGES export</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+          <tr><td>Dimensioned drawings (PDF and DXF)</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+          <tr><td>Multi-part assemblies</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+          <tr><td>Manufacturability checks</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="fine">AI generation is the one metered part. Your allowance shows as a usage bar in your account and resets every week. Everything else in the table is not counted.</p>
+
+    <h2 class="section">Need more AI usage?</h2>
+    <p class="fine">A boost adds AI usage on top of your plan and never expires. It does not unlock Expert models, which follow your plan. Prefer to pay in BOT? Buy usage inside <a href="studio.html">CAD Studio</a>.</p>
+    <div class="packs" id="packs"></div>
+
+    <h2 class="section">Questions</h2>
+    <details><summary>Is it really unlimited?</summary><p>Chats, projects and exports have no practical limit on Pro and Max. AI generation is metered by a weekly allowance, so the strongest models cannot be run without bound. When Expert use reaches the allowance, Standard keeps working. We watch for automated and shared use.</p></details>
+    <details><summary>What happens when I cancel?</summary><p>You keep your plan until the end of the period you paid for. After that your account returns to Free.</p></details>
+    <details><summary>Does unused allowance roll over?</summary><p>The weekly allowance resets every week and does not carry over. Boosts never expire.</p></details>
+    <details><summary>What if a renewal payment fails?</summary><p>Bachs retries the charge and emails you a link to update your card. Your plan stops when the paid period ends if the payment still has not gone through.</p></details>
+    <details><summary>Which payment methods work for subscriptions?</summary><p>Subscriptions are billed in US dollars by card through Bachs. One-time boosts accept more methods at checkout.</p></details>
 
   </div>
 </main>
@@ -127,5 +216,223 @@
     <span><a href="terms.html">Terms of Service</a> &nbsp; <a href="privacy.html">Privacy Policy</a></span>
   </div>
 </footer>
+
+<dialog id="signin">
+  <h3>Sign in to continue</h3>
+  <p>Sign in first so your plan is attached to your account.</p>
+  <div class="row">
+    <button type="button" class="btn btn-primary" id="si-wallet">Connect wallet</button>
+    <button type="button" class="btn btn-ghost" id="si-google" style="display:none">Sign in with Google</button>
+    <button type="button" class="btn btn-ghost" id="si-cancel">Cancel</button>
+  </div>
+</dialog>
+
+<dialog id="emailbox">
+  <h3>Where should we send receipts?</h3>
+  <p>Subscriptions need a real email address for billing.</p>
+  <input type="email" id="em-input" placeholder="you@example.com" autocomplete="email">
+  <div class="row">
+    <button type="button" class="btn btn-primary" id="em-go">Continue to checkout</button>
+    <button type="button" class="btn btn-ghost" id="em-cancel">Cancel</button>
+  </div>
+</dialog>
+
+<script src="auth.js"></script>
+<script>
+(function () {
+  "use strict";
+  var API = (window.NITOCAD_CONFIG && window.NITOCAD_CONFIG.apiBase) || "";
+  var Auth = window.NitoAuth;
+  var state = { plans: null, pending: null };
+
+  function $(sel, root) { return (root || document).querySelector(sel); }
+  function $all(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
+  function setAll(sel, text) { $all(sel).forEach(function (el) { el.textContent = text; }); }
+
+  function say(text, isError) {
+    var box = $("#msg");
+    box.textContent = text;
+    box.className = "msg show" + (isError ? " err" : "");
+  }
+  function clearMsg() { $("#msg").className = "msg"; }
+
+  /* ---- live plan data. The text already in the page is the fallback. ---- */
+  function loadPlans() {
+    return fetch(API + "/billing/plans").then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (data) {
+      state.plans = data;
+      ["pro", "max"].forEach(function (p) {
+        var plan = data.plans[p];
+        if (!plan) return;
+        setAll('[data-usd="' + p + '"]', String(plan.usd));
+        var btn = $('[data-subscribe="' + p + '"]');
+        if (btn && !plan.available) { btn.dataset.unavailable = "1"; btn.disabled = true; btn.textContent = "Coming soon"; }
+      });
+      renderPacks(data.topup_packs || {});
+    }).catch(function () { /* keep the fallback text */ });
+  }
+
+  var BOOST_NAMES = { starter: "Small boost", growth: "Medium boost", scale: "Large boost" };
+  function renderPacks(packs) {
+    var host = $("#packs");
+    host.textContent = "";
+    Object.keys(packs).forEach(function (key) {
+      var p = packs[key];
+      var card = document.createElement("div");
+      card.className = "pack";
+      var title = document.createElement("b");
+      title.textContent = BOOST_NAMES[key] || "Boost";
+      var price = document.createElement("span");
+      price.textContent = "$" + p.usd + " one time, never expires";
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn btn-ghost";
+      btn.textContent = "Add boost";
+      btn.addEventListener("click", function () { requireSession({ kind: "topup", pack: key }); });
+      card.appendChild(title); card.appendChild(price); card.appendChild(btn);
+      host.appendChild(card);
+    });
+  }
+
+  /* ---- the usage bar: a percent and a reset date, never a credit count ---- */
+  function showMeter(plan, m) {
+    $all("[data-meter]").forEach(function (el) { el.hidden = true; el.textContent = ""; });
+    var host = $('[data-meter="' + plan + '"]');
+    if (!host || m.used_pct === null || m.used_pct === undefined) return;
+    var label = document.createElement("div");
+    label.textContent = (plan === "free" ? "Starter allowance used: " : "AI usage this week: ") + m.used_pct + "%";
+    var track = document.createElement("div");
+    track.className = "meter";
+    track.setAttribute("role", "progressbar");
+    track.setAttribute("aria-valuemin", "0");
+    track.setAttribute("aria-valuemax", "100");
+    track.setAttribute("aria-valuenow", String(m.used_pct));
+    var fill = document.createElement("i");
+    fill.style.width = m.used_pct + "%";
+    track.appendChild(fill);
+    host.appendChild(label);
+    host.appendChild(track);
+    var d = m.resets_at ? new Date(m.resets_at) : null;
+    if (d && !isNaN(d)) {
+      var when = document.createElement("div");
+      when.textContent = (plan === "free" ? "Expires " : "Resets ") + d.toLocaleDateString();
+      host.appendChild(when);
+    }
+    if (m.used_pct >= 100 && m.standard_open) {
+      var note = document.createElement("div");
+      note.textContent = "Standard AI is still available.";
+      host.appendChild(note);
+    }
+    host.hidden = false;
+  }
+
+  /* ---- the signed-in account's plan ---- */
+  function markCurrentPlan() {
+    var s = Auth && Auth.getSession();
+    $all("[data-status]").forEach(function (el) { el.textContent = ""; });
+    $all("[data-subscribe]").forEach(function (b) {
+      if (b.dataset.unavailable === "1") return;
+      b.disabled = false;
+      b.textContent = b.dataset.label;
+    });
+    if (!s) return Promise.resolve();
+    return fetch(API + "/subscription/status", { headers: Auth.authHeader() }).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (st) {
+      if (!st) return;
+      var plan = st.subscribed ? st.plan : "free";
+      var slot = $('[data-status="' + plan + '"]');
+      if (slot) {
+        slot.textContent = "Your plan";
+        if (st.subscribed && st.current_period_end) {
+          var d = new Date(st.current_period_end);
+          if (!isNaN(d)) slot.textContent += ", paid through " + d.toLocaleDateString();
+        }
+      }
+      fetch(API + "/billing/usage", { headers: Auth.authHeader() }).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (m) { if (m) showMeter(plan, m); }).catch(function () {});
+      if (st.subscribed) {
+        $all("[data-subscribe]").forEach(function (b) {
+          if (b.dataset.unavailable === "1") return;
+          b.disabled = true;
+          b.textContent = b.dataset.subscribe === plan ? "Current plan" : "Plan changes coming soon";
+        });
+      }
+    }).catch(function () {});
+  }
+
+  /* ---- sign in, then continue what the person was doing ---- */
+  function requireSession(action) {
+    clearMsg();
+    state.pending = action;
+    if (Auth && Auth.getSession()) return proceed();
+    $("#signin").showModal();
+    if (Auth && Auth.initGoogle) Auth.initGoogle([$("#si-google")]);
+  }
+
+  function proceed() {
+    var action = state.pending;
+    if (!action) return;
+    var s = Auth.getSession();
+    if (!s) return;
+    if (action.kind === "plan") {
+      if (s.email) return checkout(action, s.email);
+      $("#emailbox").showModal();
+      $("#em-input").focus();
+    } else {
+      checkout(action, s.email || null);
+    }
+  }
+
+  function checkout(action, email) {
+    var isPlan = action.kind === "plan";
+    var body = isPlan
+      ? { plan: action.plan, email: email, success_url: location.origin + "/studio.html?subscribed=1", cancel_url: location.href }
+      : { pack: action.pack, email: email || undefined, success_url: location.origin + "/studio.html?topup=1", cancel_url: location.href };
+    say("Opening checkout...", false);
+    var headers = Object.assign({ "Content-Type": "application/json" }, Auth.authHeader());
+    fetch(API + (isPlan ? "/billing/subscribe" : "/billing/topup"), { method: "POST", headers: headers, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
+      .then(function (res) {
+        if (res.ok && res.body.checkout_url) { location.href = res.body.checkout_url; return; }
+        if (res.status === 401) { Auth.clearSession(); say("Your session expired. Sign in and try again.", true); return; }
+        say(res.body.detail || "Could not start checkout. Try again in a moment.", true);
+      })
+      .catch(function () { say("Could not reach the server. Check your connection and try again.", true); });
+  }
+
+  function wire() {
+    $all("[data-subscribe]").forEach(function (btn) {
+      btn.dataset.label = btn.textContent;
+      btn.addEventListener("click", function () { requireSession({ kind: "plan", plan: btn.dataset.subscribe }); });
+    });
+    $("#si-cancel").addEventListener("click", function () { $("#signin").close(); state.pending = null; });
+    $("#si-wallet").addEventListener("click", function () {
+      Auth.signInWithWallet().then(function () { $("#signin").close(); proceed(); })
+        .catch(function (e) { $("#signin").close(); say(e.message || "Sign-in failed.", true); });
+    });
+    $("#em-cancel").addEventListener("click", function () { $("#emailbox").close(); state.pending = null; });
+    $("#em-go").addEventListener("click", function () {
+      var v = $("#em-input").value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { $("#em-input").focus(); return; }
+      $("#emailbox").close();
+      checkout(state.pending, v);
+    });
+    if (Auth) {
+      Auth.onError = function (e) { say(e.message || "Sign-in failed.", true); };
+      Auth.onChange(function (s) {
+        if (s && $("#signin").open) { $("#signin").close(); proceed(); }
+        markCurrentPlan();
+      });
+    }
+  }
+
+  wire();
+  loadPlans();
+  markCurrentPlan();
+})();
+</script>
 </body>
 </html>

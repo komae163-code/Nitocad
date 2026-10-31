@@ -7,9 +7,7 @@ import pytest
 from building import design_building, normalize_building_spec, stair_geometry
 from building.drawings import plan_svg
 from building.model3d import build_parts
-from building.drawing_set import building_sheets
-from building.schedule import build_schedules, opening_marks, schedule_csv
-from building.sheets import plan_sheet, schedule_sheet
+from building.schedule import build_schedules, schedule_csv
 from feature_tree import validate_feature_tree
 
 HOUSE = {"name": "Two-storey house", "width_mm": 13000, "depth_mm": 10000, "levels": [
@@ -275,46 +273,3 @@ class TestSchedulesAndDrawings:
 
     def test_upper_plan_shows_the_stair_coming_down(self, house):
         assert "DN" in plan_svg(house, 1) and "UP" in plan_svg(house, 0)
-
-
-def _texts(sheet):
-    return [e["s"] for e in sheet.entities if e["t"] == "text"]
-
-
-class TestTagsDimensionsAndScheduleSheet:
-    def test_every_opening_has_a_mark_and_a_plan_tag(self, house):
-        marks = opening_marks(house)
-        assert len(marks) == sum(len(lv["openings"]) for lv in house["levels"])
-        for lv in house["levels"]:
-            shown = _texts(plan_sheet(house, lv["index"]))
-            for o in lv["openings"]:
-                assert marks[o["id"]] in shown
-
-    def test_schedule_sheet_lists_every_mark_once(self, house):
-        s = build_schedules(house)
-        texts = _texts(schedule_sheet(house))
-        for kind in ("doors", "windows"):
-            for row in s[kind]:
-                assert texts.count(row["mark"]) == 1
-        assert "DOOR SCHEDULE" in texts and "WINDOW SCHEDULE" in texts and "ROOM SCHEDULE" in texts
-
-    def test_schedule_totals_match_the_model(self, house):
-        s = build_schedules(house)
-        texts = _texts(schedule_sheet(house))
-        assert str(sum(r["count"] for r in s["doors"])) in texts
-        assert str(sum(r["count"] for r in s["windows"])) in texts
-
-    def test_plan_has_three_dimension_strings_and_a_basis_note(self, house):
-        sh = plan_sheet(house, 0)
-        texts = _texts(sh)
-        w = house["geometry"]["W"]
-        assert f"{w:,.0f}" in texts
-        assert any("CENTRE LINES" in t for t in texts)
-        dim_lines = [e for e in sh.entities if e["t"] == "line" and e["layer"] == "A-ANNO-DIMS"
-                     and e["p"][1] == e["q"][1] and e["p"][1] < 0 and e["p"][0] != e["q"][0]]
-        assert len({round(e["p"][1]) for e in dim_lines}) >= 3
-
-    def test_drawing_set_ends_with_the_schedule_sheet(self, house):
-        sheets = building_sheets(house)
-        assert sheets[-1].sheet_no == "A-601"
-

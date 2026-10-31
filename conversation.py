@@ -39,8 +39,11 @@ MAX_REPLY_CHARS = 700
 # Part types a chat spec cannot name directly. "assembly" is allowed: its parameters carry a
 # parts list (see _clean_assembly_params).
 UNSUPPORTED_TYPES: set[str] = set()
-MAX_ASSEMBLY_ENTRIES = 12      # lines in the parts list. A line may have a count, so parts can be more.
-MAX_PART_COUNT = 20
+# Lines in the parts list, and the count on one line. None means no design limit (a vehicle has dozens of
+# parts). RUNAWAY_ENTRIES only stops a typo from hanging the server. Set an int to bring a limit back.
+MAX_ASSEMBLY_ENTRIES: int | None = None
+MAX_PART_COUNT: int | None = None
+RUNAWAY_ENTRIES = 20_000
 
 
 class PlanError(ValueError):
@@ -204,13 +207,13 @@ def _clean_spec(raw: Any) -> dict:
 
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
-_MAX_MATES = 120
+_MAX_MATES: int | None = None   # no mate cap; set an int to bring one back
 
 
 def _clean_mates(raw: Any, ids: set[str]) -> list[dict]:
     if not isinstance(raw, list):
         raise ValueError("mates must be a list")
-    if len(raw) > _MAX_MATES:
+    if _MAX_MATES is not None and len(raw) > _MAX_MATES:
         raise ValueError(f"an assembly can have at most {_MAX_MATES} mates")
     out = []
     for i, m in enumerate(raw, start=1):
@@ -241,8 +244,9 @@ def _clean_assembly_params(params: dict) -> dict:
     parts = params.get("parts")
     if not isinstance(parts, list) or len(parts) < 1:
         raise ValueError("an assembly needs a parts list")
-    if len(parts) > MAX_ASSEMBLY_ENTRIES:
-        raise ValueError(f"an assembly can list at most {MAX_ASSEMBLY_ENTRIES} parts")
+    entry_limit = MAX_ASSEMBLY_ENTRIES if MAX_ASSEMBLY_ENTRIES is not None else RUNAWAY_ENTRIES
+    if len(parts) > entry_limit:
+        raise ValueError(f"an assembly can list at most {entry_limit} parts")
     has_mates = bool(params.get("mates"))
     layout = str(params.get("layout") or ("mated" if has_mates else "row")).lower()
     if layout not in ("row", "custom", "mated"):
@@ -267,8 +271,9 @@ def _clean_assembly_params(params: dict) -> dict:
             count = int(p.get("count", 1))
         except (TypeError, ValueError):
             raise ValueError(f"part {i} count must be a whole number") from None
-        if not 1 <= count <= MAX_PART_COUNT:
-            raise ValueError(f"part {i} count must be 1 to {MAX_PART_COUNT}")
+        count_limit = MAX_PART_COUNT if MAX_PART_COUNT is not None else RUNAWAY_ENTRIES
+        if not 1 <= count <= count_limit:
+            raise ValueError(f"part {i} count must be 1 to {count_limit}")
         total += count
         item: dict[str, Any] = {"part_type": ptype, "parameters": copy.deepcopy(pp), "count": count}
         if layout == "mated":
@@ -747,6 +752,16 @@ def _pcb_turn(last_user: str, current_spec: dict | None, llm: "LLM | None") -> "
     return Plan("edit" if previous else "build", reply[:MAX_REPLY_CHARS], spec, source, changes=changes)
 
 
+# ------------------------------------------------------------------- vehicles ---
+
+def _vehicle_turn(last_user: str, current_spec: dict | None, llm: "LLM | None") -> "Plan | None":
+    """A whole vehicle or machine (wheelbarrow, bicycle, ...) or an edit to the one on the bench. None means this
+    message is not about a vehicle and the normal planner handles it. See vehicle_chat.py."""
+    import vehicle_chat
+
+    return vehicle_chat.plan_vehicle_turn(last_user, current_spec, llm=llm)
+
+
 # -------------------------------------------------------------------- entry ---
 
 def _carry_through(plan: Plan, current_spec: dict | None) -> Plan:
@@ -754,6 +769,8 @@ def _carry_through(plan: Plan, current_spec: dict | None) -> Plan:
     Never raises: a relation problem must not lose the person's edit."""
     if plan.intent != "edit" or not plan.spec or not current_spec:
         return plan
+    if (plan.spec.get("parameters") or {}).get("vehicle") is not None:
+        return plan                       # a vehicle's fits come from its own spec and checks, not from shaft bores
     try:
         res = assembly_relations.reconcile(current_spec, plan.spec)
     except Exception:  # noqa: BLE001
@@ -826,6 +843,12 @@ def _plan_core(
     facts: dict | None,
 ) -> Plan:
     last_user = next((m["content"] for m in reversed(history) if m.get("role") == "user"), "")
+    try:
+        vehicle_plan = _vehicle_turn(last_user, current_spec, llm)
+    except Exception:  # noqa: BLE001 - a vehicle problem must never break the chat; fall through
+        vehicle_plan = None
+    if vehicle_plan is not None:
+        return vehicle_plan
     try:
         pcb_plan = _pcb_turn(last_user, current_spec, llm)
     except Exception:  # noqa: BLE001 - a board problem must never break the chat; fall through

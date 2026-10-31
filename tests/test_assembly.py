@@ -258,11 +258,21 @@ class TestStructure:
         {"parts": [{"id": "a", "part_type": "piston"}], "root": "zzz"},
         {"parts": [{"id": "a", "part_type": "piston"}], "mates": [{"a": 1}]},
         {"parts": [{"id": "a", "part_type": "piston", "placement": {"position": [1, 2]}}]},
-        {"parts": [{"id": "p%d" % i, "part_type": "piston"} for i in range(AS.MAX_PARTS + 1)]},
     ])
     def test_malformed_specs_raise(self, bad):
         with pytest.raises(AS.AssemblySpecError):
             AS.resolve_assembly(bad)
+
+    def test_no_part_or_mate_cap_by_default(self):
+        assert AS.MAX_PARTS is None and AS.MAX_MATES is None
+        spec = {"parts": [{"id": "p%d" % i, "part_type": "piston"} for i in range(300)]}
+        assert AS.resolve_assembly(spec) is not None
+
+    def test_part_cap_can_still_be_switched_on(self, monkeypatch):
+        monkeypatch.setattr(AS, "MAX_PARTS", 3)
+        spec = {"parts": [{"id": "p%d" % i, "part_type": "piston"} for i in range(4)]}
+        with pytest.raises(AS.AssemblySpecError):
+            AS.resolve_assembly(spec)
 
     def test_unknown_part_type_and_interface_and_part_are_findings(self):
         spec = {"parts": [{"id": "a", "part_type": "warp_drive"}, {"id": "arm", "part_type": "control_arm"}],

@@ -308,7 +308,6 @@ class CADGenerator:
                     solid=workplane_for_verify,
                     stl_path=stl_path,
                     expected=None,  # expected volume/bbox filled when compiler provides them
-                    allow_multi_body=(params.part_type == "building"),
                 )
             if not vreport.passed:
                 raise GeometryValidationError(
@@ -751,12 +750,7 @@ class CADGenerator:
         import json as _json
         parameters = _json.loads(job["parameters"]) if job["parameters"] else {}
         warnings: list[str] = []
-        # A building's DXF and PDF are drawn from its parameters (see _drawing_override), so the 3D
-        # model is not built for them: it was slow and a failure there blocked a drawing it never uses.
-        if part_type == "building" and resolved_fmt in ("dxf", "pdf"):
-            workplane = None
-        else:
-            workplane = self._build_workplane(part_type, parameters, warnings=warnings)
+        workplane = self._build_workplane(part_type, parameters, warnings=warnings)
 
         try:
             exporters.export_all(

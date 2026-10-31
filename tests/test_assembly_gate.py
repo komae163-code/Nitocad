@@ -7,7 +7,7 @@ import assembly_relations as ar
 import conversation as conv
 import studio_templates as st
 
-ASSEMBLIES = [t for t in st.TEMPLATES if t.spec["part_type"] == "assembly"]
+ASSEMBLIES = [t for t in st.TEMPLATES if t.spec["part_type"] == "assembly" and t.category != "vehicles"]   # vehicles are not shaft assemblies
 
 
 def _tpl(tid):

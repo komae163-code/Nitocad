@@ -861,18 +861,7 @@ def _dxf_text_width(text: str, height: float) -> float:
     return len(text) * height * _DXF_CHAR_WIDTH_FACTOR
 
 
-def _resolve_drawing_date(drawing_date: str | None) -> str:
-    """The date printed in a drawing's title block.
-
-    Pass an ISO date (YYYY-MM-DD, for example the job's creation date) and the drawing no longer
-    depends on the day it is exported, so the same job exports to the same bytes. With no date,
-    today's date is used, as before."""
-    if drawing_date:
-        return _dt.date.fromisoformat(drawing_date).isoformat()
-    return _dt.date.today().isoformat()
-
-
-def _title_block_text_dxf(part_name, material, part_type, size_mm, drawing_date: str | None = None) -> dict[str, str]:
+def _title_block_text_dxf(part_name, material, part_type, size_mm) -> dict[str, str]:
     # SIZE is the real (X, Y, Z) size of the solid itself, measured off
     # the HLR views (_part_size_mm) - NOT the drawing sheet's own layout
     # extent. Reporting sheet size here was the original bug: a plate's
@@ -885,7 +874,7 @@ def _title_block_text_dxf(part_name, material, part_type, size_mm, drawing_date:
         "type": f"TYPE: {_clip((part_type or 'n/a').upper())}",
         "size": size_text,
         "material": f"MATERIAL: {_clip(material or 'n/a')}",
-        "date": f"DATE: {_resolve_drawing_date(drawing_date)}",
+        "date": f"DATE: {_dt.date.today().isoformat()}",
     }
 
 
@@ -973,9 +962,8 @@ def _draw_title_block_dxf(
     msp, x0: float, y0: float, width: float, height: float,
     part_name: str, material: str | None, part_type: str | None,
     size_mm: tuple[float, float, float] | None = None,
-    drawing_date: str | None = None,
 ) -> None:
-    texts = _title_block_text_dxf(part_name, material, part_type, size_mm, drawing_date)
+    texts = _title_block_text_dxf(part_name, material, part_type, size_mm)
     cols = _title_block_columns_dxf(texts, width)
     width = sum(cols)  # >= the requested width; grows only when the text needs it
     d1 = x0 + cols[0]
@@ -1014,7 +1002,6 @@ def export_dxf(
     parts: list[tuple[str, ShapeLike]] | None = None,
     bom: dict | None = None,
     tolerance_class: str = "m",
-    drawing_date: str | None = None,
 ) -> Path:
     """Multi-view orthographic DXF (front/top/side, HLR visible/hidden
     edges, title block). If `parts` is given (assembly sub-parts, see
@@ -1066,7 +1053,7 @@ def export_dxf(
     tb_y0 = overall_y0 - tb_height - 10
     _draw_title_block_dxf(
         msp, overall_x0, tb_y0, overall_x1 - overall_x0, tb_height,
-        part_name, material, part_type, size_mm, drawing_date,
+        part_name, material, part_type, size_mm,
     )
     footer_prims, _footer_w, footer_h = drawing_footer.layout_footer(
         drawing_footer.build_footer(bom, tolerance_class), min_width=overall_x1 - overall_x0)
@@ -1297,7 +1284,6 @@ def export_pdf(
     scale_den: int = 1,
     bom: dict | None = None,
     tolerance_class: str = "m",
-    drawing_date: str | None = None,
 ) -> Path:
     """Multi-view orthographic PDF (front/top/side, HLR visible/hidden
     edges, title block), at true 1:1 scale unless `scale_den` is above 1 (see
@@ -1355,7 +1341,7 @@ def export_pdf(
     type_text = f"TYPE: {_clip((part_type or 'n/a').upper())}"
     scale_text = f"SCALE: 1:{scale_den}"
     material_text = f"MATERIAL: {_clip(material or 'n/a')}"
-    date_text = f"DATE: {_resolve_drawing_date(drawing_date)}"
+    date_text = f"DATE: {_dt.date.today().isoformat()}"
 
     from reportlab.pdfbase.pdfmetrics import stringWidth
 
@@ -1372,9 +1358,7 @@ def export_pdf(
     page_h = drawing_h_mm * mm + 2 * margin + title_block_h + footer_h
 
     path = _prepare_output_path(path)
-    # invariant=1 makes reportlab write a fixed creation date and document ID instead of the clock and a
-    # random one, so the same drawing exports to the same bytes. Viewers show 2000-01-01 as the created date.
-    c = canvas.Canvas(str(path), pagesize=(page_w, page_h), invariant=1)
+    c = canvas.Canvas(str(path), pagesize=(page_w, page_h))
 
     origin_x = margin - overall_x0 * mm
     origin_y = margin + footer_h + title_block_h - overall_y0 * mm
@@ -1481,7 +1465,6 @@ def export_all(
     bom: dict | None = None,
     tolerance_class: str = "m",
     drawing_override: dict[str, Any] | None = None,
-    drawing_date: str | None = None,
 ) -> dict[str, Path]:
     """Export `obj` to every format in `formats` (default: every format in
     DEFAULT_FORMATS - step, stl, iges, dxf, pdf). Returns
@@ -1532,12 +1515,11 @@ def export_all(
                 drawing_override[fmt](out_path)  # e.g. a building's plans/elevations/sections
             elif fmt == "dxf":
                 export_dxf(obj, out_path, part_name=label, material=material, part_type=part_type, parts=parts,
-                           bom=bom, tolerance_class=tolerance_class, drawing_date=drawing_date)
+                           bom=bom, tolerance_class=tolerance_class)
             elif fmt == "pdf":
                 export_pdf(
                     obj, out_path, part_name=label, material=material, part_type=part_type, parts=parts,
                     scale_den=1 if parts else pdf_scale_denominator(obj), bom=bom, tolerance_class=tolerance_class,
-                    drawing_date=drawing_date,
                 )
         except GenerationError:
             raise

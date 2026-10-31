@@ -148,9 +148,7 @@ def _cq_solid_checks(solid: Any, expected: dict[str, Any] | None) -> tuple[dict[
     return checks, errors, measured
 
 
-def _stl_watertight_check(
-    stl_path: str | Path, allow_multi_body: bool = False
-) -> tuple[dict[str, bool], list[str], dict[str, Any]]:
+def _stl_watertight_check(stl_path: str | Path) -> tuple[dict[str, bool], list[str], dict[str, Any]]:
     checks: dict[str, bool] = {}
     errors: list[str] = []
     measured: dict[str, Any] = {}
@@ -182,15 +180,9 @@ def _stl_watertight_check(
         measured["face_count"] = int(len(mesh.faces))
         measured["vertex_count"] = int(len(mesh.vertices))
         is_wt = bool(mesh.is_watertight)
-        if allow_multi_body and not is_wt:
-            # A building is slabs, walls, roof and stair that touch each other, so its combined
-            # mesh shares edges between bodies and is never one sealed shell. Record it, do not fail.
-            measured["watertight_waived"] = True
-            checks["watertight"] = True
-        else:
-            checks["watertight"] = is_wt
-            if not is_wt:
-                errors.append("STL mesh is not watertight")
+        checks["watertight"] = is_wt
+        if not is_wt:
+            errors.append("STL mesh is not watertight")
 
         # Degenerate faces (zero area)
         try:
@@ -224,7 +216,6 @@ def verify_geometry(
     *,
     stl_path: str | Path | None = None,
     expected: dict[str, Any] | None = None,
-    allow_multi_body: bool = False,
 ) -> VerificationReport:
     """Run all available post-build checks and return a VerificationReport.
 
@@ -246,10 +237,8 @@ def verify_geometry(
         all_warnings.append("No solid provided; CQ checks skipped")
 
     if stl_path is not None:
-        c, e, m = _stl_watertight_check(stl_path, allow_multi_body=allow_multi_body)
+        c, e, m = _stl_watertight_check(stl_path)
         all_checks.update(c)
-        if m.get("watertight_waived"):
-            all_warnings.append("Mesh is made of several touching bodies, so the single watertight shell check was skipped")
         all_errors.extend(e)
         measured.update(m)
         if not c.get("trimesh_available", True) and c.get("stl_present"):

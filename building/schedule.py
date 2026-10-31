@@ -5,19 +5,6 @@ import math
 from typing import Any
 
 
-def _describe(kind: str, external: bool) -> str:
-    if kind == "door":
-        return "External door" if external else "Internal door"
-    return {"window": "Window", "opening": "Open archway"}.get(kind, kind.title())
-
-
-def opening_marks(model: dict[str, Any]) -> dict[str, str]:
-    """Opening id -> schedule mark (D1, W1, ...). The plan tags and the schedule sheet both use this,
-    so a tag on the plan always matches one row of the schedule."""
-    sched = build_schedules(model)
-    return {i: row["mark"] for kind in ("doors", "windows", "openings") for row in sched[kind] for i in row["ids"]}
-
-
 def build_schedules(model: dict[str, Any]) -> dict[str, Any]:
     g = model["geometry"]
     levels = model["levels"]
@@ -26,19 +13,16 @@ def build_schedules(model: dict[str, Any]) -> dict[str, Any]:
     groups: dict[tuple, dict[str, Any]] = {}
     for lv in levels:
         for o in lv["openings"]:
-            external = str(o.get("wall", "")).startswith("ext")
-            key = (o["kind"], round(o["width"]), round(o["height"]), round(o["sill"]), external)
+            key = (o["kind"], round(o["width"]), round(o["height"]), round(o["sill"]))
             grp = groups.setdefault(key, {"kind": o["kind"], "width": key[1], "height": key[2], "sill": key[3],
-                                          "external": external, "description": _describe(o["kind"], external),
-                                          "count": 0, "locations": [], "ids": []})
+                                          "count": 0, "locations": []})
             grp["count"] += 1
-            grp["ids"].append(o["id"])
             grp["locations"].append(f"L{lv['index']} {room_name[o['room']]}")
     prefix = {"door": "D", "window": "W", "opening": "O"}
     out = {"doors": [], "windows": [], "openings": []}
     plural = {"door": "doors", "window": "windows", "opening": "openings"}
     counters = {"door": 0, "window": 0, "opening": 0}
-    for key in sorted(groups, key=lambda k: (k[0], not k[4], -k[1], -k[2], k[3])):
+    for key in sorted(groups, key=lambda k: (k[0], -k[1], -k[2], k[3])):
         grp = groups[key]
         counters[grp["kind"]] += 1
         grp["mark"] = f"{prefix[grp['kind']]}{counters[grp['kind']]}"

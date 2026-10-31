@@ -252,7 +252,7 @@ def to_pdf_multi(sheets: list[Sheet], paper: str | None = None, scale: int | Non
     from reportlab.pdfgen import canvas
 
     buf = io.BytesIO()
-    c = canvas.Canvas(buf, invariant=1)   # fixed creation date and ID, so the same sheets give the same bytes
+    c = canvas.Canvas(buf)
     c.setTitle(f"{sheets[0].project} - drawing set")
     c.setAuthor("NitoCAD")
     c.setSubject("Concept design, not for construction. Building-code compliance: UNKNOWN.")

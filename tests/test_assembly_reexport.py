@@ -100,11 +100,16 @@ class TestNormalizeSpec:
         with pytest.raises(ValueError):
             asm.normalize_assembly_spec(bad)
 
-    def test_part_count_is_capped(self):
-        many = [{"part_type": "shaft"} for _ in range(asm.MAX_ASSEMBLY_PARTS + 1)]
+    def test_no_part_cap_by_default_but_a_runaway_guard(self):
+        assert asm.MAX_ASSEMBLY_PARTS is None
+        assert len(asm.normalize_assembly_spec([{"part_type": "shaft"} for _ in range(300)])) == 300
         with pytest.raises(ValueError):
-            asm.normalize_assembly_spec(many)
-        assert len(asm.normalize_assembly_spec(many[:-1])) == asm.MAX_ASSEMBLY_PARTS
+            asm.normalize_assembly_spec([{"part_type": "shaft"} for _ in range(asm.RUNAWAY_PARTS + 1)])
+
+    def test_part_cap_can_still_be_switched_on(self, monkeypatch):
+        monkeypatch.setattr(asm, "MAX_ASSEMBLY_PARTS", 3)
+        with pytest.raises(ValueError):
+            asm.normalize_assembly_spec([{"part_type": "shaft"} for _ in range(4)])
 
     def test_long_names_are_trimmed(self):
         assert len(asm.normalize_assembly_spec([{"part_type": "x", "name": "n" * 500}])[0]["name"]) == 80
