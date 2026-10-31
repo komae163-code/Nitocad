@@ -1,0 +1,55 @@
+{
+ "name": "two_axle_cart",
+ "params": {
+  "track": {
+   "default": 60,
+   "min": 20,
+   "max": 300
+  },
+  "wheel_dia": 30,
+  "base": 120
+ },
+ "components": [
+  {
+   "id": "deck",
+   "type": "flat_plate",
+   "fixed": true,
+   "parameters": {
+    "length_mm": "=base",
+    "width_mm": "=track",
+    "thickness_mm": 4
+   },
+   "position": [
+    0,
+    0,
+    "=wheel_dia"
+   ]
+  },
+  {
+   "id": "axle",
+   "type": "shaft",
+   "parameters": {
+    "diameter_mm": 6,
+    "length_mm": "=track + 10"
+   },
+   "repeat": {
+    "n": 2,
+    "step": [
+     "=base - 20",
+     0,
+     0
+    ]
+   },
+   "position": [
+    "=-(base-20)/2",
+    0,
+    "=wheel_dia/2"
+   ],
+   "rotation": [
+    90,
+    0,
+    0
+   ]
+  }
+ ]
+}

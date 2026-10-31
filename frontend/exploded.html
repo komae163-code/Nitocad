@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NitoCAD exploded viewer</title>
+<style>
+html,body{margin:0;height:100%;background:#15171a;color:#e8e8e8;font:14px system-ui,sans-serif;overflow:hidden}
+#c{position:fixed;inset:0;width:100%;height:100%;touch-action:none}
+#ui{position:fixed;left:0;right:0;bottom:0;padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));background:rgba(21,23,26,.88)}
+#top{position:fixed;left:0;right:0;top:0;padding:calc(8px + env(safe-area-inset-top,0px)) 14px 8px;background:rgba(21,23,26,.7)}
+#warn{color:#e8a33d;font-size:12px}
+.row{display:flex;gap:10px;align-items:center;margin:6px 0}
+input[type=range]{flex:1}
+button,label.b{background:#2b3036;color:#e8e8e8;border:1px solid #444;border-radius:8px;padding:8px 12px;font:inherit}
+#list{max-height:84px;overflow:auto;font-size:12px}
+#list div{display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;border:1px solid #444;border-radius:10px}
+#list div.on{background:#e8a33d;color:#111}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="top"><b id="ttl"></b><div id="warn">Schematic: parts are bounding boxes, not true solids. Axes: X long, Y lateral, Z up (mm).</div></div>
+<div id="ui">
+ <div class="row"><span>Explode</span><input id="t" type="range" min="0" max="1000" value="0"><span id="pct">0%</span></div>
+ <div class="row"><button id="play">Play</button><label><input id="seq" type="checkbox" checked> one part at a time</label>
+ <label class="b">Load JSON<input id="file" type="file" accept=".json,application/json" hidden></label></div>
+ <div id="list"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+var DATA = {"title": "Demo cart (bounding boxes)", "parts": [{"name": "chassis", "min": [-50, -20, 10], "max": [50, 20, 14], "offset": [0, 0, 0], "step": 0}, {"name": "wheel_l", "min": [-8, -30, 0], "max": [8, -18, 16], "offset": [0.0, -6.0, -1.0], "step": 1}, {"name": "wheel_r", "min": [-8, 18, 0], "max": [8, 30, 16], "offset": [0.0, 6.0, -1.0], "step": 2}, {"name": "axle", "min": [-2, -25, 10], "max": [2, 25, 14], "offset": [0.0, 0.0, -50.0], "step": 3}]};
+var cv=document.getElementById('c'), R=null, S=null, cam=null, G=null;
+/* three.js comes from a CDN. If it did not load, or WebGL is off, fall back to a flat 2D side view so the page is never blank. */
+try{
+  if(typeof THREE==='undefined') throw new Error('three.js did not load');
+  R=new THREE.WebGLRenderer({canvas:cv,antialias:true});
+  R.setPixelRatio(Math.min(devicePixelRatio,2)); R.setClearColor(0x15171a);
+  S=new THREE.Scene(); cam=new THREE.PerspectiveCamera(40,1,1,100000);
+  S.add(new THREE.HemisphereLight(0xffffff,0x334455,0.9));
+  var dl=new THREE.DirectionalLight(0xffffff,0.8); dl.position.set(1,2,1.5); S.add(dl);
+  G=new THREE.Group(); S.add(G);
+}catch(err){
+  R=null; S=null; cam=null; G=null;
+  var fresh=document.createElement('canvas'); fresh.id='c'; cv.parentNode.replaceChild(fresh,cv); cv=fresh;   // a canvas that failed WebGL may refuse 2D
+  document.getElementById('warn').textContent='3D view unavailable (three.js did not load or WebGL is off). Showing a flat side view: X long, Z up (mm). Parts are bounding boxes.';
+}
+var meshes=[], target=R?new THREE.Vector3():null, dist=300, yaw=0.7, pitch=0.45, tval=0, playing=false;
+var flat=[], flatBox=null, hlIdx=-1;
+function P(v){return new THREE.Vector3(v[0],v[2],-v[1]);}            // world Z-up -> three Y-up
+function clearScene(){if(G){while(G.children.length)G.remove(G.children[0]);}meshes=[];flat=[];}
+function load(d){
+  clearScene(); DATA=d; document.getElementById('ttl').textContent=d.title||'Exploded view';
+  var n=d.parts.length, lo=[1e9,1e9,1e9], hi=[-1e9,-1e9,-1e9], list=document.getElementById('list'); list.innerHTML='';
+  d.parts.forEach(function(p,i){
+    for(var k=0;k<3;k++){lo[k]=Math.min(lo[k],p.min[k],p.min[k]+p.offset[k]);hi[k]=Math.max(hi[k],p.max[k],p.max[k]+p.offset[k]);}
+    var tag=document.createElement('div'); tag.textContent=(i+1)+'. '+p.name; tag.onclick=function(){hl(i)}; list.appendChild(tag);
+    if(!R){ flat.push({p:p,step:p.step==null?i:p.step,hue:(i*0.13)%1}); return; }
+    var a=P(p.min), b=P(p.max), mn=a.clone().min(b), mx=a.clone().max(b), size=mx.clone().sub(mn);
+    var m=new THREE.Mesh(new THREE.BoxGeometry(size.x,size.y,size.z),
+      new THREE.MeshStandardMaterial({color:new THREE.Color().setHSL((i*0.13)%1,0.45,0.58),roughness:0.6}));
+    var e=new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry),new THREE.LineBasicMaterial({color:0x111111})); m.add(e);
+    var c=mn.clone().add(mx).multiplyScalar(0.5); m.userData={base:c,off:P(p.offset).sub(P([0,0,0])),step:p.step==null?i:p.step};
+    m.position.copy(c); G.add(m); meshes.push(m);
+  });
+  var span=Math.max(hi[0]-lo[0],hi[1]-lo[1],hi[2]-lo[2]); dist=span*1.9;
+  if(R) target.set((lo[0]+hi[0])/2,(lo[2]+hi[2])/2,-(lo[1]+hi[1])/2);
+  else flatBox={x0:lo[0],x1:hi[0],z0:lo[2],z1:hi[2]};
+}
+function hl(i){var t=document.getElementById('list').children;for(var k=0;k<t.length;k++)t[k].className=k==i?'on':'';
+  meshes.forEach(function(m,k){m.material.emissive.setHex(k==i?0x553300:0);}); hlIdx=i;}
+function stepP(step,n,seq){ return seq&&n>0 ? Math.min(1,Math.max(0,tval*n-(n-1-step))) : tval; }   // last-assembled part leaves first
+function draw2d(){   // flat side view (X long, Z up) for when 3D is unavailable
+  var ctx=cv.getContext('2d'); if(!ctx||!flatBox||!flat.length) return;
+  var W=cv.width=innerWidth, H=cv.height=innerHeight, seq=document.getElementById('seq').checked, n=flat.length;
+  ctx.fillStyle='#15171a'; ctx.fillRect(0,0,W,H);
+  var padT=70, padB=150, w=(flatBox.x1-flatBox.x0)||1, h=(flatBox.z1-flatBox.z0)||1;
+  var sc=Math.min((W-40)/w,(H-padT-padB)/h), ox=(W-w*sc)/2-flatBox.x0*sc, oy=padT+((H-padT-padB)+h*sc)/2+flatBox.z0*sc;
+  flat.forEach(function(f,i){
+    var p=f.p, t=stepP(f.step,n,seq), dx=p.offset[0]*t, dz=p.offset[2]*t;
+    var x=ox+(p.min[0]+dx)*sc, y=oy-(p.max[2]+dz)*sc, ww=Math.max((p.max[0]-p.min[0])*sc,1.5), hh=Math.max((p.max[2]-p.min[2])*sc,1.5);
+    ctx.fillStyle='hsl('+Math.round(f.hue*360)+',45%,'+(i===hlIdx?'72%':'58%')+')'; ctx.fillRect(x,y,ww,hh);
+    ctx.strokeStyle='#111'; ctx.strokeRect(x,y,ww,hh);
+  });
+}
+function update(){
+  var n=meshes.length, seq=document.getElementById('seq').checked;
+  meshes.forEach(function(m){
+    var p=tval;
+    if(seq&&n>0){var i=m.userData.step; p=Math.min(1,Math.max(0,tval*n-(n-1-i)));}   // last-assembled part leaves first
+    m.position.copy(m.userData.base).addScaledVector(m.userData.off,p);
+  });
+  document.getElementById('pct').textContent=Math.round(tval*100)+'%';
+  document.getElementById('t').value=Math.round(tval*1000);
+}
+function resize(){ if(!R) return; R.setSize(innerWidth,innerHeight,false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();}
+function frame(){
+  if(playing){tval+=0.004; if(tval>=1){tval=1;playing=false;document.getElementById('play').textContent='Play';}}
+  update();
+  if(!R){ draw2d(); requestAnimationFrame(frame); return; }
+  cam.position.set(target.x+dist*Math.cos(pitch)*Math.sin(yaw),target.y+dist*Math.sin(pitch),target.z+dist*Math.cos(pitch)*Math.cos(yaw));
+  cam.lookAt(target); R.render(S,cam); requestAnimationFrame(frame);
+}
+var ptrs={}, last=0;
+cv.addEventListener('pointerdown',function(e){cv.setPointerCapture(e.pointerId);ptrs[e.pointerId]=[e.clientX,e.clientY];last=0;});
+cv.addEventListener('pointerup',function(e){delete ptrs[e.pointerId];});
+cv.addEventListener('pointermove',function(e){
+  if(!ptrs[e.pointerId])return; var ids=Object.keys(ptrs), o=ptrs[e.pointerId];
+  if(ids.length==1){yaw-=(e.clientX-o[0])*0.007; pitch=Math.max(-1.4,Math.min(1.4,pitch+(e.clientY-o[1])*0.007));}
+  ptrs[e.pointerId]=[e.clientX,e.clientY];
+  if(ids.length==2){var a=ptrs[ids[0]],b=ptrs[ids[1]],d=Math.hypot(a[0]-b[0],a[1]-b[1]); if(last)dist*=last/d; last=d;}
+});
+cv.addEventListener('wheel',function(e){e.preventDefault();dist*=1+e.deltaY*0.001;},{passive:false});
+document.getElementById('t').oninput=function(e){tval=e.target.value/1000;playing=false;};
+document.getElementById('play').onclick=function(){ if(tval>=1)tval=0; playing=!playing; this.textContent=playing?'Pause':'Play';};
+document.getElementById('file').onchange=function(e){var f=e.target.files[0]; if(!f)return; var r=new FileReader();
+  r.onload=function(){try{var d=JSON.parse(r.result); if(!d.parts||!d.parts.length)throw 0; load(d);tval=0;}catch(x){alert('Not a valid exploded-view JSON (needs parts[] with name, min, max, offset).');}}; r.readAsText(f);};
+addEventListener('message',function(ev){ // the studio sends the viewer JSON of a vehicle part (same origin only)
+  if(ev.origin!==location.origin||!ev.data||ev.data.type!=='nitocad-exploded')return;
+  var d=ev.data.data; if(!d||!d.parts||!d.parts.length)return; load(d); tval=0;
+  if(R&&ev.data.warnings&&ev.data.warnings.length)document.getElementById('warn').textContent='Schematic boxes. '+ev.data.warnings.join('; ');
+});
+addEventListener('resize',resize); resize(); load(DATA); frame();
+</script></body></html>

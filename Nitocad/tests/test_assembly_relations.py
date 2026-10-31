@@ -4,7 +4,7 @@ import copy
 import assembly_relations as ar
 import studio_templates as st
 
-ASSEMBLIES = [t.id for t in st.TEMPLATES if t.spec["part_type"] == "assembly"]
+ASSEMBLIES = [t.id for t in st.TEMPLATES if t.spec["part_type"] == "assembly" and t.category != "vehicles"]   # vehicles are not shaft assemblies
 
 
 def _set(spec, name, **kw):

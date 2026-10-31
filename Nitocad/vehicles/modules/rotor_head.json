@@ -1,0 +1,136 @@
+{
+ "description": "Helicopter main rotor: mast, base bearing, swashplate disc, hub and a two-blade rotor (one airfoil part). Origin at the mast base; mast along Z.",
+ "params": {
+  "mast_dia": {
+   "default": 10,
+   "min": 3,
+   "max": 80
+  },
+  "mast_len": {
+   "default": 120,
+   "min": 20,
+   "max": 2000
+  },
+  "hub_dia": {
+   "default": 40,
+   "min": 10,
+   "max": 300
+  },
+  "blade_span": {
+   "default": 400,
+   "min": 50,
+   "max": 8000
+  },
+  "blade_chord": {
+   "default": 40,
+   "min": 8,
+   "max": 600
+  }
+ },
+ "derived": {
+  "hub_z": "=mast_len",
+  "swash_z": "=mast_len*0.6"
+ },
+ "components": [
+  {
+   "id": "mast",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": "=mast_dia",
+    "length_mm": "=mast_len+10"
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "base_bearing",
+   "type": "bearing",
+   "material": "steel",
+   "parameters": {
+    "inner_diameter_mm": "=mast_dia",
+    "outer_diameter_mm": "=mast_dia*2",
+    "width_mm": "=mast_dia*0.8"
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "swashplate",
+   "type": "flange",
+   "material": "aluminium",
+   "parameters": {
+    "outer_diameter_mm": "=hub_dia*1.4",
+    "inner_diameter_mm": "=mast_dia+1",
+    "thickness_mm": 4,
+    "hole_count": 4,
+    "hole_diameter_mm": 2,
+    "bolt_circle_mm": "=hub_dia"
+   },
+   "position": [
+    0,
+    0,
+    "=swash_z"
+   ]
+  },
+  {
+   "id": "hub",
+   "type": "flange",
+   "material": "aluminium",
+   "parameters": {
+    "outer_diameter_mm": "=hub_dia",
+    "inner_diameter_mm": "=mast_dia",
+    "thickness_mm": 8,
+    "hole_count": 4,
+    "hole_diameter_mm": 2,
+    "bolt_circle_mm": "=hub_dia*0.7"
+   },
+   "position": [
+    0,
+    0,
+    "=hub_z"
+   ]
+  },
+  {
+   "id": "blades",
+   "type": "airfoil_wing",
+   "material": "carbon",
+   "parameters": {
+    "naca": "0012",
+    "both_halves": true,
+    "root_chord_mm": "=blade_chord",
+    "tip_chord_mm": "=blade_chord*0.8",
+    "span_mm": "=blade_span",
+    "sweep_deg": 0
+   },
+   "position": [
+    0,
+    0,
+    "=hub_z + 8"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "name": "blade_longer_than_hub",
+   "expr": "=blade_span > hub_dia*2",
+   "message": "blades too short for the hub"
+  },
+  {
+   "name": "hub_wider_than_mast",
+   "expr": "=hub_dia > mast_dia*2",
+   "message": "hub too small for the mast"
+  },
+  {
+   "name": "swash_below_hub",
+   "expr": "=swash_z < hub_z",
+   "message": "swashplate must sit below the hub"
+  }
+ ]
+}

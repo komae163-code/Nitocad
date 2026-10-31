@@ -43,14 +43,26 @@ class TestAssemblySpecs:
 
     @pytest.mark.parametrize("params", [
         {}, {"parts": []}, {"parts": [{"part_type": "shaft"}]}, {"parts": [{"part_type": "assembly"}, {"part_type": "shaft"}]},
-        {"parts": [{"part_type": "shaft", "position": [1, 2]}, {"part_type": "shaft"}]}, {"parts": [{"part_type": "shaft", "count": 99}, {"part_type": "shaft"}]},
+        {"parts": [{"part_type": "shaft", "position": [1, 2]}, {"part_type": "shaft"}]}, {"parts": [{"part_type": "shaft", "count": 10**9}, {"part_type": "shaft"}]},
         {"parts": [{"part_type": "shaft", "parameters": []}, {"part_type": "shaft"}]}, {"parts": ["x", "y"]},
         {"layout": "diagonal", "parts": [{"part_type": "shaft"}, {"part_type": "shaft"}]},
-        {"parts": [{"part_type": "shaft"}] * 13},
+        {"parts": [{"part_type": "shaft"}] * (cv.RUNAWAY_ENTRIES + 1)},
     ])
     def test_unusable_parts_lists_are_refused(self, params):
         with pytest.raises(ValueError):
             cv._clean_spec({"part_type": "assembly", "parameters": params})
+
+    def test_there_is_no_cap_on_parts_only_a_runaway_guard(self):
+        assert cv.MAX_ASSEMBLY_ENTRIES is None and cv.MAX_PART_COUNT is None
+        many = cv._clean_spec({"part_type": "assembly", "parameters": {"parts": [{"part_type": "shaft"}] * 60}})
+        assert len(many["parameters"]["parts"]) == 60
+        counted = cv._clean_spec({"part_type": "assembly", "parameters": {"parts": [{"part_type": "shaft", "count": 500}, {"part_type": "shaft"}]}})
+        assert counted["parameters"]["parts"][0]["count"] == 500
+
+    def test_a_cap_can_still_be_switched_on(self, monkeypatch):
+        monkeypatch.setattr(cv, "MAX_ASSEMBLY_ENTRIES", 3)
+        with pytest.raises(ValueError):
+            cv._clean_spec({"part_type": "assembly", "parameters": {"parts": [{"part_type": "shaft"}] * 4}})
 
     def test_the_planner_accepts_an_assembly_from_the_ai(self):
         plan = cv.coerce_plan({"intent": "build", "reply": "ok", "spec": ASSEMBLY}, None)

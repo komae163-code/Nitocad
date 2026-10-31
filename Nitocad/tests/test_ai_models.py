@@ -6,7 +6,8 @@ import ai_models as am
 
 def cfg(**kw):
     base = dict(
-        AI_MESSAGES_PER_DAY_BASIC=40, AI_MESSAGES_PER_DAY_PLUS=15, AI_MESSAGES_PER_DAY_ADVANCED=4,
+        AI_MESSAGES_PER_DAY_BASIC=0, AI_MESSAGES_PER_DAY_PLUS=0, AI_MESSAGES_PER_DAY_ADVANCED=0,
+        AI_MESSAGES_PER_DAY_PAID_BASIC=0, AI_MESSAGES_PER_DAY_PAID_PLUS=0, AI_MESSAGES_PER_DAY_PAID_ADVANCED=0,
         GENERATE_CREDITS_ENGINE=2, GENERATE_CREDITS_BASIC=10, GENERATE_CREDITS_PLUS=25, GENERATE_CREDITS_ADVANCED=40,
         OPENAI_API_KEY=None, OPENAI_MODEL=None, QWEN_API_KEY=None, QWEN_MODEL=None,
         ANTHROPIC_API_KEY=None, ANTHROPIC_MODEL="claude-sonnet-5-5", DEEPSEEK_API_KEY=None,
@@ -20,14 +21,14 @@ def cfg(**kw):
 def test_prices_and_allowances_by_tier():
     s = cfg()
     assert am.TIERS == ("engine", "basic", "plus", "advanced")
-    assert [am.messages_per_day(s, t) for t in am.TIERS] == [None, 40, 15, 4]
+    assert [am.messages_per_day(s, t) for t in am.TIERS] == [None, None, None, None]     # no daily limit on any plan
     assert [am.generate_credits(s, t) for t in am.TIERS] == [2, 10, 25, 40]
 
 
 def test_unknown_or_missing_tiers_are_priced_as_basic():
     s = cfg()
     assert am.generate_credits(s, None) == 10 and am.generate_credits(s, "gold") == 10
-    assert am.messages_per_day(s, "gold") == 40
+    assert am.messages_per_day(s, "gold") is None
 
 
 def test_engine_needs_no_key_has_no_limit_and_calls_no_ai():
@@ -85,3 +86,10 @@ def test_claude_messages_alternate_and_start_with_the_user():
 def test_claude_conversion_handles_a_lone_system_prompt():
     system, turns = am.to_anthropic([{"role": "system", "content": "rules"}])
     assert system == "rules" and turns[0]["role"] == "user"
+
+
+def test_a_daily_limit_is_off_by_default_and_can_be_turned_back_on():
+    s = cfg(AI_MESSAGES_PER_DAY_PLUS=15, AI_MESSAGES_PER_DAY_PAID_PLUS=150)
+    assert am.messages_per_day(s, "basic") is None and am.messages_per_day(s, "basic", "pro") is None
+    assert am.messages_per_day(s, "plus") == 15 and am.messages_per_day(s, "plus", "max") == 150
+    assert am.messages_per_day(s, "engine") is None       # Engine calls no AI, so a limit never applies

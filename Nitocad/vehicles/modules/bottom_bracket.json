@@ -1,0 +1,155 @@
+{
+ "description": "Bicycle bottom bracket: spindle, two bearings, chainring and two cranks 180 degrees apart. Origin at the spindle centre; spindle along Y.",
+ "params": {
+  "spindle_dia": {
+   "default": 17,
+   "min": 8,
+   "max": 40
+  },
+  "shell_w": {
+   "default": 68,
+   "min": 30,
+   "max": 130
+  },
+  "crank_len": {
+   "default": 170,
+   "min": 80,
+   "max": 300
+  },
+  "crank_thk": {
+   "default": 10,
+   "min": 3,
+   "max": 30
+  },
+  "ring_teeth": {
+   "default": 44,
+   "min": 10,
+   "max": 80,
+   "kind": "int"
+  },
+  "bearing_w": {
+   "default": 10,
+   "min": 3,
+   "max": 30
+  }
+ },
+ "derived": {
+  "arm_y": "=shell_w/2 + crank_thk/2 + 10",
+  "brg_y": "=shell_w/2 - bearing_w/2"
+ },
+ "components": [
+  {
+   "id": "spindle",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": "=spindle_dia",
+    "length_mm": "=shell_w+2*crank_thk+30"
+   },
+   "position": [
+    0,
+    "=-(shell_w+2*crank_thk+30)/2",
+    0
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "bearing",
+   "type": "bearing",
+   "material": "steel",
+   "mirror": "y",
+   "parameters": {
+    "inner_diameter_mm": "=spindle_dia",
+    "outer_diameter_mm": "=spindle_dia*1.9",
+    "width_mm": "=bearing_w"
+   },
+   "position": [
+    0,
+    "=brg_y",
+    0
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "chainring",
+   "type": "sprocket",
+   "material": "steel",
+   "parameters": {
+    "teeth": "=ring_teeth",
+    "chain_pitch_mm": 12.7,
+    "thickness_mm": 2,
+    "bore_diameter_mm": "=spindle_dia"
+   },
+   "position": [
+    0,
+    "=arm_y - 12",
+    0
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "crank_r",
+   "type": "flat_plate",
+   "material": "aluminium",
+   "parameters": {
+    "length_mm": "=crank_len",
+    "width_mm": 24,
+    "thickness_mm": "=crank_thk"
+   },
+   "position": [
+    "=crank_len/2",
+    "=arm_y",
+    0
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "crank_l",
+   "type": "flat_plate",
+   "material": "aluminium",
+   "parameters": {
+    "length_mm": "=crank_len",
+    "width_mm": 24,
+    "thickness_mm": "=crank_thk"
+   },
+   "position": [
+    "=-crank_len/2",
+    "=-arm_y",
+    0
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "name": "bearing_outside_spindle",
+   "expr": "=spindle_dia*1.9 < shell_w",
+   "message": "bearing too wide for the shell"
+  },
+  {
+   "name": "crank_longer_than_ring",
+   "expr": "=crank_len > ring_teeth*12.7/(2*pi)",
+   "message": "chainring radius exceeds the crank length"
+  }
+ ]
+}

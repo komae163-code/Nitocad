@@ -50,6 +50,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import billing
 from config import settings
 from logging_config import get_logger
 
@@ -80,7 +81,299 @@ def get_conn():
         conn.close()
 
 
+# ------------------------------------------------------ credit ledger ----
+# All credit balances live in billing.py's grant ledger (credit_grants).
+# wallet_credits and subscriptions.subscription_credits are frozen legacy
+# records: they are imported once by migrate_credits_to_ledger() and never
+# spent from again. Charge functions below keep their old names and return
+# an opaque pool string, now "ledger:<reservation_id>", which the refund
+# functions use to put credits back into the exact grants they came from.
+_ledger = billing.Billing(get_conn)
+_LEDGER_PREFIX = "ledger:"
+
+
+def _ref(reservation_id: str) -> str:
+    return _LEDGER_PREFIX + reservation_id
+
+
+def _reservation_of(pool: str | None) -> str | None:
+    if pool and pool.startswith(_LEDGER_PREFIX):
+        return pool[len(_LEDGER_PREFIX):]
+    return None
+
+
+def _reserve(wallet_address: str, amount: int, pool: str | None = None) -> str | None:
+    """Spend `amount` credits now, soonest-expiring first, optionally limited to
+    the "subscription" or "purchased" pool. Returns the pool string to keep for
+    a refund, or None if the wallet cannot pay."""
+    ensure_plan_credits(wallet_address)
+    try:
+        rid = _ledger.reserve(wallet_address.lower(), amount, str(uuid.uuid4()), pool=pool)
+    except billing.InsufficientCredits:
+        return None
+    _ledger.settle(rid, amount)
+    return _ref(rid)
+
+
+def _grant_subscription_period(wallet_address: str, credits: int, period_end: str | None) -> None:
+    """One grant per (wallet, billing period). period_end is the idempotency
+    key, so a replayed invoice webhook cannot grant the period twice."""
+    if credits <= 0 or not period_end:
+        return
+    try:
+        expires = datetime.fromisoformat(period_end)
+    except ValueError:
+        logger.error("subscription grant skipped, bad period_end %r", period_end)
+        return
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    _ledger.grant(wallet_address.lower(), "subscription", credits, period_end, expires)
+
+
+def migrate_credits_to_ledger() -> dict[str, int]:
+    """Import legacy balances into the ledger. Safe to run on every startup:
+    each import uses a fixed key, so it happens once per wallet."""
+    now = datetime.now(timezone.utc)
+    with get_conn() as conn:
+        wallets = conn.execute(
+            "SELECT wallet_address, balance FROM wallet_credits WHERE balance > 0"
+        ).fetchall()
+        subs = conn.execute(
+            "SELECT wallet_address, subscription_credits, current_period_end FROM subscriptions "
+            "WHERE subscription_credits > 0 AND current_period_end IS NOT NULL "
+            "AND status IN ('active', 'trialing')"
+        ).fetchall()
+    moved = {"wallets": 0, "subscriptions": 0}
+    for w in wallets:
+        if _ledger.grant(w["wallet_address"], "topup", w["balance"], "legacy-migration"):
+            moved["wallets"] += 1
+    for sub in subs:
+        before = _ledger.balance(sub["wallet_address"], now=now, pool="subscription")["total"]
+        _grant_subscription_period(sub["wallet_address"], sub["subscription_credits"], sub["current_period_end"])
+        if _ledger.balance(sub["wallet_address"], now=now, pool="subscription")["total"] > before:
+            moved["subscriptions"] += 1
+    return moved
+
+
+_PLAN_TIERS = ("pro", "max")
+
+
+def get_plan(wallet_address: str) -> str:
+    """"free", "pro", "max", or "legacy" (a paid subscriber on an older plan)."""
+    sub = get_subscription(wallet_address)
+    if sub is None or not is_subscription_entitled(wallet_address):
+        return "free"
+    return sub["tier"] if sub["tier"] in _PLAN_TIERS else "legacy"
+
+
+def ensure_plan_credits(wallet_address: str, now: datetime | None = None) -> None:
+    """Grant this wallet's current weekly allowance and today's fallback credits
+    if they are not already there. Called before every spend and balance read, so
+    no scheduled job is needed. Each grant is keyed by its period, so calling this
+    any number of times in the same week or day grants once."""
+    wallet = wallet_address.lower()
+    now = now or datetime.now(timezone.utc)
+    sub = get_subscription(wallet)
+    if sub is None or sub["tier"] not in _PLAN_TIERS or not is_subscription_entitled(wallet):
+        return
+    cfg = settings.subscription_tiers.get(sub["tier"]) or {}
+    period_end = datetime.fromisoformat(sub["current_period_end"])
+    if period_end.tzinfo is None:
+        period_end = period_end.replace(tzinfo=timezone.utc)
+
+    anchor_raw = sub.get("allowance_anchor")
+    if anchor_raw is None:
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE subscriptions SET allowance_anchor = ? WHERE wallet_address = ? AND allowance_anchor IS NULL",
+                (now.isoformat(), wallet),
+            )
+        anchor_raw = (get_subscription(wallet) or {}).get("allowance_anchor") or now.isoformat()
+    anchor = datetime.fromisoformat(anchor_raw)
+    if anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=timezone.utc)
+
+    weekly = int(cfg.get("weekly_credits") or 0)
+    if weekly > 0:
+        week = max(0, (now - anchor) // timedelta(days=7))
+        week_end = min(anchor + timedelta(days=7 * (week + 1)), period_end)
+        _ledger.grant(wallet, f"weekly_{sub['tier']}", weekly, f"{anchor_raw}:{week}", week_end, now)
+
+    fallback = int(cfg.get("fallback_daily_credits") or 0)
+    if fallback > 0:
+        day_end = datetime(now.year, now.month, now.day, tzinfo=timezone.utc) + timedelta(days=1)
+        _ledger.grant(wallet, f"fallback_{sub['tier']}", fallback, now.date().isoformat(), min(day_end, period_end), now)
+
+
+def _reset_allowance_clock(wallet_address: str, was_entitled: bool) -> None:
+    """A subscription that lapsed and was paid again starts a fresh weekly clock."""
+    if was_entitled:
+        return
+    with get_conn() as conn:
+        conn.execute("UPDATE subscriptions SET allowance_anchor = NULL WHERE wallet_address = ?",
+                     (wallet_address.lower(),))
+
+
+def _reserve_for_plan(wallet_address: str, cost: int, ai_tier: str | None) -> str | None:
+    """Pay with weekly and purchased credits. If they cannot cover it and the job
+    used the cheapest model, fall back to the daily fallback credits."""
+    pool = _reserve(wallet_address, cost)
+    if pool is None and ai_tier == "basic":
+        pool = _reserve(wallet_address, cost, "fallback")
+    return pool
+
+
+def grant_signup_bonus(account_id: str) -> bool:
+    """One-time free grant for a new Google-verified account, with an expiry. The amount is
+    EMAIL_SIGNUP_BONUS_CREDITS (250), so it can be changed in the environment without a deploy."""
+    now = datetime.now(timezone.utc)
+    return _ledger.grant(
+        account_id.lower(), "signup", int(settings.EMAIL_SIGNUP_BONUS_CREDITS), "signup",
+        now + timedelta(days=int(settings.SIGNUP_GRANT_DAYS)), now,
+    )
+
+
+# ------------------------------------------------------------------ bachs ----
+
+def _init_bachs_tables() -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS bachs_events (event_id TEXT PRIMARY KEY, processed_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bachs_checkouts (
+                checkout_id TEXT PRIMARY KEY,
+                wallet_address TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                plan TEXT,
+                credits INTEGER,
+                amount TEXT,
+                currency TEXT,
+                status TEXT NOT NULL DEFAULT 'open',
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+
+
+def bachs_event_seen(event_id: str) -> bool:
+    with get_conn() as conn:
+        return conn.execute("SELECT 1 FROM bachs_events WHERE event_id = ?", (event_id,)).fetchone() is not None
+
+
+def mark_bachs_event_processed(event_id: str) -> None:
+    """Called after an event is fully handled, so a failure part-way is retried."""
+    with get_conn() as conn:
+        conn.execute("INSERT OR IGNORE INTO bachs_events (event_id, processed_at) VALUES (?, ?)", (event_id, _now()))
+
+
+def record_bachs_checkout(checkout_id: str, wallet_address: str, kind: str, *, plan: str | None = None,
+                          credits: int | None = None, amount: str | None = None, currency: str | None = None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO bachs_checkouts "
+            "(checkout_id, wallet_address, kind, plan, credits, amount, currency, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+            (checkout_id, wallet_address.lower(), kind, plan, credits, amount, currency, _now()),
+        )
+
+
+def get_bachs_checkout(checkout_id: str) -> dict[str, Any] | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM bachs_checkouts WHERE checkout_id = ?", (checkout_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def set_bachs_checkout_status(checkout_id: str, status: str) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE bachs_checkouts SET status = ? WHERE checkout_id = ?", (status, checkout_id))
+
+
+def get_subscription_by_bachs_subscription_id(bachs_subscription_id: str) -> dict[str, Any] | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM subscriptions WHERE bachs_subscription_id = ?", (bachs_subscription_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def upsert_bachs_subscription(
+    wallet_address: str,
+    *,
+    bachs_customer_id: str,
+    bachs_subscription_id: str,
+    status: str,
+    tier: str,
+    current_period_end: str | None,
+    email: str | None = None,
+    event_at: str,
+) -> None:
+    """Record a Bachs subscription for a wallet. Pro and Max get their credits from
+    the weekly allowance (ensure_plan_credits), so subscription_credits stays 0."""
+    was_entitled = is_subscription_entitled(wallet_address)
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO subscriptions (
+                wallet_address, provider, email, bachs_customer_id, bachs_subscription_id,
+                status, tier, subscription_credits, current_period_end, last_event_at, updated_at
+            ) VALUES (?, 'bachs', ?, ?, ?, ?, ?, 0, ?, ?, ?)
+            ON CONFLICT(wallet_address) DO UPDATE SET
+                provider = 'bachs',
+                email = COALESCE(excluded.email, subscriptions.email),
+                bachs_customer_id = excluded.bachs_customer_id,
+                bachs_subscription_id = excluded.bachs_subscription_id,
+                status = excluded.status,
+                tier = excluded.tier,
+                subscription_credits = 0,
+                current_period_end = excluded.current_period_end,
+                last_event_at = excluded.last_event_at,
+                updated_at = excluded.updated_at
+            """,
+            (wallet_address.lower(), email, bachs_customer_id, bachs_subscription_id,
+             status, tier, current_period_end, event_at, _now()),
+        )
+    _reset_allowance_clock(wallet_address, was_entitled)
+    if status in ("canceled", "unpaid"):
+        # Ended for good. Whatever is left of the paid week must not outlive it, or a
+        # cancel and resubscribe in the same week would grant the allowance twice.
+        _ledger.revoke(wallet_address.lower(), ("weekly_", "fallback_"))
+
+
+def get_ai_usage_meter(wallet_address: str) -> dict[str, Any]:
+    """What the usage bar shows. Percentages and a reset time, never credit counts.
+    Pro and Max measure the weekly allowance. Free measures the starter allowance."""
+    wallet = wallet_address.lower()
+    ensure_plan_credits(wallet)
+    plan = get_plan(wallet)
+    prefixes = ("weekly_",) if plan in _PLAN_TIERS else ("signup",)
+    u = _ledger.usage(wallet, prefixes)
+    used_pct = None
+    if u["amount"] > 0:
+        used_pct = max(0, min(100, round(100 * (1 - u["remaining"] / u["amount"]))))
+    standard_open = (
+        _ledger.balance(wallet)["total"] > 0
+        or (plan in _PLAN_TIERS and _ledger.balance(wallet, pool="fallback")["total"] > 0)
+    )
+    return {"plan": plan, "used_pct": used_pct, "resets_at": u["resets_at"], "standard_open": standard_open}
+
+
+def grant_topup_credits(wallet_address: str, credits: int, payment_ref: str) -> bool:
+    """Non-expiring credits for a verified payment. payment_ref (the Bachs charge
+    id) makes a replayed webhook grant nothing the second time. True if granted."""
+    return _ledger.grant(wallet_address.lower(), "topup", credits, payment_ref)
+
+
 def init_db() -> None:
+    """Create tables, then the credit ledger, then import legacy balances."""
+    _init_core_tables()
+    _init_bachs_tables()
+    _ledger.init_schema()
+    migrate_credits_to_ledger()
+
+
+def _init_core_tables() -> None:
     """Create tables if they don't exist. Call once at startup."""
     with get_conn() as conn:
         conn.execute(
@@ -276,6 +569,13 @@ def init_db() -> None:
             "ALTER TABLE subscriptions ADD COLUMN paystack_customer_code TEXT",
             "ALTER TABLE subscriptions ADD COLUMN paystack_subscription_code TEXT",
             "ALTER TABLE subscriptions ADD COLUMN paystack_plan_code TEXT",
+            # When this subscription's weekly allowance clock started. Reset when a
+            # lapsed subscription is paid again. See ensure_plan_credits.
+            "ALTER TABLE subscriptions ADD COLUMN allowance_anchor TEXT",
+            # Bachs subscriptions. last_event_at lets an older, late webhook be skipped.
+            "ALTER TABLE subscriptions ADD COLUMN bachs_customer_id TEXT",
+            "ALTER TABLE subscriptions ADD COLUMN bachs_subscription_id TEXT",
+            "ALTER TABLE subscriptions ADD COLUMN last_event_at TEXT",
             # On-chain provenance tx hash (DesignRegistry.anchorDesign) - set
             # after a paid STEP export succeeds. Existing DBs lack this column.
             "ALTER TABLE jobs ADD COLUMN anchor_tx TEXT",
@@ -832,67 +1132,48 @@ def delete_session(session_id: str) -> None:
 # a 10000-credit pack, not a separate code path.
 
 def get_credit_balance(wallet_address: str) -> int:
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT balance FROM wallet_credits WHERE wallet_address = ?",
-            (wallet_address.lower(),),
-        ).fetchone()
-        return row["balance"] if row else 0
+    """Purchased-side credits (top-ups, signup grants, imported balances) that
+    are spendable right now. Subscription credits are counted separately in
+    get_subscription_credits."""
+    ensure_plan_credits(wallet_address)
+    return _ledger.balance(wallet_address.lower(), pool="purchased")["total"]
+
+
+def get_spendable_credits(wallet_address: str, ai_tier: str | None = None) -> int:
+    """Everything this wallet can spend right now on one AI message: weekly and subscription credits,
+    top-ups and the signup grant. The small daily fallback credits count only on the Standard (basic) tier,
+    which is the only model they can pay for. Expiry is respected."""
+    ensure_plan_credits(wallet_address)
+    who = wallet_address.lower()
+    total = _ledger.balance(who)["total"]
+    if ai_tier == "basic":
+        total += _ledger.balance(who, pool="fallback")["total"]
+    return total
+
+
+def get_subscription_credits(wallet_address: str) -> int:
+    """Subscription credits spendable right now, expiry respected."""
+    ensure_plan_credits(wallet_address)
+    return _ledger.balance(wallet_address.lower(), pool="subscription")["total"]
 
 
 def add_credits(wallet_address: str, amount: int) -> int:
-    """Upsert: creates the wallet's row on its first purchase, or adds
-    to an existing balance. Returns the new balance. amount must be
-    positive - this is a top-up function, not a general adjuster (use
-    consume_credit to go the other direction, which has its own
-    atomicity guarantee that a bare add_credits(-1) wouldn't)."""
+    """Adds non-expiring purchased credits as a new grant and returns the new
+    purchased balance. Callers guard against duplicate payments themselves
+    (see reserve_payment), so each call here is a distinct grant."""
     if amount <= 0:
         raise ValueError("add_credits amount must be positive")
-    with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO wallet_credits (wallet_address, balance, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(wallet_address) DO UPDATE SET
-                balance = balance + excluded.balance,
-                updated_at = excluded.updated_at
-            """,
-            (wallet_address.lower(), amount, _now()),
-        )
-        row = conn.execute(
-            "SELECT balance FROM wallet_credits WHERE wallet_address = ?",
-            (wallet_address.lower(),),
-        ).fetchone()
-        return row["balance"]
+    _ledger.grant(wallet_address.lower(), "topup", amount, str(uuid.uuid4()))
+    return get_credit_balance(wallet_address)
 
 
 def consume_credit(wallet_address: str, amount: int = 1) -> bool:
-    """Atomically decrements the wallet's balance by `amount` IF it has
-    enough - the WHERE clause's balance >= ? makes the check-and-
-    decrement a single statement, so two concurrent /generate calls for
-    a wallet sitting at exactly 1 credit can't both succeed (whichever
-    UPDATE's WHERE clause loses the race matches zero rows and returns
-    False, the same way db.reserve_payment's tx_hash PRIMARY KEY
-    prevents a payment from being double-spent). Returns True if the
-    balance was sufficient and got decremented, False otherwise
-    (including a wallet with no row at all - never spent anything, so
-    never has a balance).
-
-    This spends PURCHASED credits only. For the subscription-aware
-    spend order (subscription credits first, this pool second), use
-    consume_credit_waterfall instead - this function is kept as-is
-    because add_credits/consume_credit are still the right pair for
-    purchased credits specifically, and other code may reasonably want
-    to spend from that pool alone."""
-    with get_conn() as conn:
-        cur = conn.execute(
-            """
-            UPDATE wallet_credits SET balance = balance - ?, updated_at = ?
-            WHERE wallet_address = ? AND balance >= ?
-            """,
-            (amount, _now(), wallet_address.lower(), amount),
-        )
-        return cur.rowcount > 0
+    """Spends `amount` purchased credits atomically. True if the wallet could
+    pay. Subscription credits are not touched, use consume_credit_waterfall
+    for the spend order that includes them."""
+    if amount <= 0:
+        return True
+    return _reserve(wallet_address, amount, "purchased") is not None
 
 
 def get_subscription(wallet_address: str) -> dict[str, Any] | None:
@@ -984,6 +1265,7 @@ def upsert_paystack_subscription(
     throughout (see config.py's Paystack comment block); a webhook is
     resolved back to a wallet via get_subscription_by_paystack_customer_
     code, never by re-deriving anything from the email."""
+    was_entitled = is_subscription_entitled(wallet_address)
     with get_conn() as conn:
         conn.execute(
             """
@@ -1017,6 +1299,8 @@ def upsert_paystack_subscription(
                 _now(),
             ),
         )
+    _reset_allowance_clock(wallet_address, was_entitled)
+    _grant_subscription_period(wallet_address, subscription_credits, current_period_end)
 
 
 def upsert_subscription(
@@ -1042,6 +1326,7 @@ def upsert_subscription(
     "engineer", "professional") - charge_generation reads it back to
     find the right daily_generation_cap and pool-vs-no-pool behavior
     for this wallet."""
+    was_entitled = is_subscription_entitled(wallet_address)
     with get_conn() as conn:
         conn.execute(
             """
@@ -1069,6 +1354,8 @@ def upsert_subscription(
                 _now(),
             ),
         )
+    _reset_allowance_clock(wallet_address, was_entitled)
+    _grant_subscription_period(wallet_address, subscription_credits, current_period_end)
 
 
 def set_subscription_status(stripe_subscription_id: str, status: str) -> None:
@@ -1137,47 +1424,20 @@ def is_subscription_entitled(wallet_address: str) -> bool:
     sub = get_subscription(wallet_address)
     if sub is None or not sub["current_period_end"]:
         return False
-    if sub["status"] not in ("active", "trialing"):
+    if sub["status"] not in ("active", "trialing", "canceling"):
         return False
-    return datetime.fromisoformat(sub["current_period_end"]) > datetime.now(timezone.utc)
+    end = datetime.fromisoformat(sub["current_period_end"])
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    return end > datetime.now(timezone.utc)
 
 
 def consume_credit_waterfall(wallet_address: str, amount: int = 1) -> str | None:
-    """Spends `amount` credits, subscription pool first, purchased pool
-    second - the agreed order, so a subscriber's included credits get
-    used before anything they separately paid for. Both attempts run
-    inside the SAME connection (one `with get_conn()` block, one
-    implicit transaction), which matters: checking the subscription
-    balance and falling back to the purchased balance are two
-    statements, and without a shared transaction a second concurrent
-    call for the same wallet could interleave between them and double-
-    spend the same purchased credit that two "subscription insufficient"
-    checks both just saw. Returns "subscription" or "purchased" for
-    which pool paid, or None if neither had enough."""
-    with get_conn() as conn:
-        cur = conn.execute(
-            """
-            UPDATE subscriptions SET subscription_credits = subscription_credits - ?, updated_at = ?
-            WHERE wallet_address = ? AND subscription_credits >= ?
-                AND status IN ('active', 'trialing')
-                AND current_period_end > ?
-            """,
-            (amount, _now(), wallet_address.lower(), amount, _now()),
-        )
-        if cur.rowcount > 0:
-            return "subscription"
-
-        cur = conn.execute(
-            """
-            UPDATE wallet_credits SET balance = balance - ?, updated_at = ?
-            WHERE wallet_address = ? AND balance >= ?
-            """,
-            (amount, _now(), wallet_address.lower(), amount),
-        )
-        if cur.rowcount > 0:
-            return "purchased"
-
-        return None
+    """Spends `amount` credits from every pool, soonest-expiring first, so
+    expiring subscription credits go before non-expiring purchased ones.
+    Returns the pool string to pass to refund_credits, or None if the wallet
+    cannot pay."""
+    return _reserve(wallet_address, amount)
 
 
 def count_generations_last_24h(wallet_address: str) -> int:
@@ -1206,7 +1466,7 @@ def count_generations_last_24h(wallet_address: str) -> int:
         return row["c"]
 
 
-def charge_generation(wallet_address: str) -> str | None:
+def charge_generation(wallet_address: str, ai_tier: str | None = None) -> str | None:
     """The full policy for what pays for one /generate call, given this
     wallet's current subscription (if any). Looks up the tier's config
     itself (settings.subscription_tiers) rather than making the caller
@@ -1246,6 +1506,8 @@ def charge_generation(wallet_address: str) -> str | None:
     for that wallet, not a cross-wallet or revenue-losing bug), not
     worth a row-locking scheme at this scale. Left on the same backlog
     if daily concurrent volume per wallet ever becomes real."""
+    if get_plan(wallet_address) in _PLAN_TIERS:
+        return _reserve_for_plan(wallet_address, 1, ai_tier)
     sub = get_subscription(wallet_address)
     if sub is not None and is_subscription_entitled(wallet_address):
         tier_config = settings.subscription_tiers.get(sub["tier"])
@@ -1260,40 +1522,29 @@ def charge_generation(wallet_address: str) -> str | None:
 
             if tier_config["monthly_credits"] > 0:
                 if used_today < cap:
-                    with get_conn() as conn:
-                        cur = conn.execute(
-                            "UPDATE subscriptions SET subscription_credits = subscription_credits - 1, updated_at = ? "
-                            "WHERE wallet_address = ? AND subscription_credits >= 1",
-                            (_now(), wallet_address.lower()),
-                        )
-                        if cur.rowcount > 0:
-                            return "subscription_credit"
+                    pool = _reserve(wallet_address, 1, "subscription")
+                    if pool is not None:
+                        return pool
             else:
                 if used_today < cap:
                     return "subscription_daily"
 
-    if consume_credit(wallet_address):
-        return "purchased"
-    return None
+    return _reserve(wallet_address, 1, "purchased")
 
 
 def refund_generation(wallet_address: str, charged_pool: str | None) -> None:
     """Undo charge_generation() for a /generate call that produced nothing.
 
-    "purchased"           -> give the credit back to the purchased pool.
-    "subscription_credit" -> give it back to the subscription pool.
-    "subscription_daily"  -> nothing was deducted; failed jobs no longer count
-                             toward the daily cap (see count_generations_last_24h).
+    "ledger:<id>"         -> credits return to the exact grants they came from.
+    "subscription_daily"  -> nothing was deducted, nothing to give back.
+    "purchased" / "subscription_credit" (charged before the ledger existed)
+                          -> one credit goes back as a purchased top-up.
     """
-    if charged_pool == "purchased":
+    rid = _reservation_of(charged_pool)
+    if rid:
+        _ledger.refund(rid)
+    elif charged_pool in ("purchased", "subscription_credit"):
         add_credits(wallet_address, 1)
-    elif charged_pool == "subscription_credit":
-        with get_conn() as conn:
-            conn.execute(
-                "UPDATE subscriptions SET subscription_credits = subscription_credits + 1, "
-                "updated_at = ? WHERE wallet_address = ?",
-                (_now(), wallet_address.lower()),
-            )
 
 
 def log_ai_usage(wallet_address: str, tier: str, model: str) -> None:
@@ -1341,7 +1592,7 @@ def is_job_locked(job: dict[str, Any] | None) -> bool:
     return job.get("charged_at") is None or job.get("charged_pool") in (None, "pending")
 
 
-def charge_job(job_id: str, wallet_address: str, cost: int = 1) -> tuple[str, str | None]:
+def charge_job(job_id: str, wallet_address: str, cost: int = 1, ai_tier: str | None = None) -> tuple[str, str | None]:
     """Pay for one preview, once. Returns (status, pool):
 
         ("charged", pool)       this call spent the generation
@@ -1375,11 +1626,14 @@ def charge_job(job_id: str, wallet_address: str, cost: int = 1) -> tuple[str, st
         if cur.rowcount == 0:
             return "already_paid", None  # lost a race to another request
     try:
-        if cost <= 1:
+        if get_plan(wallet) in _PLAN_TIERS:
+            pool = _reserve_for_plan(wallet, cost, ai_tier)
+            taken = cost
+        elif cost <= 1:
             pool = charge_generation(wallet)
             taken = 1
         else:
-            pool = "purchased" if consume_credit(wallet, cost) else None
+            pool = _reserve(wallet, cost, "purchased")
             taken = cost
     except Exception:
         _release_job_claim(job_id)
@@ -1427,27 +1681,26 @@ def refund_job_charge(job_id: str, wallet_address: str) -> bool:
     return True
 
 
-def charge_credits(wallet_address: str, amount: int) -> str | None:
-    """Spend `amount` credits that are not tied to a job (a manufacturability check, for example).
-    Subscription credits go first, then purchased ones. Returns the pool that paid ("subscription" or
-    "purchased") or None when the wallet cannot pay. Keep the pool, refund_credits needs it."""
+def charge_credits(wallet_address: str, amount: int, ai_tier: str | None = None) -> str | None:
+    """Spend `amount` credits that are not tied to a job (an AI answer or a manufacturability check, for example).
+    Pass ai_tier when an AI model is doing the work, so the daily Standard fallback credits can pay for it
+    on the Standard tier. Returns the pool string to keep for refund_credits, or None when the wallet cannot pay."""
     if amount <= 0:
         return "purchased"
+    if ai_tier:
+        return _reserve_for_plan(wallet_address, amount, ai_tier)
     return consume_credit_waterfall(wallet_address, amount)
 
 
 def refund_credits(wallet_address: str, pool: str | None, amount: int) -> None:
-    """Give back what charge_credits took, to the pool it came from."""
+    """Give back what charge_credits took, to the grants it came from."""
     if amount <= 0 or pool is None:
         return
-    if pool == "purchased":
+    rid = _reservation_of(pool)
+    if rid:
+        _ledger.refund(rid)
+    elif pool in ("purchased", "subscription"):
         add_credits(wallet_address, amount)
-    elif pool == "subscription":
-        with get_conn() as conn:
-            conn.execute(
-                "UPDATE subscriptions SET subscription_credits = subscription_credits + ?, updated_at = ? WHERE wallet_address = ?",
-                (amount, _now(), wallet_address.lower()),
-            )
 
 
 def claim_signup_bonus(wallet_address: str, qualifying_payment_id: str) -> bool:

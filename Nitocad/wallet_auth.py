@@ -118,7 +118,7 @@ def verify_google_and_create_session(id_token: str) -> dict:
     claims = google_auth.verify_google_id_token(id_token)
     account_id, is_new = db.get_or_create_email_account(claims["sub"], claims["email"])
     if is_new:
-        db.add_credits(account_id, settings.EMAIL_SIGNUP_BONUS_CREDITS)
+        db.grant_signup_bonus(account_id)
 
     session_id, expires_at = db.create_session(account_id, ttl_seconds=settings.WALLET_SESSION_TTL_SECONDS)
     return {

@@ -1,0 +1,446 @@
+{
+ "name": "rc_helicopter",
+ "notes": "Concept layout with representative internals for an electric RC helicopter. Not flight-worthy: no balance, vibration, swashplate linkage or tail-drive design.",
+ "params": {
+  "fuse_len": {
+   "default": 330,
+   "min": 150,
+   "max": 800
+  },
+  "fuse_dia": {
+   "default": 70,
+   "min": 40,
+   "max": 200
+  },
+  "boom_len": {
+   "default": 380,
+   "min": 150,
+   "max": 900
+  },
+  "boom_od": {
+   "default": 14,
+   "min": 8,
+   "max": 40
+  },
+  "rotor_span": {
+   "default": 450,
+   "min": 150,
+   "max": 2000
+  },
+  "mast_len": {
+   "default": 110,
+   "min": 40,
+   "max": 500
+  },
+  "pinion_teeth": {
+   "default": 14,
+   "min": 8,
+   "max": 40,
+   "kind": "int"
+  },
+  "main_teeth": {
+   "default": 84,
+   "min": 30,
+   "max": 200,
+   "kind": "int"
+  },
+  "gear_mod": {
+   "default": 0.6,
+   "min": 0.3,
+   "max": 2
+  },
+  "battery_len": {
+   "default": 105,
+   "min": 40,
+   "max": 300
+  }
+ },
+ "derived": {
+  "gear_cd": "=gear_mod*(pinion_teeth+main_teeth)/2",
+  "ratio": "=main_teeth/pinion_teeth",
+  "gear_z": "=-20",
+  "rotor_z": "=20",
+  "tail_x": "=-fuse_len/2 - boom_len",
+  "boom_z": "=10",
+  "skid_y": "=60",
+  "rotor_top": "=rotor_z + mast_len + 16"
+ },
+ "components": [
+  {
+   "id": "fuselage",
+   "type": "fuselage",
+   "assembly": "body",
+   "fixed": true,
+   "material": "plastic",
+   "parameters": {
+    "length_mm": "=fuse_len",
+    "diameter_mm": "=fuse_dia",
+    "nose_ratio": 0.3,
+    "tail_ratio": 0.3,
+    "tail_end_diameter_mm": "=boom_od + 10"
+   },
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "side_plate",
+   "type": "flat_plate",
+   "assembly": "chassis",
+   "material": "carbon",
+   "mirror": "y",
+   "parameters": {
+    "length_mm": 170,
+    "width_mm": 90,
+    "thickness_mm": 2
+   },
+   "position": [
+    0,
+    24,
+    0
+   ],
+   "rotation": [
+    90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "main_drive",
+   "module": "gear_pair",
+   "assembly": "drivetrain",
+   "position": [
+    "=-gear_cd",
+    0,
+    "=gear_z"
+   ],
+   "params": {
+    "gear_module": "=gear_mod",
+    "teeth_a": "=pinion_teeth",
+    "teeth_b": "=main_teeth",
+    "thickness": 5,
+    "shaft_dia": 3
+   }
+  },
+  {
+   "id": "rotor",
+   "module": "rotor_head",
+   "assembly": "rotor",
+   "position": [
+    0,
+    0,
+    "=rotor_z"
+   ],
+   "params": {
+    "mast_dia": 6,
+    "mast_len": "=mast_len",
+    "hub_dia": 30,
+    "blade_span": "=rotor_span",
+    "blade_chord": 35
+   }
+  },
+  {
+   "id": "motor",
+   "type": "tube",
+   "assembly": "drivetrain",
+   "material": "aluminium",
+   "parameters": {
+    "outer_diameter_mm": 28,
+    "wall_thickness_mm": 2,
+    "length_mm": 36
+   },
+   "position": [
+    "=-gear_cd",
+    0,
+    "=gear_z - 50"
+   ]
+  },
+  {
+   "id": "motor_mount",
+   "type": "motor_mount",
+   "assembly": "drivetrain",
+   "material": "aluminium",
+   "parameters": {
+    "motor_size_mm": 28,
+    "thickness_mm": 3,
+    "hole_diameter_mm": 3,
+    "fillet_radius_mm": 2
+   },
+   "position": [
+    "=-gear_cd",
+    0,
+    "=gear_z - 12"
+   ]
+  },
+  {
+   "id": "battery",
+   "type": "simple_box",
+   "assembly": "electronics",
+   "material": "lipo",
+   "parameters": {
+    "length_mm": "=battery_len",
+    "width_mm": 35,
+    "height_mm": 28,
+    "wall_thickness_mm": 2,
+    "hollow": false,
+    "has_lid": false
+   },
+   "position": [
+    25,
+    0,
+    -45
+   ]
+  },
+  {
+   "id": "esc",
+   "type": "flat_plate",
+   "assembly": "electronics",
+   "material": "pcb",
+   "parameters": {
+    "length_mm": 45,
+    "width_mm": 25,
+    "thickness_mm": 4
+   },
+   "position": [
+    -10,
+    0,
+    -48
+   ]
+  },
+  {
+   "id": "flight_controller",
+   "type": "flat_plate",
+   "assembly": "electronics",
+   "material": "pcb",
+   "parameters": {
+    "length_mm": 36,
+    "width_mm": 36,
+    "thickness_mm": 4
+   },
+   "position": [
+    -65,
+    0,
+    -30
+   ]
+  },
+  {
+   "id": "servo",
+   "type": "simple_box",
+   "assembly": "electronics",
+   "material": "plastic",
+   "repeat": {
+    "n": 3,
+    "step": [
+     0,
+     18,
+     0
+    ]
+   },
+   "parameters": {
+    "length_mm": 23,
+    "width_mm": 12,
+    "height_mm": 24,
+    "wall_thickness_mm": 2,
+    "hollow": false,
+    "has_lid": false
+   },
+   "position": [
+    70,
+    -18,
+    -8
+   ]
+  },
+  {
+   "id": "tail_boom",
+   "type": "tube",
+   "assembly": "tail",
+   "material": "steel",
+   "between": [
+    [
+     "=-fuse_len/2",
+     0,
+     "=boom_z"
+    ],
+    [
+     "=tail_x",
+     0,
+     "=boom_z"
+    ]
+   ],
+   "parameters": {
+    "outer_diameter_mm": "=boom_od",
+    "wall_thickness_mm": 1
+   }
+  },
+  {
+   "id": "tail_drive_shaft",
+   "type": "tube",
+   "assembly": "tail",
+   "material": "steel",
+   "between": [
+    [
+     "=-fuse_len/2",
+     0,
+     "=boom_z"
+    ],
+    [
+     "=tail_x",
+     0,
+     "=boom_z"
+    ]
+   ],
+   "parameters": {
+    "outer_diameter_mm": 4,
+    "wall_thickness_mm": 1
+   }
+  },
+  {
+   "id": "tail_fin",
+   "type": "tail_surface",
+   "assembly": "tail",
+   "material": "plastic",
+   "parameters": {
+    "naca": "0009",
+    "root_chord_mm": 55,
+    "tip_chord_mm": 35,
+    "span_mm": 60,
+    "sweep_deg": 10,
+    "orientation": "vertical",
+    "both_halves": false
+   },
+   "position": [
+    "=tail_x",
+    0,
+    "=boom_z"
+   ]
+  },
+  {
+   "id": "tail_rotor_shaft",
+   "type": "shaft",
+   "assembly": "tail",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 3,
+    "length_mm": 30
+   },
+   "position": [
+    "=tail_x + 10",
+    "=-15",
+    "=boom_z + 15"
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "skid",
+   "type": "tube",
+   "assembly": "landing_gear",
+   "material": "carbon",
+   "mirror": "y",
+   "between": [
+    [
+     -80,
+     "=skid_y",
+     "=-fuse_dia/2 - 40"
+    ],
+    [
+     110,
+     "=skid_y",
+     "=-fuse_dia/2 - 40"
+    ]
+   ],
+   "parameters": {
+    "outer_diameter_mm": 8,
+    "wall_thickness_mm": 1
+   }
+  },
+  {
+   "id": "skid_strut_front",
+   "type": "tube",
+   "assembly": "landing_gear",
+   "material": "carbon",
+   "mirror": "y",
+   "between": [
+    [
+     70,
+     "=skid_y",
+     "=-fuse_dia/2 - 40"
+    ],
+    [
+     70,
+     "=skid_y",
+     "=-fuse_dia/2 + 5"
+    ]
+   ],
+   "parameters": {
+    "outer_diameter_mm": 8,
+    "wall_thickness_mm": 1
+   }
+  },
+  {
+   "id": "skid_strut_rear",
+   "type": "tube",
+   "assembly": "landing_gear",
+   "material": "carbon",
+   "mirror": "y",
+   "between": [
+    [
+     -50,
+     "=skid_y",
+     "=-fuse_dia/2 - 40"
+    ],
+    [
+     -50,
+     "=skid_y",
+     "=-fuse_dia/2 + 5"
+    ]
+   ],
+   "parameters": {
+    "outer_diameter_mm": 8,
+    "wall_thickness_mm": 1
+   }
+  }
+ ],
+ "checks": [
+  {
+   "name": "gear_ratio_sensible",
+   "expr": "=ratio >= 4 and ratio <= 12",
+   "message": "main reduction outside 4:1 to 12:1"
+  },
+  {
+   "name": "battery_fits_fuselage",
+   "expr": "=battery_len < fuse_len - 40",
+   "message": "battery longer than the cabin"
+  },
+  {
+   "name": "rotor_clears_boom",
+   "expr": "=rotor_z + mast_len > boom_z + boom_od + 20",
+   "message": "rotor disc would hit the tail boom"
+  },
+  {
+   "name": "tail_longer_than_fuselage_third",
+   "expr": "=boom_len > fuse_len/3",
+   "message": "tail boom too short for yaw authority"
+  }
+ ],
+ "explode": {
+  "directions": {
+   "tail_drive_shaft": [
+    0,
+    0,
+    -1
+   ]
+  }
+ },
+ "dev_notes": "Main shaft is drawn twice (gear shaft and rotor mast). 'between' and orientation assumptions UNVERIFIED on real CadQuery."
+}

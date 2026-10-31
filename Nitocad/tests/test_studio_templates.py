@@ -50,6 +50,8 @@ def test_every_assembly_member_validates_too():
         for p in spec["parameters"]["parts"]:
             params, res = validator.validate_parameters(p["part_type"], p["parameters"])
             assert res.is_valid, (t.id, p["name"], res.errors)
+            if t.category == "vehicles":
+                continue                      # a vehicle may carry honest warnings (e.g. the aerospace "preliminary geometry" note)
             assert not res.warnings and not res.corrections, (t.id, p["name"], res.warnings, res.corrections)
 
 
@@ -68,8 +70,8 @@ def test_assembly_parts_sit_on_the_shaft_with_clearance():
     shaft when its Z range is inside the shaft and its bore is wider than the shaft."""
     for t in st.TEMPLATES:
         spec = st.spec_of(t)
-        if spec["part_type"] != "assembly":
-            continue
+        if spec["part_type"] != "assembly" or t.category == "vehicles":
+            continue                          # vehicles are laid out by their own spec, not on one shaft
         parts = spec["parameters"]["parts"]
         shaft = next(p for p in parts if p["part_type"] == "shaft")
         d, length = shaft["parameters"]["diameter_mm"], shaft["parameters"]["length_mm"]
@@ -113,3 +115,14 @@ def test_assemblies_build_through_the_real_parts_list_helper():
         if spec["part_type"] == "assembly":
             out = assembly.assembly_spec_from_parts(spec["parameters"]["parts"], layout="custom")
             assert len(out) == t.parts
+
+
+def test_vehicle_starters_are_listed_and_keep_their_vehicle_link():
+    cat = st.listing()
+    assert any(c["id"] == "vehicles" for c in cat["categories"])
+    ids = {t.id for t in st.TEMPLATES if t.category == "vehicles"}
+    assert {"veh-wheelbarrow", "veh-bicycle", "veh-rc-helicopter"} <= ids
+    assert all(st.get(i) is not None for i in ids)                      # the lookup was rebuilt after they were added
+    for t in st.TEMPLATES:
+        if t.category == "vehicles":
+            assert isinstance(t.spec["parameters"].get("vehicle"), dict)         # a chat edit changes the vehicle's own sizes

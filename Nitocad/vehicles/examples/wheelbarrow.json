@@ -1,0 +1,281 @@
+{
+ "name": "wheelbarrow",
+ "notes": "Concept layout. The tray is a plain box (NitoCAD has no shells or fillets), so it has sharp corners.",
+ "params": {
+  "tray_len": {
+   "default": 800,
+   "min": 300,
+   "max": 1500
+  },
+  "tray_w": {
+   "default": 560,
+   "min": 250,
+   "max": 1000
+  },
+  "tray_h": {
+   "default": 280,
+   "min": 100,
+   "max": 600
+  },
+  "tray_wall": {
+   "default": 2,
+   "min": 1,
+   "max": 10
+  },
+  "wheel_dia": {
+   "default": 400,
+   "min": 200,
+   "max": 700
+  },
+  "tyre_w": {
+   "default": 90,
+   "min": 30,
+   "max": 200
+  },
+  "tube_od": {
+   "default": 25,
+   "min": 15,
+   "max": 50
+  },
+  "tube_wall": {
+   "default": 2,
+   "min": 1,
+   "max": 5
+  },
+  "handle_len": {
+   "default": 550,
+   "min": 200,
+   "max": 1000
+  },
+  "rail_gap": {
+   "default": 520,
+   "min": 250,
+   "max": 900
+  },
+  "leg_inset": {
+   "default": 120,
+   "min": 50,
+   "max": 400
+  },
+  "max_width": {
+   "default": 700,
+   "min": 300,
+   "max": 2000
+  }
+ },
+ "derived": {
+  "wheel_r": "=wheel_dia/2",
+  "rail_z": "=wheel_dia + 15 + tube_od/2",
+  "tray_bottom": "=rail_z + tube_od/2",
+  "hy": "=rail_gap/2",
+  "wheel_x": "=tray_len/2 - wheel_dia/2 - 20",
+  "fork_y": "=tyre_w/2 + 14",
+  "axle_len": "=2*(tyre_w/2 + 14) + 2*tube_od"
+ },
+ "components": [
+  {
+   "id": "tray",
+   "type": "simple_box",
+   "assembly": "tray",
+   "fixed": true,
+   "material": "steel",
+   "parameters": {
+    "length_mm": "=tray_len",
+    "width_mm": "=tray_w",
+    "height_mm": "=tray_h",
+    "wall_thickness_mm": "=tray_wall",
+    "hollow": true,
+    "has_lid": false
+   },
+   "position": [
+    0,
+    0,
+    "=tray_bottom"
+   ]
+  },
+  {
+   "id": "rail",
+   "type": "tube",
+   "assembly": "frame",
+   "material": "steel",
+   "between": [
+    [
+     "=tray_len/2",
+     "=hy",
+     "=rail_z"
+    ],
+    [
+     "=-tray_len/2 - handle_len",
+     "=hy",
+     "=rail_z"
+    ]
+   ],
+   "parameters": {
+    "outer_diameter_mm": "=tube_od",
+    "wall_thickness_mm": "=tube_wall"
+   },
+   "mirror": "y",
+   "fixed": true
+  },
+  {
+   "id": "leg",
+   "type": "tube",
+   "assembly": "frame",
+   "material": "steel",
+   "between": [
+    [
+     "=-tray_len/2 + leg_inset",
+     "=hy",
+     0
+    ],
+    [
+     "=-tray_len/2 + leg_inset",
+     "=hy",
+     "=rail_z - tube_od/2"
+    ]
+   ],
+   "parameters": {
+    "outer_diameter_mm": "=tube_od",
+    "wall_thickness_mm": "=tube_wall"
+   },
+   "mirror": "y"
+  },
+  {
+   "id": "cross_front",
+   "type": "tube",
+   "assembly": "frame",
+   "material": "steel",
+   "between": [
+    [
+     "=tray_len/2 - 60",
+     "=-hy",
+     "=rail_z - tube_od"
+    ],
+    [
+     "=tray_len/2 - 60",
+     "=hy",
+     "=rail_z - tube_od"
+    ]
+   ],
+   "parameters": {
+    "outer_diameter_mm": "=tube_od",
+    "wall_thickness_mm": "=tube_wall"
+   }
+  },
+  {
+   "id": "cross_rear",
+   "type": "tube",
+   "assembly": "frame",
+   "material": "steel",
+   "between": [
+    [
+     "=-tray_len/2 + 60",
+     "=-hy",
+     "=rail_z - tube_od"
+    ],
+    [
+     "=-tray_len/2 + 60",
+     "=hy",
+     "=rail_z - tube_od"
+    ]
+   ],
+   "parameters": {
+    "outer_diameter_mm": "=tube_od",
+    "wall_thickness_mm": "=tube_wall"
+   }
+  },
+  {
+   "id": "fork",
+   "type": "tube",
+   "assembly": "frame",
+   "material": "steel",
+   "between": [
+    [
+     "=wheel_x",
+     "=fork_y",
+     "=wheel_r"
+    ],
+    [
+     "=wheel_x",
+     "=fork_y",
+     "=rail_z - tube_od/2"
+    ]
+   ],
+   "parameters": {
+    "outer_diameter_mm": "=tube_od",
+    "wall_thickness_mm": "=tube_wall"
+   },
+   "mirror": "y"
+  },
+  {
+   "id": "front_wheel",
+   "module": "wheel_on_axle",
+   "assembly": "wheel",
+   "position": [
+    "=wheel_x",
+    0,
+    "=wheel_r"
+   ],
+   "params": {
+    "tyre_dia": "=wheel_dia",
+    "rim_dia": "=wheel_dia*0.6",
+    "tyre_w": "=tyre_w",
+    "axle_dia": 12,
+    "axle_len": "=axle_len",
+    "bearing_w": 10
+   }
+  }
+ ],
+ "checks": [
+  {
+   "name": "fits_through_door",
+   "expr": "=max(tray_w, rail_gap + tube_od) <= max_width",
+   "message": "wider than max_width"
+  },
+  {
+   "name": "forks_inside_rails",
+   "expr": "=fork_y + tube_od/2 < hy - tube_od/2",
+   "message": "forks collide with the rails"
+  },
+  {
+   "name": "wheel_under_tray",
+   "expr": "=wheel_x - wheel_r >= -tray_len/2 and wheel_x + wheel_r <= tray_len/2",
+   "message": "wheel sticks out of the tray footprint"
+  },
+  {
+   "name": "wheel_below_rails",
+   "expr": "=wheel_dia + 5 < rail_z - tube_od/2",
+   "message": "wheel hits the rails"
+  },
+  {
+   "name": "handles_long_enough",
+   "expr": "=handle_len >= 400",
+   "message": "handles shorter than 400 mm are hard to push"
+  }
+ ],
+ "explode": {
+  "directions": {
+   "front_wheel_axle": [
+    0,
+    0,
+    -1
+   ],
+   "front_wheel_tyre": [
+    0,
+    1,
+    0
+   ],
+   "front_wheel_bearing_l": [
+    0,
+    1,
+    0
+   ],
+   "front_wheel_bearing_r": [
+    0,
+    -1,
+    0
+   ]
+  }
+ },
+ "dev_notes": "Tube origin/axis assumptions of 'between' and every orientation are UNVERIFIED on real CadQuery. Not load-rated."
+}

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B-rep Solid Models vs Mesh Models: STEP vs STL | NitoCAD</title>
+<meta name="description" content="B-rep solids describe exact surfaces and edges. Meshes approximate a surface with triangles. Learn when to use STEP, IGES or STL, and how NitoCAD produces both.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#1C1C1E;--ink-soft:#5E5E63;--orange:#1C1C1E;--dot:#E8601C;--orange-deep:#0E0E10;--paper:#FAFAF8;--fog:#F0F0EE;--line:#E3E3E0;--radius:14px;--ok:#13A57D;--bad:#B3261E;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased;line-height:1.7;}
+  a{color:var(--orange-deep);}
+  h1,h2,h3{font-family:'Fraunces',serif;font-weight:700;margin:0;color:var(--ink);line-height:1.2;}
+  .wrap{max-width:860px;margin:0 auto;padding:0 28px;}
+  :focus-visible{outline:2px solid var(--orange-deep);outline-offset:3px;}
+  .sp-head{border-bottom:1px solid var(--line);}
+  .sp-head .wrap{display:flex;align-items:center;justify-content:space-between;height:72px;max-width:1080px;}
+  .logo{font-family:'Fraunces',serif;font-style:italic;font-weight:500;font-size:1.5rem;text-decoration:none;color:var(--ink);}
+  .logo span{color:var(--dot);}
+  .sp-nav{display:flex;gap:24px;align-items:center;}
+  .sp-nav a{text-decoration:none;color:var(--ink-soft);font-size:.92rem;font-weight:500;}
+  .sp-nav a:hover{color:var(--ink);}
+  .btn{display:inline-flex;align-items:center;padding:11px 20px;border-radius:999px;font-weight:600;font-size:.92rem;text-decoration:none;border:1.5px solid transparent;}
+  .btn-primary{background:var(--orange);color:#fff !important;}
+  .btn-ghost{border-color:var(--ink);color:var(--ink);}
+  article{padding:56px 0 72px;}
+  article h1{font-size:2.4rem;margin-bottom:18px;}
+  article h2{font-size:1.5rem;margin:44px 0 12px;}
+  article h3{font-size:1.1rem;margin:22px 0 6px;}
+  article p,article li{color:var(--ink-soft);font-size:1.02rem;}
+  article p.lead{font-size:1.15rem;color:var(--ink);}
+  article ul,article ol{padding-left:22px;}
+  .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);margin:18px 0;}
+  table{border-collapse:collapse;width:100%;min-width:560px;font-size:.95rem;}
+  th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;}
+  thead th{background:var(--fog);font-family:'Fraunces',serif;}
+  tbody tr:last-child td{border-bottom:0;}
+  .pass{color:var(--ok);font-weight:700;}.fail{color:var(--bad);font-weight:700;}.unk{color:#8a6d00;font-weight:700;}
+  .note{border-left:3px solid var(--dot);padding:4px 0 4px 16px;margin:20px 0;color:var(--ink);}
+  .cta{display:flex;gap:12px;flex-wrap:wrap;margin:32px 0 0;}
+  .related{margin-top:48px;padding-top:20px;border-top:1px solid var(--line);}
+  .related a{display:block;margin:6px 0;}
+  footer{border-top:1px solid var(--line);padding:26px 0;color:var(--ink-soft);font-size:.88rem;}
+  footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;max-width:1080px;}
+  footer a{color:var(--ink-soft);}
+  @media (max-width:760px){.sp-nav a:not(.btn){display:none;}article h1{font-size:1.9rem;}}
+</style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+<!-- seo:begin -->
+<link rel="canonical" href="https://nitocad.vercel.app/b-rep-vs-mesh.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NitoCAD">
+<meta property="og:title" content="B-rep Solid Models vs Mesh Models: STEP vs STL | NitoCAD">
+<meta property="og:description" content="B-rep solids describe exact surfaces and edges. Meshes approximate a surface with triangles. Learn when to use STEP, IGES or STL, and how NitoCAD produces both.">
+<meta property="og:url" content="https://nitocad.vercel.app/b-rep-vs-mesh.html">
+<meta property="og:image" content="https://nitocad.vercel.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="B-rep Solid Models vs Mesh Models: STEP vs STL | NitoCAD">
+<meta name="twitter:description" content="B-rep solids describe exact surfaces and edges. Meshes approximate a surface with triangles. Learn when to use STEP, IGES or STL, and how NitoCAD produces both.">
+<meta name="twitter:image" content="https://nitocad.vercel.app/og-image.png">
+<!-- seo:end -->
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+<header class="sp-head"><div class="wrap">
+<a href="index.html" class="logo">Nit<span>o</span>CAD</a>
+<nav class="sp-nav" aria-label="Site"><a href="index.html">Home</a><a href="pricing.html">Pricing</a><a href="exports.html">Exports</a><a href="whitepaper.html">White paper</a><a href="studio.html" class="btn btn-primary">Open CAD Studio</a></nav>
+</div></header>
+<main><article><div class="wrap">
+<h1>B-rep solid models vs mesh models</h1>
+
+<p class="lead">A B-rep (boundary representation) solid describes a part as exact surfaces and edges that enclose a volume. A mesh approximates the surface with triangles. STEP and IGES files normally carry B-rep geometry. STL files carry a triangle mesh.</p>
+
+<div class="tbl"><table>
+<thead><tr><th></th><th>B-rep solid</th><th>Mesh</th></tr></thead>
+<tbody>
+<tr><td>Surface</td><td>Exact surfaces and edges</td><td>Flat triangles that approximate the shape</td></tr>
+<tr><td>Typical files</td><td>STEP, IGES</td><td>STL, 3MF, GLB</td></tr>
+<tr><td>Editing in CAD</td><td>Faces, edges and holes can be selected and changed</td><td>Hard to edit. Features are lost in the triangles</td></tr>
+<tr><td>Machining and drawings</td><td>Suited to CNC programming and dimensioned drawings</td><td>Poorly suited. Curved faces are faceted</td></tr>
+<tr><td>3D printing and viewing</td><td>Usually converted to a mesh first</td><td>Used directly by slicers and viewers</td></tr>
+</tbody></table></div>
+
+<h2>Which one do you need?</h2>
+<ul>
+<li>Send STEP when someone will machine the part, edit it, or put it in an assembly.</li>
+<li>Send STL or 3MF when the next step is a 3D printer.</li>
+<li>Use a mesh when you only need a quick look at the shape.</li>
+</ul>
+
+<h2>How NitoCAD uses both</h2>
+<p>The free preview is an STL mesh, so you can see the part before you commit. In CAD Studio, NitoCAD builds a true B-rep solid on OpenCASCADE and exports STEP and IGES for CAD and CAM work, DXF and PDF for drawings, and STL, 3MF and GLB when you need a mesh. See <a href="exports.html">all export formats</a>.</p>
+
+<p class="note">Converting a mesh back into an editable solid is a hard problem and rarely gives clean results. Starting from a B-rep solid avoids it.</p>
+<div class="cta"><a class="btn btn-primary" href="index.html#demo">Preview a part free</a><a class="btn btn-ghost" href="pricing.html">See plans</a></div>
+<div class="related"><b>Related</b><a href="text-to-cad.html">AI text-to-CAD</a><a href="how-verification-works.html">How NitoCAD verifies designs</a><a href="text-to-step.html">Generate a STEP file from text</a></div>
+</div></article></main>
+<footer><div class="wrap"><span>&copy; 2026 NitoCAD</span><span><a href="terms.html">Terms of Service</a> &nbsp; <a href="privacy.html">Privacy Policy</a></span></div></footer>
+</body>
+</html>

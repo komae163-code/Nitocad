@@ -4,13 +4,29 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>CAD Studio | NitoCAD</title>
-<meta name="description" content="Design CAD parts by chatting. Preview parts for free, change them as often as you like, and pay only when you generate the final files, with on-chain anchoring on BOT Chain.">
+<meta name="description" content="Design CAD parts by chatting. Preview parts for free, change them as often as you like, and generate STEP, IGES, DXF and PDF files when you are ready.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="studio.css">
 <link rel="stylesheet" href="theme.css">
 <script src="theme.js"></script>
+<!-- seo:begin -->
+<link rel="canonical" href="https://nitocad.vercel.app/studio.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NitoCAD">
+<meta property="og:title" content="CAD Studio | NitoCAD">
+<meta property="og:description" content="Design CAD parts by chatting. Preview parts for free, change them as often as you like, and generate STEP, IGES, DXF and PDF files when you are ready.">
+<meta property="og:url" content="https://nitocad.vercel.app/studio.html">
+<meta property="og:image" content="https://nitocad.vercel.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CAD Studio | NitoCAD">
+<meta name="twitter:description" content="Design CAD parts by chatting. Preview parts for free, change them as often as you like, and generate STEP, IGES, DXF and PDF files when you are ready.">
+<meta name="twitter:image" content="https://nitocad.vercel.app/og-image.png">
+<!-- seo:end -->
+<script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
 
@@ -88,8 +104,8 @@
       </button>
       <h2 id="chatTitle">New design</h2>
       <span class="chain-dot" title="Payments and anchoring settle on BOT Chain">BOT Chain</span>
-      <button type="button" class="credit-chip" id="creditChip" aria-label="Credits">
-        <span class="dot"></span><span id="creditNum">-</span><span class="lbl">credits</span>
+      <button type="button" class="credit-chip" id="creditChip" aria-label="AI usage">
+        <span class="dot"></span><span id="creditNum">-</span><span class="lbl">AI used</span>
       </button>
       <button type="button" class="icon-btn canvas-btn" id="canvasBtn" aria-label="Open part viewer">
         <svg class="icon" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
@@ -103,8 +119,8 @@
     <div class="composer-wrap">
       <div class="ai-bar">
         <div class="eng-pick" id="tierPick">
-          <button type="button" class="eng-btn" id="tierBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose a plan for this message">
-            <span id="tierLabel">Basic</span>
+          <button type="button" class="eng-btn" id="tierBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose the AI for this message">
+            <span id="tierLabel">Standard</span>
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
           </button>
           <ul class="eng-menu" id="tierMenu" role="listbox" hidden></ul>
@@ -123,7 +139,7 @@
           <svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
         </button>
       </div>
-      <div class="fineprint">Previews, changes and questions are free. Generating the full files uses credits, shown on the button. Check dimensions before you manufacture.</div>
+      <div class="fineprint">Previews and changes are free. Generate the full files when you are ready. Check dimensions before you manufacture.</div>
     </div>
 
 
@@ -140,14 +156,30 @@
         <button type="button" class="icon-btn" id="asmClose" aria-label="Back to chat"><svg class="icon" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
       <div class="asm-body">
-        <p class="asm-lead">Start from a ready assembly, or check how parts fit together before you build them. Checks build nothing and use no credits.</p>
+        <p class="asm-lead">Start from a ready assembly, or check how parts fit together before you build them. Checks build nothing and are free.</p>
         <div class="asm-tabs" role="tablist">
           <button type="button" role="tab" aria-selected="true" data-asm="start">Start</button>
           <button type="button" role="tab" aria-selected="false" data-asm="check">Check fit</button>
           <button type="button" role="tab" aria-selected="false" data-asm="whatif">What if</button>
           <button type="button" role="tab" aria-selected="false" data-asm="catalog">Catalog</button>
         </div>
-        <div class="asm-panel on" id="asm-start"><div class="tpl-grid" id="asmTpls"></div></div>
+        <div class="asm-panel on" id="asm-start">
+          <div class="asm-card" id="asmVehicle">
+            <h4>Design a vehicle or machine</h4>
+            <p class="asm-note">Describe it and I plan the parts, show you the plan, and change it when you tell me to. Planning and editing are free. Only Generate uses credits.</p>
+            <div class="followups">
+              <button type="button" class="chip" data-veh="I want to create a wheelbarrow">Wheelbarrow</button>
+              <button type="button" class="chip" data-veh="I want to create a bicycle">Bicycle</button>
+              <button type="button" class="chip" data-veh="I want to create a two axle cart">Two-axle cart</button>
+              <button type="button" class="chip" data-veh="I want to create an RC helicopter">RC helicopter</button>
+              <button type="button" class="chip" data-veh="I want to create a small 0-4-0 locomotive">Small locomotive</button>
+            </div>
+            <label class="asm-lbl" for="asmVehText">Or describe your own</label>
+            <textarea id="asmVehText" rows="3" maxlength="600" placeholder="For example: a garden cart with two wheels and a 60 litre tray" aria-label="Describe a vehicle or machine"></textarea>
+            <div class="asm-row"><button type="button" class="btn btn-primary btn-sm" id="asmVehGo">Plan it</button></div>
+          </div>
+          <div class="tpl-grid" id="asmTpls"></div>
+        </div>
         <div class="asm-panel" id="asm-check">
           <p class="asm-note">Parts, then mates written as <code>part.interface</code>. The starter is a wheel corner module.</p>
           <textarea id="asmSpec" spellcheck="false" aria-label="Assembly spec"></textarea>
@@ -169,7 +201,9 @@
   <section class="canvas" id="canvas" aria-label="Part viewer">
     <div class="cv-head">
       <h3 id="cvTitle">Part</h3>
+      <button type="button" class="icon-btn" id="cvPrev" aria-label="Previous version" title="Previous version" hidden>&lsaquo;</button>
       <select id="cvVersion" aria-label="Version"></select>
+      <button type="button" class="icon-btn" id="cvNext" aria-label="Next version" title="Next version" hidden>&rsaquo;</button>
       <button type="button" class="icon-btn" id="cvClose" aria-label="Close viewer">
         <svg class="icon" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
@@ -183,11 +217,36 @@
         <button type="button" class="icon-btn" id="tWire" aria-label="Wireframe" aria-pressed="false" title="Wireframe">
           <svg class="icon" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M4 7.5L12 12l8-4.5M12 12v9"/></svg>
         </button>
+        <button type="button" class="icon-btn" id="tOrtho" aria-label="Orthographic view" aria-pressed="false" title="Orthographic">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M4 8l8-4 8 4v8l-8 4-8-4V8zM4 8l8 4 8-4M12 12v8"/></svg>
+        </button>
+        <button type="button" class="icon-btn" id="tSection" aria-label="Section cut" aria-pressed="false" title="Section cut">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM4 12h16" stroke-dasharray="3 2"/></svg>
+        </button>
+        <button type="button" class="icon-btn" id="tExplode" aria-label="Explode parts" aria-pressed="false" title="Explode parts">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M9 9l-2-2M15 15l2 2M15 9l2-2M9 15l-2 2"/><circle cx="12" cy="12" r="2"/></svg>
+        </button>
         <button type="button" class="icon-btn" id="tGrid" aria-label="Grid" aria-pressed="true" title="Grid">
           <svg class="icon" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM4 12h16M12 4v16"/></svg>
         </button>
       </div>
       <div class="cv-dim mono" id="cvDim" hidden></div>
+      <div class="cv-sheet" id="cvSheet" hidden>
+        <div class="sh-row" data-row="section" hidden>
+          <b>Section</b>
+          <span class="sh-axes" role="group" aria-label="Cut direction">
+            <button type="button" data-axis="x" aria-pressed="false">Width</button>
+            <button type="button" data-axis="y" aria-pressed="true">Height</button>
+            <button type="button" data-axis="z" aria-pressed="false">Depth</button>
+          </span>
+          <input type="range" id="secT" min="0" max="100" value="50" aria-label="Cut position">
+          <button type="button" id="secFlip">Flip</button>
+        </div>
+        <div class="sh-row" data-row="explode" hidden>
+          <b>Explode</b>
+          <input type="range" id="expT" min="0" max="100" value="40" aria-label="How far apart">
+        </div>
+      </div>
     </div>
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" aria-selected="true" data-tab="specs">Specs</button>

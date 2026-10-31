@@ -1,0 +1,342 @@
+{
+ "name": "mini_loco_0_4_0_core",
+ "params": {
+  "gauge": {
+   "default": 32,
+   "min": 10,
+   "max": 200
+  },
+  "wheel_dia": {
+   "default": 20,
+   "min": 6,
+   "max": 80
+  },
+  "wheel_thk": {
+   "default": 4,
+   "min": 1,
+   "max": 20
+  },
+  "axle_dia": {
+   "default": 3,
+   "min": 1,
+   "max": 12
+  },
+  "axle_space": {
+   "default": 30,
+   "min": 10,
+   "max": 120
+  },
+  "chassis_len": {
+   "default": 110,
+   "min": 40,
+   "max": 400
+  },
+  "chassis_t": {
+   "default": 3,
+   "min": 1,
+   "max": 10
+  },
+  "boiler_dia": {
+   "default": 30,
+   "min": 8,
+   "max": 120
+  },
+  "clearance": {
+   "default": 0.4,
+   "min": 0,
+   "max": 2
+  },
+  "max_width": {
+   "default": 65,
+   "min": 10,
+   "max": 500
+  }
+ },
+ "derived": {
+  "flange_r": "=wheel_dia/2 + 1.6",
+  "axle_len": "=gauge + 2*wheel_thk + 2*clearance",
+  "overall_w": "=axle_len + 2",
+  "wheel_z": "=wheel_dia/2 + 1.6"
+ },
+ "components": [
+  {
+   "id": "chassis",
+   "type": "flat_plate",
+   "assembly": "loco",
+   "fixed": true,
+   "material": "PLA",
+   "parameters": {
+    "length_mm": "=chassis_len",
+    "width_mm": "=gauge - 2*clearance",
+    "thickness_mm": "=chassis_t"
+   },
+   "position": [
+    0,
+    0,
+    "=wheel_z + 2"
+   ]
+  },
+  {
+   "id": "boiler",
+   "type": "tube",
+   "assembly": "loco",
+   "material": "PLA",
+   "parameters": {
+    "outer_diameter_mm": "=boiler_dia",
+    "wall_thickness_mm": 2,
+    "length_mm": "=chassis_len - 30"
+   },
+   "rotation": [
+    0,
+    90,
+    0
+   ],
+   "mate": {
+    "type": "face",
+    "to": "chassis",
+    "face": "+Z",
+    "gap": 0
+   }
+  },
+  {
+   "id": "axle",
+   "type": "shaft",
+   "assembly": "loco",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": "=axle_dia",
+    "length_mm": "=axle_len"
+   },
+   "repeat": {
+    "n": 2,
+    "step": [
+     "=axle_space",
+     0,
+     0
+    ]
+   },
+   "position": [
+    "=-axle_space/2",
+    0,
+    "=wheel_z"
+   ],
+   "rotation": [
+    90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "wheel_l",
+   "type": "feature_tree",
+   "assembly": "loco",
+   "material": "PLA",
+   "repeat": {
+    "n": 2,
+    "step": [
+     "=axle_space",
+     0,
+     0
+    ]
+   },
+   "parameters": {
+    "features": [
+     {
+      "id": "wheel_body",
+      "op": "revolve",
+      "plane": "XY",
+      "axis": "y",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=axle_dia/2 + 0.2",
+         0
+        ],
+        [
+         "=flange_r",
+         0
+        ],
+        [
+         "=flange_r",
+         1
+        ],
+        [
+         "=wheel_dia/2",
+         1
+        ],
+        [
+         "=wheel_dia/2",
+         "=wheel_thk + 1"
+        ],
+        [
+         "=axle_dia/2 + 0.2",
+         "=wheel_thk + 1"
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   "position": [
+    "=-axle_space/2",
+    "=(gauge/2 + clearance)",
+    "=wheel_z"
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "wheel_r",
+   "type": "feature_tree",
+   "assembly": "loco",
+   "material": "PLA",
+   "repeat": {
+    "n": 2,
+    "step": [
+     "=axle_space",
+     0,
+     0
+    ]
+   },
+   "parameters": {
+    "features": [
+     {
+      "id": "wheel_body",
+      "op": "revolve",
+      "plane": "XY",
+      "axis": "y",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=axle_dia/2 + 0.2",
+         0
+        ],
+        [
+         "=flange_r",
+         0
+        ],
+        [
+         "=flange_r",
+         1
+        ],
+        [
+         "=wheel_dia/2",
+         1
+        ],
+        [
+         "=wheel_dia/2",
+         "=wheel_thk + 1"
+        ],
+        [
+         "=axle_dia/2 + 0.2",
+         "=wheel_thk + 1"
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   "position": [
+    "=-axle_space/2",
+    "=-(gauge/2 + clearance)",
+    "=wheel_z"
+   ],
+   "rotation": [
+    0,
+    0,
+    180
+   ]
+  },
+  {
+   "id": "tender_frame",
+   "type": "flat_plate",
+   "assembly": "tender",
+   "fixed": true,
+   "material": "PLA",
+   "parameters": {
+    "length_mm": 70,
+    "width_mm": "=gauge - 2*clearance",
+    "thickness_mm": "=chassis_t"
+   },
+   "position": [
+    "=chassis_len/2 + 60",
+    0,
+    "=wheel_z + 2"
+   ]
+  },
+  {
+   "id": "coupling_pin",
+   "assembly": "loco",
+   "source": {
+    "provider": "cq_warehouse",
+    "query": "socket head"
+   },
+   "position": [
+    "=chassis_len/2",
+    0,
+    "=wheel_z + 2"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "name": "overall_width_within_limit",
+   "expr": "=overall_w <= max_width",
+   "message": "wider than the allowed width"
+  },
+  {
+   "name": "axle_longer_than_gauge",
+   "expr": "=axle_len > gauge"
+  },
+  {
+   "name": "wheels_do_not_touch",
+   "expr": "=axle_space > wheel_dia + 2*1.6"
+  }
+ ],
+ "assemblies": {
+  "loco": {},
+  "tender": {}
+ },
+ "notes": "Concept core of a 0-4-0 loco: chassis, boiler tube, two axles, four wheels, tender frame and one external pin. No rods, cab or fittings yet.",
+ "explode": {
+  "directions": {
+   "wheel_l_1": [
+    0,
+    1,
+    0
+   ],
+   "wheel_l_2": [
+    0,
+    1,
+    0
+   ],
+   "wheel_r_1": [
+    0,
+    -1,
+    0
+   ],
+   "wheel_r_2": [
+    0,
+    -1,
+    0
+   ],
+   "axle_1": [
+    0,
+    0,
+    -1
+   ],
+   "axle_2": [
+    0,
+    0,
+    -1
+   ]
+  },
+  "intended_contact": []
+ },
+ "dev_notes": "Part orientations and fits have NOT been checked on real CadQuery."
+}

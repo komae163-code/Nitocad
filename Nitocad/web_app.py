@@ -24,11 +24,14 @@ import db
 from a2mcp.server import mcp_app, mcp_app_gated
 from a2mcp_botchain.server import mcp_app as mcp_app_botchain
 import botchain_pay
+import admin_stats
 import chat_api
+import vehicle_api
 import civil_api
 import file_api
 import pcb_api
 import chat_store
+import bachs_pay
 import paystack_pay
 import prompt_refine
 import wallet_auth
@@ -460,6 +463,96 @@ async def subscribe_tiers():
     }
 
 
+class BillingSubscribeRequest(BaseModel):
+    plan: str  # "pro" | "max"
+    email: str  # a real address: Bachs needs a customer for recurring billing
+    success_url: str
+    cancel_url: str
+
+
+class BillingTopupRequest(BaseModel):
+    pack: str  # "starter" | "growth" | "scale", see config.py's topup_packs
+    success_url: str
+    cancel_url: str
+    email: str | None = None
+
+
+@app.get("/billing/plans")
+async def billing_plans():
+    """Public. The pricing page reads plans and packs from here, so prices are
+    defined in one place (config.py)."""
+    plans = {}
+    for name in ("pro", "max"):
+        cfg = settings.subscription_tiers[name]
+        plans[name] = {
+            "usd": cfg["usd_cents"] / 100,
+            "weekly_credits": cfg["weekly_credits"],
+            "fallback_daily_credits": cfg["fallback_daily_credits"],
+            "available": bool(cfg.get("bachs_product_id")),
+        }
+    return {"plans": plans, "topup_packs": settings.topup_packs}
+
+
+@app.get("/billing/usage")
+async def billing_usage(wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)]):
+    """The usage bar. Percent of the allowance used and when it resets. No credit counts.
+    standard_open says whether Standard generations can still run when Expert is used up."""
+    return db.get_ai_usage_meter(wallet["wallet_address"])
+
+
+@app.post("/billing/subscribe")
+@limiter.limit(settings.RATE_LIMIT_GENERATE)
+async def billing_subscribe(
+    request: Request,
+    body: BillingSubscribeRequest,
+    wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)],
+):
+    """Starts a Pro or Max subscription. Returns the hosted Bachs checkout URL.
+    Nothing is granted here. Access starts when the signed Bachs webhooks arrive."""
+    if db.is_subscription_entitled(wallet["wallet_address"]):
+        raise HTTPException(status_code=409, detail="This account already has an active subscription.")
+    try:
+        checkout_url = bachs_pay.create_subscription_checkout(
+            wallet["wallet_address"], body.plan, body.email, body.success_url, body.cancel_url
+        )
+    except PaymentError as exc:
+        raise HTTPException(status_code=402, detail=exc.message) from exc
+    return {"checkout_url": checkout_url}
+
+
+@app.post("/billing/topup")
+@limiter.limit(settings.RATE_LIMIT_GENERATE)
+async def billing_topup(
+    request: Request,
+    body: BillingTopupRequest,
+    wallet: Annotated[dict, Depends(wallet_auth.get_current_wallet)],
+):
+    """Buys a one-time credit pack. Credits are added when the signed
+    collection.succeeded webhook arrives, never from the redirect."""
+    try:
+        checkout_url = bachs_pay.create_topup_checkout(
+            wallet["wallet_address"], body.pack, body.success_url, body.cancel_url, body.email
+        )
+    except PaymentError as exc:
+        raise HTTPException(status_code=402, detail=exc.message) from exc
+    return {"checkout_url": checkout_url}
+
+
+@app.post("/webhooks/bachs")
+async def webhooks_bachs(request: Request):
+    """Called by Bachs, so no wallet auth. The signature check runs on the raw
+    body inside bachs_pay.handle_webhook. 400 tells Bachs to stop (a delivery we
+    reject for good), 503 asks it to try again later."""
+    payload = await request.body()
+    try:
+        result = bachs_pay.handle_webhook(payload, request.headers)
+    except PaymentError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    except bachs_pay.BachsRetry as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"received": True, "result": result}
+
+
 @app.post("/subscribe/checkout")
 @limiter.limit(settings.RATE_LIMIT_GENERATE)
 async def subscribe_checkout(
@@ -500,14 +593,16 @@ async def subscription_status(wallet: Annotated[dict, Depends(wallet_auth.get_cu
         "subscribed": entitled,
         "tier": sub["tier"] if sub else None,
         "status": sub["status"] if sub else None,
-        "subscription_credits": sub["subscription_credits"] if sub else 0,
+        "subscription_credits": db.get_subscription_credits(wallet["wallet_address"]) if sub else 0,
         "current_period_end": sub["current_period_end"] if sub else None,
         # Only meaningful (and only computed) for an entitled
         # subscription - see db.charge_generation for how this cap
         # interacts with subscription_credits above (Starter: both
         # apply; Engineer/Professional: this is the only limit).
-        "daily_generation_cap": tier_config["daily_generation_cap"] if tier_config else None,
+        "daily_generation_cap": tier_config.get("daily_generation_cap") if tier_config else None,
         "generations_last_24h": db.count_generations_last_24h(wallet["wallet_address"]) if tier_config else None,
+        "plan": db.get_plan(wallet["wallet_address"]),
+        "weekly_credits": tier_config.get("weekly_credits") if tier_config else None,
     }
 
 
@@ -2670,8 +2765,12 @@ async def readyz():
 
 # CAD Studio chats: server-stored conversations. See chat_api.py.
 app.include_router(chat_api.build_router(generator=generator, limiter=limiter))
+# Vehicle parts: summary, exploded view, package. See vehicle_api.py.
+app.include_router(vehicle_api.build_router(limiter=limiter))
 # Civil calculations (terrain, earthworks, hydraulics, walls). See civil_api.py.
 app.include_router(civil_api.build_router(limiter=limiter))
+# Owner-only usage metrics (signups, generations). Off until ADMIN_TOKEN is set. See admin_stats.py.
+app.include_router(admin_stats.build_router(limiter=limiter))
 # File upload and analysis for CAD Studio (STEP/IGES/BREP, PDF, images). See file_api.py.
 app.include_router(file_api.build_router(limiter=limiter))
 # Circuit boards: block library, free preview, and the KiCad / Gerber package for paid PCB parts.

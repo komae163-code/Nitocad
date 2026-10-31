@@ -1,0 +1,116 @@
+{
+ "description": "Two meshing spur gears on two parallel vertical shafts. Origin at shaft A; shaft B is on +X.",
+ "params": {
+  "gear_module": {
+   "default": 1.5,
+   "min": 0.3,
+   "max": 10
+  },
+  "teeth_a": {
+   "default": 20,
+   "min": 8,
+   "max": 200,
+   "kind": "int"
+  },
+  "teeth_b": {
+   "default": 40,
+   "min": 8,
+   "max": 300,
+   "kind": "int"
+  },
+  "thickness": {
+   "default": 8,
+   "min": 1,
+   "max": 60
+  },
+  "shaft_dia": {
+   "default": 6,
+   "min": 2,
+   "max": 40
+  }
+ },
+ "derived": {
+  "center_dist": "=gear_module*(teeth_a+teeth_b)/2",
+  "root_a": "=gear_module*(teeth_a-2.5)",
+  "root_b": "=gear_module*(teeth_b-2.5)"
+ },
+ "components": [
+  {
+   "id": "shaft_a",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": "=shaft_dia",
+    "length_mm": "=thickness*3"
+   },
+   "position": [
+    0,
+    0,
+    "=-thickness"
+   ]
+  },
+  {
+   "id": "gear_a",
+   "type": "gear",
+   "material": "steel",
+   "parameters": {
+    "module": "=gear_module",
+    "teeth": "=teeth_a",
+    "thickness_mm": "=thickness",
+    "bore_diameter_mm": "=shaft_dia"
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "shaft_b",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": "=shaft_dia",
+    "length_mm": "=thickness*3"
+   },
+   "position": [
+    "=center_dist",
+    0,
+    "=-thickness"
+   ]
+  },
+  {
+   "id": "gear_b",
+   "type": "gear",
+   "material": "steel",
+   "parameters": {
+    "module": "=gear_module",
+    "teeth": "=teeth_b",
+    "thickness_mm": "=thickness",
+    "bore_diameter_mm": "=shaft_dia"
+   },
+   "position": [
+    "=center_dist",
+    0,
+    0
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "name": "bore_leaves_wall_a",
+   "expr": "=root_a > shaft_dia + 2",
+   "message": "gear A bore is too big for its root circle"
+  },
+  {
+   "name": "bore_leaves_wall_b",
+   "expr": "=root_b > shaft_dia + 2",
+   "message": "gear B bore is too big for its root circle"
+  },
+  {
+   "name": "ratio_not_one",
+   "expr": "=teeth_a != teeth_b",
+   "message": "equal teeth: this is not a reduction"
+  }
+ ]
+}

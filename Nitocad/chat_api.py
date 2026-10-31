@@ -33,6 +33,7 @@ from starlette.concurrency import run_in_threadpool
 import ai_models
 import chat_service
 import chat_store
+import vehicle_chat
 import conversation
 import db
 import requirements as reqmod
@@ -168,7 +169,7 @@ def build_router(*, generator, limiter) -> APIRouter:
             )
 
         def ai_allowed(user_id):
-            limit = ai_models.messages_per_day(settings, tier)
+            limit = ai_models.messages_per_day(settings, tier, db.get_plan(user_id))
             return limit is None or db.count_ai_usage_last_24h(user_id, tier) < limit
 
         def ai_used(user_id):
@@ -179,7 +180,8 @@ def build_router(*, generator, limiter) -> APIRouter:
             return ai_models.generate_credits(settings, (job or {}).get("ai_tier"))
 
         def charge_job(job_id, user_id):
-            return db.charge_job(job_id, user_id, cost=job_cost(job_id))
+            job = db.get_job(job_id) or {}
+            return db.charge_job(job_id, user_id, cost=job_cost(job_id), ai_tier=job.get("ai_tier"))
 
         def build_files(job_id):
             generator.export_format_for_job(job_id, "step", anchor=False)
@@ -187,16 +189,18 @@ def build_router(*, generator, limiter) -> APIRouter:
         return chat_service.Deps(
             plan=plan,
             generate=generate,
-            balance=db.get_credit_balance,
+            balance=lambda uid: db.get_spendable_credits(uid, tier),
             ai_allowed=ai_allowed,
             ai_used=ai_used,
+            answer_cost=int(getattr(settings, "CHAT_ANSWER_CREDITS", 1)),
+            uses_ai=tier != "engine",
             job_cost=job_cost,
             charge_job=charge_job,
             refund_job=db.refund_job_charge,
             build_files=build_files,
             part_mesh=_part_mesh_from(generator),
             check_cost=int(settings.CHECK_CREDITS),
-            charge_credits=db.charge_credits,
+            charge_credits=lambda uid, amount: db.charge_credits(uid, amount, ai_tier=tier),
             refund_credits=lambda uid, pool, amount: db.refund_credits(uid, pool, amount),
             history_limit=settings.CHAT_MAX_HISTORY_MESSAGES,
             max_chats=settings.CHAT_MAX_CHATS_PER_USER,
@@ -205,7 +209,8 @@ def build_router(*, generator, limiter) -> APIRouter:
 
     @router.get("/chat-config")
     async def chat_config():
-        # Messages never cost credits. Pressing Generate does, and the price depends on the AI tier.
+        # Previews and edits are free. An AI answer to a question costs answer_credits. Pressing Generate costs
+        # generate_credits, which depends on the AI tier. There is no daily message or generation limit.
         return {"preview_credits": 0, "build_credits": 0, "edit_credits": 0,
                 "generate_credits": {t: ai_models.generate_credits(settings, t) for t in ai_models.TIERS},
                 "check_credits": int(settings.CHECK_CREDITS),
@@ -215,28 +220,39 @@ def build_router(*, generator, limiter) -> APIRouter:
     async def ai_model_list(wallet: Wallet):
         """The AI choices for the picker, with this account's remaining messages on each tier."""
         uid = _uid(wallet)
+        plan = await run_in_threadpool(db.get_plan, uid)
         tiers = []
         for t in ai_models.TIERS:
-            limit = ai_models.messages_per_day(settings, t)
+            limit = ai_models.messages_per_day(settings, t, plan)
             used = 0 if limit is None else await run_in_threadpool(db.count_ai_usage_last_24h, uid, t)
             tiers.append({
                 "id": t, "label": ai_models.tier_label(t), "messages_per_day": limit,
                 "messages_left": None if limit is None else max(0, limit - used),
                 "generate_credits": ai_models.generate_credits(settings, t),
-                "models": [{"id": m.id, "label": m.label, "available": m.available}
+                "models": [{"id": m.id, "label": m.label, "available": m.available,
+                            "class": ai_models.model_class(m),
+                            "class_label": ai_models.CLASS_LABELS[ai_models.model_class(m)],
+                            "locked": not ai_models.allowed_for_plan(plan, m),
+                            "requires_plan": ai_models.required_plan(m)}
                            for m in ai_models.catalogue(settings) if m.tier == t],
             })
-        return {"default": ai_models.DEFAULT_MODEL_ID, "tiers": tiers, "check_credits": int(settings.CHECK_CREDITS)}
+        return {"plan": plan, "default": ai_models.DEFAULT_MODEL_ID, "tiers": tiers, "check_credits": int(settings.CHECK_CREDITS)}
 
     @router.get("/chats")
     async def list_chats(wallet: Wallet):
         return {"chats": await run_in_threadpool(chat_store.list_chats, _uid(wallet))}
 
+    def chat_limit(uid: str) -> int:
+        """Subscribers get no practical chat limit. Free accounts keep the normal one."""
+        paid = db.get_plan(uid) != "free"
+        return settings.CHAT_MAX_CHATS_PAID if paid else settings.CHAT_MAX_CHATS_PER_USER
+
     @router.post("/chats", status_code=201)
     async def create_chat(body: CreateChatBody, wallet: Wallet):
+        uid = _uid(wallet)
         try:
-            return await run_in_threadpool(chat_store.create_chat, _uid(wallet), body.title,
-                                           max_chats=settings.CHAT_MAX_CHATS_PER_USER)
+            limit = await run_in_threadpool(chat_limit, uid)
+            return await run_in_threadpool(chat_store.create_chat, uid, body.title, max_chats=limit)
         except chat_store.ChatLimitError as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
 
@@ -248,11 +264,13 @@ def build_router(*, generator, limiter) -> APIRouter:
             job = db.get_job(job_id)
             return bool(job) and (job.get("user_id") or "").lower() == uid
 
+        limit = await run_in_threadpool(chat_limit, uid)
+
         def run() -> list[str]:
             ids = []
             for c in body.chats:
                 try:
-                    ids.append(chat_store.import_chat(uid, c, owns_job=owns_job, max_chats=settings.CHAT_MAX_CHATS_PER_USER))
+                    ids.append(chat_store.import_chat(uid, c, owns_job=owns_job, max_chats=limit))
                 except chat_store.ChatLimitError:
                     break
             return ids
@@ -318,6 +336,13 @@ def build_router(*, generator, limiter) -> APIRouter:
         model = ai_models.find(settings, body.model)
         if model is None or not model.available:
             raise HTTPException(status_code=400, detail="That AI is not available yet. Pick another one.")
+        plan = await run_in_threadpool(db.get_plan, uid)
+        if not ai_models.allowed_for_plan(plan, model):
+            raise HTTPException(
+                status_code=403,
+                detail=f"{model.label} is part of the {ai_models.required_plan(model).title()} plan. "
+                       "Pick DeepSeek or upgrade to use it.",
+            )
         try:
             out = await run_in_threadpool(chat_service.run_turn, make_deps(model), uid, chat_id, text)
         except chat_service.ChatNotFound:
@@ -401,7 +426,7 @@ def build_router(*, generator, limiter) -> APIRouter:
         except chat_service.NeedCredits as exc:
             raise HTTPException(
                 status_code=402,
-                detail=f"This check costs {exc.cost} credits and your balance is {exc.balance}. Add credits, then run it again.",
+                detail="You have used your AI allowance for now. Subscribe or add a boost, then run the check again.",
             ) from exc
         except chat_service.CheckFailed as exc:
             logger.warning("check failed, not charged: %s", exc)
@@ -414,7 +439,12 @@ def build_router(*, generator, limiter) -> APIRouter:
         its STEP, IGES, DXF and PDF files. Pressing it again for a paid version is free."""
         uid = _uid(wallet)
         try:
-            return await run_in_threadpool(chat_service.unlock_part, make_deps(), uid, chat_id, part_id)
+            out = await run_in_threadpool(chat_service.unlock_part, make_deps(), uid, chat_id, part_id)
+            # Generating is the clearest sign someone liked a vehicle version: let the library learn from it.
+            saved = await run_in_threadpool(chat_store.get_part, uid, chat_id, part_id)
+            if saved:
+                await run_in_threadpool(vehicle_chat.on_generated, saved.get("spec"))
+            return out
         except (chat_service.ChatNotFound, chat_service.PartNotFound):
             raise HTTPException(status_code=404, detail="Part not found")
         except chat_service.ChatBusy:
@@ -422,8 +452,7 @@ def build_router(*, generator, limiter) -> APIRouter:
         except chat_service.NeedCredits as exc:
             raise HTTPException(
                 status_code=402,
-                detail=f"Generating this version costs {exc.cost} credits and your balance is {exc.balance}. "
-                       "Add credits, then press Generate again.",
+                detail="You have used your AI allowance for now. Subscribe or add a boost, then press Generate again.",
             ) from exc
         except chat_service.FilesFailed as exc:
             logger.warning("part files failed after charge, refunded: %s", exc)

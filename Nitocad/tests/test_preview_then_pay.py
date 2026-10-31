@@ -1,6 +1,11 @@
 """Preview first, pay when you generate: the database side (draft jobs, charge once, refund, caps)."""
 from __future__ import annotations
 
+def _charged(result):
+    status, pool = result
+    return status == "charged" and pool.startswith("ledger:")
+
+
 WALLET = "0x" + "ab" * 20
 OTHER = "0x" + "cd" * 20
 
@@ -24,7 +29,7 @@ def test_older_and_api_jobs_are_never_locked(tmp_db):
 def test_generate_charges_exactly_once(tmp_db):
     tmp_db.add_credits(WALLET, 5)
     job_id = _draft(tmp_db)
-    assert tmp_db.charge_job(job_id, WALLET) == ("charged", "purchased")
+    assert _charged(tmp_db.charge_job(job_id, WALLET))
     assert tmp_db.get_credit_balance(WALLET) == 4
     assert tmp_db.is_job_locked(tmp_db.get_job(job_id)) is False
     assert tmp_db.charge_job(job_id, WALLET) == ("already_paid", None)
@@ -36,7 +41,7 @@ def test_no_credits_leaves_the_preview_locked_and_free_to_retry(tmp_db):
     assert tmp_db.charge_job(job_id, WALLET) == ("insufficient", None)
     assert tmp_db.is_job_locked(tmp_db.get_job(job_id)) is True
     tmp_db.add_credits(WALLET, 1)
-    assert tmp_db.charge_job(job_id, WALLET) == ("charged", "purchased")
+    assert _charged(tmp_db.charge_job(job_id, WALLET))
     assert tmp_db.get_credit_balance(WALLET) == 0
 
 
@@ -81,7 +86,7 @@ def test_draft_count_ignores_other_wallets_and_normal_jobs(tmp_db):
 def test_a_higher_price_takes_that_many_credits_and_a_refund_returns_them(tmp_db):
     tmp_db.add_credits(WALLET, 60)
     job_id = _draft(tmp_db)
-    assert tmp_db.charge_job(job_id, WALLET, cost=25) == ("charged", "purchased")
+    assert _charged(tmp_db.charge_job(job_id, WALLET, cost=25))
     assert tmp_db.get_credit_balance(WALLET) == 35
     assert tmp_db.charge_job(job_id, WALLET, cost=25) == ("already_paid", None)
     assert tmp_db.get_credit_balance(WALLET) == 35
@@ -98,7 +103,7 @@ def test_not_enough_credits_for_the_price_takes_nothing_and_stays_locked(tmp_db)
     assert tmp_db.get_credit_balance(WALLET) == 24
     assert tmp_db.is_job_locked(tmp_db.get_job(job_id)) is True
     tmp_db.add_credits(WALLET, 1)
-    assert tmp_db.charge_job(job_id, WALLET, cost=25) == ("charged", "purchased")
+    assert _charged(tmp_db.charge_job(job_id, WALLET, cost=25))
     assert tmp_db.get_credit_balance(WALLET) == 0
 
 

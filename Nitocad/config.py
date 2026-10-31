@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # (POST /export/{fmt}/{job_id}/link). Optional: unset => a random
     # per-process key (fine for one instance; set it for multi-replica).
     DOWNLOAD_LINK_SECRET: str | None = None
+    # Turns on /admin/stats and /admin/dashboard (owner-only usage numbers, see
+    # admin_stats.py). Unset => those routes answer 404. Use a long random value.
+    ADMIN_TOKEN: str | None = None
 
     # --- Persistence ------------------------------------------------
     DB_PATH: str = "nl_to_cad.db"
@@ -129,21 +132,30 @@ class Settings(BaseSettings):
 
     # --- CAD Studio chats (chat_api.py / chat_service.py) -----------------
     # Preview first, pay when you generate. Every message in the studio builds a
-    # free preview (STL only) and costs nothing, so fixing a wrong dimension is
-    # free. Credits are spent once per version, when the person presses Generate
-    # to unlock the full files (STEP, IGES, DXF, PDF). Messages are limited per AI
-    # tier per wallet per rolling 24 hours so free chat cannot burn AI budget.
+    # free preview (STL only), so fixing a wrong dimension is free. Credits are spent
+    # once per version, when the person presses Generate to unlock the full files
+    # (STEP, IGES, DXF, PDF), and CHAT_ANSWER_CREDITS is spent when an AI plan answers
+    # a question instead of building something.
+    #
+    # There is no daily message or generation limit. Credits are the meter, and Pro and
+    # Max also have their weekly allowance. The AI_MESSAGES_PER_DAY_* settings below are
+    # an optional safety valve: 0 means no limit (the default). If free previews ever cost
+    # too much, set one to a number in the environment and it applies per AI tier per wallet
+    # over a rolling 24 hours, with no code change.
     #
     # Studio AI tiers (ai_models.py). The AI only coordinates: it reads the chat and
     # writes the part spec, and the CadQuery templates build the solid. A stronger
-    # model plans better, it does not draw anything. Each tier has a daily allowance
-    # of AI messages (every message that actually calls the model, answers included,
-    # since each one costs real money) and a price in credits for pressing Generate.
-    AI_MESSAGES_PER_DAY_BASIC: int = 40
-    AI_MESSAGES_PER_DAY_PLUS: int = 15
-    AI_MESSAGES_PER_DAY_ADVANCED: int = 4
+    # model plans better, it does not draw anything. Each tier has a price in credits
+    # for pressing Generate.
+    AI_MESSAGES_PER_DAY_BASIC: int = 0
+    AI_MESSAGES_PER_DAY_PLUS: int = 0
+    AI_MESSAGES_PER_DAY_ADVANCED: int = 0
+    # The same valve for Pro and Max accounts.
+    AI_MESSAGES_PER_DAY_PAID_BASIC: int = 0
+    AI_MESSAGES_PER_DAY_PAID_PLUS: int = 0
+    AI_MESSAGES_PER_DAY_PAID_ADVANCED: int = 0
     # Engine: no AI at all. The built-in rules parser reads the message and goes straight to
-    # the CAD engine, so it costs us nothing to plan and has no daily message limit.
+    # the CAD engine, so it costs us nothing to plan and has no message limit.
     GENERATE_CREDITS_ENGINE: int = 2
     GENERATE_CREDITS_BASIC: int = 10
     GENERATE_CREDITS_PLUS: int = 25
@@ -165,6 +177,9 @@ class Settings(BaseSettings):
     AI_TIMEOUT_SECONDS: float = 30.0
     CHAT_MAX_HISTORY_MESSAGES: int = 30
     CHAT_MAX_CHATS_PER_USER: int = 200
+    # Pro and Max have no chat or project limit in practice. This is a guard against runaway
+    # automation, far above anything a person reaches by hand.
+    CHAT_MAX_CHATS_PAID: int = 10000
     CHAT_MAX_MESSAGES_PER_CHAT: int = 400
     CHAT_MAX_MESSAGE_CHARS: int = 2000
     CHAT_PLANNER_MODEL: str | None = None  # defaults to DEEPSEEK_DEFAULT_MODEL
@@ -345,7 +360,52 @@ class Settings(BaseSettings):
     # GET /config/auth precisely so it doesn't need hardcoding into the
     # static frontend file.
     GOOGLE_OAUTH_CLIENT_ID: str | None = None
-    EMAIL_SIGNUP_BONUS_CREDITS: int = 1
+    # Credits a new Google account starts with (they expire after SIGNUP_GRANT_DAYS). Once they are spent the
+    # person has to upgrade to continue. A determined person with many Google accounts could collect this
+    # more than once. Set EMAIL_SIGNUP_BONUS_CREDITS in the environment to change it without a deploy.
+    EMAIL_SIGNUP_BONUS_CREDITS: int = 250
+    # What a plain AI answer (a question, advice, a clarifying reply) costs. Previews and edits are free.
+    CHAT_ANSWER_CREDITS: int = 1
+
+    # The signup grant for Google-verified accounts is EMAIL_SIGNUP_BONUS_CREDITS above (250).
+    # It is a one-time grant that expires after SIGNUP_GRANT_DAYS. At 1 credit = $0.001 of metered
+    # cost, 250 credits caps the free exposure per account at about $0.25 of provider cost.
+    # SIGNUP_GRANT_CREDITS is no longer read. It stays so an old environment that sets it still loads.
+    SIGNUP_GRANT_CREDITS: int = 250
+    SIGNUP_GRANT_DAYS: int = 90
+
+    # Where the vehicle library keeps what it learns when someone presses Generate. Empty = data/spec_library, or memory
+    # only if that cannot be written (serverless disks are wiped between runs: point this at a persistent volume).
+    VEHICLE_LIBRARY_DIR: str = ""
+    # A thumbs-up on a planned vehicle, or pressing Generate on it, only queues it for review. It becomes an example for
+    # other people's prompts after `python spec_library.py approve <id>` (list the queue with `... pending`). Set false
+    # to promote on the first paid Generate or thumbs-up (not recommended: one person's design reaches everyone's prompts).
+    VEHICLE_LIBRARY_REVIEW: bool = True
+    # Wall-clock limit for planning one vehicle message (all model retries together). The browser waits 170 s. One model
+    # call is still limited only by AI_TIMEOUT_SECONDS. A timeout builds nothing and charges nothing.
+    VEHICLE_PLAN_TIME_BUDGET_S: float = 120.0
+    # Built vehicle packages are kept this many seconds so a repeat download does not rebuild them. 0 turns the cache off.
+    # Per process: with several workers each keeps its own copy. Payment is always checked before the cache is used.
+    VEHICLE_PACKAGE_CACHE_TTL_S: int = 900
+    VEHICLE_PACKAGE_CACHE_MAX_ITEMS: int = 8
+
+    # Bachs product ids for the two paid plans (create them in the Bachs dashboard).
+    BACHS_PRODUCT_ID_PRO: str | None = None
+    BACHS_PRODUCT_ID_MAX: str | None = None
+    # sk_sandbox_... talks to the sandbox, sk_live_... to production.
+    BACHS_API_KEY: str | None = None
+    # Signing secret of the webhook endpoint you register at /webhooks/bachs.
+    BACHS_WEBHOOK_SECRET: str | None = None
+
+    @property
+    def topup_packs(self) -> dict[str, dict]:
+        """One-time credit packs. Prices keep each pack above the subscription
+        rate of about $0.0026 per credit, so a top-up never beats a plan."""
+        return {
+            "starter": {"usd": "10.00", "credits": 2500},
+            "growth": {"usd": "25.00", "credits": 7500},
+            "scale": {"usd": "60.00", "credits": 20000},
+        }
 
     @property
     def subscription_tiers(self) -> dict[str, dict]:
@@ -360,6 +420,30 @@ class Settings(BaseSettings):
         are named for product/UI purposes only; nothing reads them yet
         (see the module comment above)."""
         return {
+            # Current plans. weekly_credits is granted once per 7 days while the
+            # subscription is paid. fallback_daily_credits is a small daily grant
+            # that only pays for the cheapest model once the weekly credits run out.
+            # ai_models.allowed_for_plan decides which models each plan can pick.
+            "pro": {
+                "bachs_product_id": self.BACHS_PRODUCT_ID_PRO,
+                "stripe_price_id": None,
+                "paystack_plan_code": None,
+                "usd_cents": 2000,
+                "weekly_credits": 1800,
+                "fallback_daily_credits": 150,
+                "features": {"prompt_refinement": True},
+            },
+            "max": {
+                "bachs_product_id": self.BACHS_PRODUCT_ID_MAX,
+                "stripe_price_id": None,
+                "paystack_plan_code": None,
+                "usd_cents": 8000,
+                "weekly_credits": 9000,
+                "fallback_daily_credits": 400,
+                "features": {"prompt_refinement": True, "advanced_engineering": "undefined"},
+            },
+            # Legacy plans. Kept so existing subscribers keep working until they
+            # are moved to Pro or Max. Remove once nobody is on them.
             "starter": {
                 "stripe_price_id": self.STRIPE_PRICE_ID_STARTER,
                 "paystack_plan_code": self.PAYSTACK_PLAN_CODE_STARTER,

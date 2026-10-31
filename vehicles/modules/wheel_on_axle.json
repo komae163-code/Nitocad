@@ -1,0 +1,140 @@
+{
+ "description": "Tyre ring, axle shaft and two bearings. Origin at the wheel centre; the axle runs along Y.",
+ "params": {
+  "tyre_dia": {
+   "default": 400,
+   "min": 30,
+   "max": 1500
+  },
+  "rim_dia": {
+   "default": 250,
+   "min": 10,
+   "max": 1400
+  },
+  "tyre_w": {
+   "default": 80,
+   "min": 5,
+   "max": 400
+  },
+  "axle_dia": {
+   "default": 20,
+   "min": 3,
+   "max": 60
+  },
+  "axle_len": {
+   "default": 160,
+   "min": 10,
+   "max": 800
+  },
+  "bearing_w": {
+   "default": 12,
+   "min": 3,
+   "max": 40
+  }
+ },
+ "derived": {
+  "tyre_r": "=tyre_dia/2",
+  "rim_r": "=rim_dia/2",
+  "hub_half": "=tyre_w/2 - bearing_w/2"
+ },
+ "components": [
+  {
+   "id": "tyre",
+   "type": "feature_tree",
+   "material": "rubber",
+   "parameters": {
+    "features": [
+     {
+      "id": "ring",
+      "op": "revolve",
+      "plane": "XY",
+      "axis": "y",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=rim_r",
+         0
+        ],
+        [
+         "=tyre_r",
+         0
+        ],
+        [
+         "=tyre_r",
+         "=tyre_w"
+        ],
+        [
+         "=rim_r",
+         "=tyre_w"
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    "=-tyre_w/2",
+    0
+   ]
+  },
+  {
+   "id": "axle",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": "=axle_dia",
+    "length_mm": "=axle_len"
+   },
+   "position": [
+    0,
+    "=-axle_len/2",
+    0
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "bearing",
+   "type": "bearing",
+   "material": "steel",
+   "mirror": "y",
+   "parameters": {
+    "inner_diameter_mm": "=axle_dia",
+    "outer_diameter_mm": "=axle_dia*1.8",
+    "width_mm": "=bearing_w"
+   },
+   "position": [
+    0,
+    "=hub_half",
+    0
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "name": "rim_inside_tyre",
+   "expr": "=rim_dia < tyre_dia",
+   "message": "rim must be smaller than the tyre"
+  },
+  {
+   "name": "axle_longer_than_tyre",
+   "expr": "=axle_len > tyre_w",
+   "message": "axle must stick out past the tyre"
+  },
+  {
+   "name": "bearing_fits_rim",
+   "expr": "=axle_dia*1.8 < rim_dia",
+   "message": "bearing is bigger than the rim"
+  }
+ ]
+}

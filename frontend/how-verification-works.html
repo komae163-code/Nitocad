@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How NitoCAD Verifies AI-Generated CAD Designs | NitoCAD</title>
+<meta name="description" content="NitoCAD checks every version against your requirements and answers PASS, FAIL or UNKNOWN. UNKNOWN is never shown as a pass. See what is checked and where the checks stop.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#1C1C1E;--ink-soft:#5E5E63;--orange:#1C1C1E;--dot:#E8601C;--orange-deep:#0E0E10;--paper:#FAFAF8;--fog:#F0F0EE;--line:#E3E3E0;--radius:14px;--ok:#13A57D;--bad:#B3261E;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased;line-height:1.7;}
+  a{color:var(--orange-deep);}
+  h1,h2,h3{font-family:'Fraunces',serif;font-weight:700;margin:0;color:var(--ink);line-height:1.2;}
+  .wrap{max-width:860px;margin:0 auto;padding:0 28px;}
+  :focus-visible{outline:2px solid var(--orange-deep);outline-offset:3px;}
+  .sp-head{border-bottom:1px solid var(--line);}
+  .sp-head .wrap{display:flex;align-items:center;justify-content:space-between;height:72px;max-width:1080px;}
+  .logo{font-family:'Fraunces',serif;font-style:italic;font-weight:500;font-size:1.5rem;text-decoration:none;color:var(--ink);}
+  .logo span{color:var(--dot);}
+  .sp-nav{display:flex;gap:24px;align-items:center;}
+  .sp-nav a{text-decoration:none;color:var(--ink-soft);font-size:.92rem;font-weight:500;}
+  .sp-nav a:hover{color:var(--ink);}
+  .btn{display:inline-flex;align-items:center;padding:11px 20px;border-radius:999px;font-weight:600;font-size:.92rem;text-decoration:none;border:1.5px solid transparent;}
+  .btn-primary{background:var(--orange);color:#fff !important;}
+  .btn-ghost{border-color:var(--ink);color:var(--ink);}
+  article{padding:56px 0 72px;}
+  article h1{font-size:2.4rem;margin-bottom:18px;}
+  article h2{font-size:1.5rem;margin:44px 0 12px;}
+  article h3{font-size:1.1rem;margin:22px 0 6px;}
+  article p,article li{color:var(--ink-soft);font-size:1.02rem;}
+  article p.lead{font-size:1.15rem;color:var(--ink);}
+  article ul,article ol{padding-left:22px;}
+  .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);margin:18px 0;}
+  table{border-collapse:collapse;width:100%;min-width:560px;font-size:.95rem;}
+  th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;}
+  thead th{background:var(--fog);font-family:'Fraunces',serif;}
+  tbody tr:last-child td{border-bottom:0;}
+  .pass{color:var(--ok);font-weight:700;}.fail{color:var(--bad);font-weight:700;}.unk{color:#8a6d00;font-weight:700;}
+  .note{border-left:3px solid var(--dot);padding:4px 0 4px 16px;margin:20px 0;color:var(--ink);}
+  .cta{display:flex;gap:12px;flex-wrap:wrap;margin:32px 0 0;}
+  .related{margin-top:48px;padding-top:20px;border-top:1px solid var(--line);}
+  .related a{display:block;margin:6px 0;}
+  footer{border-top:1px solid var(--line);padding:26px 0;color:var(--ink-soft);font-size:.88rem;}
+  footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;max-width:1080px;}
+  footer a{color:var(--ink-soft);}
+  @media (max-width:760px){.sp-nav a:not(.btn){display:none;}article h1{font-size:1.9rem;}}
+</style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+<!-- seo:begin -->
+<link rel="canonical" href="https://nitocad.vercel.app/how-verification-works.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NitoCAD">
+<meta property="og:title" content="How NitoCAD Verifies AI-Generated CAD Designs | NitoCAD">
+<meta property="og:description" content="NitoCAD checks every version against your requirements and answers PASS, FAIL or UNKNOWN. UNKNOWN is never shown as a pass. See what is checked and where the checks stop.">
+<meta property="og:url" content="https://nitocad.vercel.app/how-verification-works.html">
+<meta property="og:image" content="https://nitocad.vercel.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="How NitoCAD Verifies AI-Generated CAD Designs | NitoCAD">
+<meta name="twitter:description" content="NitoCAD checks every version against your requirements and answers PASS, FAIL or UNKNOWN. UNKNOWN is never shown as a pass. See what is checked and where the checks stop.">
+<meta name="twitter:image" content="https://nitocad.vercel.app/og-image.png">
+<!-- seo:end -->
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+<header class="sp-head"><div class="wrap">
+<a href="index.html" class="logo">Nit<span>o</span>CAD</a>
+<nav class="sp-nav" aria-label="Site"><a href="index.html">Home</a><a href="pricing.html">Pricing</a><a href="exports.html">Exports</a><a href="whitepaper.html">White paper</a><a href="studio.html" class="btn btn-primary">Open CAD Studio</a></nav>
+</div></header>
+<main><article><div class="wrap">
+<h1>How NitoCAD verifies AI-generated CAD designs</h1>
+
+<p class="lead">NitoCAD does not treat a generated model as correct. It checks each version against your requirements and answers PASS, FAIL or UNKNOWN. UNKNOWN is never shown as a pass.</p>
+
+<div class="tbl"><table>
+<thead><tr><th>Result</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td class="pass">PASS</td><td>The check ran and the part meets the stated requirement.</td></tr>
+<tr><td class="fail">FAIL</td><td>The check ran and the part does not meet the stated requirement.</td></tr>
+<tr><td class="unk">UNKNOWN</td><td>NitoCAD could not measure it, or an input was missing. It is never reported as a pass.</td></tr>
+</tbody></table></div>
+
+<h2>An example</h2>
+<p>These rows show how a bracket might be reported. They are an illustration, not a saved result.</p>
+<div class="tbl"><table>
+<thead><tr><th>Requirement</th><th>You said</th><th>Measured</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Envelope</td><td>Fits in 100 x 80 x 60 mm</td><td>96 x 62 x 40 mm</td><td class="pass">PASS</td></tr>
+<tr><td>Mass</td><td>Under 200 g</td><td>212 g</td><td class="fail">FAIL</td></tr>
+<tr><td>Wall</td><td>At least 2 mm</td><td>3 mm</td><td class="pass">PASS</td></tr>
+<tr><td>Material</td><td>6061 aluminium</td><td>not stated</td><td class="unk">UNKNOWN</td></tr>
+</tbody></table></div>
+
+<h2>What gets checked</h2>
+<ol>
+<li><b>The solid is valid.</b> NitoCAD checks the geometry before anything else.</li>
+<li><b>Your requirements.</b> They stay attached to the part and are checked again on every version, so an edit that quietly breaks an earlier requirement is caught when it is built, not when the part arrives.</li>
+<li><b>Manufacturability.</b> Guideline checks for CNC machining, sheet metal, molding and 3D printing.</li>
+<li><b>Assemblies.</b> Overlap and mass checks across the parts.</li>
+</ol>
+
+<h2>Where the checks stop</h2>
+<p class="note">Geometric validity does not prove a part is safe, manufacturable or fit for its purpose.</p>
+<p>Checks use typical shop guidelines, not your shop's limits. Aerospace results stop at "ready for engineering review". Civil checks are screening level and building rules are conceptual. A licensed engineer must verify anything that gets built. NitoCAD also keeps your numbers: if it sees a problem with a dimension, it flags it and leaves the value alone.</p>
+
+<p>If a generation fails, you are not charged for it.</p>
+<div class="cta"><a class="btn btn-primary" href="index.html#demo">Preview a part free</a><a class="btn btn-ghost" href="pricing.html">See plans</a></div>
+<div class="related"><b>Related</b><a href="text-to-cad.html">AI text-to-CAD</a><a href="b-rep-vs-mesh.html">B-rep solids vs mesh models</a><a href="text-to-step.html">Generate a STEP file from text</a></div>
+</div></article></main>
+<footer><div class="wrap"><span>&copy; 2026 NitoCAD</span><span><a href="terms.html">Terms of Service</a> &nbsp; <a href="privacy.html">Privacy Policy</a></span></div></footer>
+</body>
+</html>

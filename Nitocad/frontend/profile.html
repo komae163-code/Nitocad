@@ -238,6 +238,10 @@
 <link rel="stylesheet" href="theme.css">
 <script src="theme.js"></script>
 <script src="config.js"></script>
+<!-- seo:begin -->
+<meta name="robots" content="noindex, follow">
+<!-- seo:end -->
+<script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
 
@@ -283,7 +287,7 @@
 
 <section class="wrap" style="padding-bottom:90px;">
   <div id="connectPrompt" class="connect-prompt" style="display:none;">
-    <p>Connect your wallet to view your projects and credit balance.</p>
+    <p>Connect your wallet to view your projects and AI usage.</p>
     <button id="profileConnectBtn" class="btn btn-primary">Connect Wallet</button>
   </div>
 
@@ -294,13 +298,13 @@
         <div id="walletAddressDisplay" class="value">—</div>
       </div>
       <div>
-        <div class="label">Credits</div>
+        <div class="label">Plan and AI usage</div>
         <div id="creditsDisplay" class="credits-value">—</div>
       </div>
       <div class="actions">
-        <button class="btn btn-ghost" onclick="handleBuyCreditsClick('single')">Buy 1</button>
-        <button class="btn btn-ghost" onclick="handleBuyCreditsClick('pack_1000')">Buy 1000</button>
-        <button class="btn btn-ghost" onclick="handleBuyCreditsClick('pack_10000')">Buy 10000</button>
+        <button class="btn btn-ghost" onclick="handleBuyCreditsClick('single')">Small boost</button>
+        <button class="btn btn-ghost" onclick="handleBuyCreditsClick('pack_1000')">Medium boost</button>
+        <button class="btn btn-ghost" onclick="handleBuyCreditsClick('pack_10000')">Large boost</button>
         <button class="btn btn-ghost" onclick="handleDisconnectClick()">Disconnect</button>
       </div>
       <p id="profileStatus" class="demo-status"></p>
@@ -500,15 +504,25 @@
     return session;
   }
 
-  async function fetchCreditsBalance(base){
+  // The plan and how much of the AI allowance is used. A percent and a reset date, never a credit count.
+  async function fetchUsage(base){
     const session = getWalletSession(base);
     if(!session) return null;
-    const resp = await fetch(base + '/credits/balance', {
+    const resp = await fetch(base + '/billing/usage', {
       headers: { 'Authorization': 'Bearer ' + session.session_id },
     });
     if(!resp.ok) return null;
-    const data = await resp.json();
-    return data.balance;
+    return await resp.json();
+  }
+
+  function showUsage(u){
+    if(!u){ creditsDisplayEl.textContent = '—'; return; }
+    const plan = { pro: 'Pro', max: 'Max', legacy: 'Subscriber', free: 'Free' }[u.plan] || 'Free';
+    let text = plan;
+    if(u.used_pct !== null && u.used_pct !== undefined) text += ' · ' + u.used_pct + '% used';
+    const d = u.resets_at ? new Date(u.resets_at) : null;
+    if(d && !isNaN(d)) text += (u.plan === 'free' ? ' · expires ' : ' · resets ') + d.toLocaleDateString();
+    creditsDisplayEl.textContent = text;
   }
 
   // ===== Mobile-safe downloads (same helper on every page) =====
@@ -854,8 +868,7 @@
     walletAddressEl.textContent = shortAddress(session.wallet_address);
     walletAddressEl.title = session.wallet_address;
 
-    const balance = await fetchCreditsBalance(base);
-    creditsDisplayEl.textContent = balance === null ? '—' : balance;
+    showUsage(await fetchUsage(base));
 
     await loadJobs(base, session);
   }
@@ -870,7 +883,7 @@
       const priceBot = tier === 'single' ? cfg.credit_price_bot
         : tier === 'pack_1000' ? cfg.pack_1000_price_bot
         : cfg.pack_10000_price_bot;
-      profileStatusEl.textContent = `Waiting for payment: ${priceBot} BOT for credits…`;
+      profileStatusEl.textContent = `Waiting for payment: ${priceBot} BOT for a boost…`;
       const txHash = await payBot(base, priceBot);
       profileStatusEl.textContent = 'Confirming purchase…';
       const resp = await fetch(base + '/credits/purchase', {
@@ -882,9 +895,8 @@
         body: JSON.stringify({ tx_hash: txHash, tier }),
       });
       const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || 'Credit purchase failed.');
-      creditsDisplayEl.textContent = data.balance;
-      profileStatusEl.textContent = `Purchase complete - balance: ${data.balance} credits.`;
+      if (!resp.ok) throw new Error(data.detail || 'Purchase failed.');
+      profileStatusEl.textContent = 'Purchase complete. Usage added.';
       loadProfile();
     } catch (err) {
       profileStatusEl.classList.add('err');

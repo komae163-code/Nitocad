@@ -105,6 +105,10 @@ class Deps:
     # Manufacturability check (see run_check). part_mesh gives (vertices, triangles) in mm or None.
     part_mesh: Callable[[str], Any] | None = None                            # (job_id) -> (verts, tris) | None
     check_cost: int = 5
+    # What a plain answer costs (a question, advice, a clarifying reply) when an AI plan wrote it. Previews cost
+    # nothing. uses_ai says whether the plan the person picked calls an AI model at all (Engine does not).
+    answer_cost: int = 0
+    uses_ai: bool = False
     charge_credits: Callable[[str, int], str | None] | None = None           # (user_id, amount) -> pool or None
     refund_credits: Callable[[str, str | None, int], Any] | None = None      # (user_id, pool, amount)
     history_limit: int = 30
@@ -151,6 +155,16 @@ def _spec_from_result(result: dict, fallback: dict) -> dict:
         "material": p.get("material") or fallback.get("material"),
         "operations": p.get("operations") or fallback.get("operations") or [],
     }
+
+
+def _keep_vehicle(planned: dict, built: dict) -> dict:
+    """The generator keeps only an assembly's parts list. A vehicle part also keeps the vehicle spec it came from,
+    so the next edit, the exploded view and the package start from it. Never raises."""
+    try:
+        import vehicle_chat
+        return vehicle_chat.restore_vehicle(planned, built)
+    except Exception:  # noqa: BLE001
+        return built
 
 
 def _notes_sentence(notes: list[str]) -> str:
@@ -223,8 +237,12 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
             plan = Plan("answer", manufacturing, None, "rules")
             return finish(manufacturing, requirements=evaluate(current["facts"]))
 
-        # Planning calls the AI, which costs real money, so the daily allowance is checked first.
-        if not deps.ai_allowed(user_id):
+        # Planning calls the AI, which costs real money. Someone with no credits left is asked to upgrade
+        # before anything is spent. The Engine plan calls no AI, so it is never blocked here.
+        if deps.uses_ai and deps.answer_cost > 0 and deps.balance(user_id) < deps.answer_cost:
+            return finish("You have used all your credits. Upgrade to keep going. Nothing was changed.",
+                          meta={"needs_credits": True}, needs_credits=True)
+        if not deps.ai_allowed(user_id):      # kept for a plan that sets its own limit; the built-in ones have none
             return finish("You have used today's messages for this AI. Pick a different AI in the box below, "
                           "or try again later. Nothing was changed and nothing was charged.", meta={"limit": True})
 
@@ -245,7 +263,16 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
                 reply = "Noted. I will check every version against: " + "; ".join(reqmod.describe(r) for r in added) + "."
                 if current:
                     reply += " " + _requirement_sentence(results, "The current version")
-            return finish(reply, meta={"choices": plan.choices} if plan.choices else None, requirements=results)
+            # An answer the AI wrote costs credits. Noting a requirement, a rules reply and a failed AI call cost nothing.
+            charged = 0
+            if plan.source == "llm" and not added and deps.answer_cost > 0 and deps.charge_credits:
+                try:
+                    if deps.charge_credits(user_id, deps.answer_cost):
+                        charged = deps.answer_cost
+                except Exception:  # noqa: BLE001 - a billing hiccup must never lose the person's answer
+                    import logging
+                    logging.getLogger(__name__).exception("answer charge failed")
+            return finish(reply, meta={"choices": plan.choices} if plan.choices else None, charged=charged, requirements=results)
 
         description = text.strip()
         try:
@@ -260,6 +287,7 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
                           meta={"error": True})
 
         spec = _spec_from_result(result, plan.spec)
+        spec = _keep_vehicle(plan.spec, spec)
         facts = reqmod.facts_from_result(result, spec["part_type"])
         part = chat_store.add_part(
             user_id, chat_id, job_id=result.get("job_id"), title=part_title(spec),

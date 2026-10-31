@@ -30,6 +30,7 @@ CATEGORIES = [
     ("drive", "Gears and drives"),
     ("enclosures", "Enclosures and tubes"),
     ("assemblies", "Assemblies"),
+    ("vehicles", "Vehicles"),
 ]
 _CATEGORY_LABEL = dict(CATEGORIES)
 
@@ -169,3 +170,40 @@ def reply_for(template: Template) -> str:
     what = (f"{template.title}, an assembly of {template.parts} parts" if template.parts > 1 else template.title)
     return (f"Started from the template: {what}. This is a free preview, built with no AI. "
             f"{template.hint}, or press Generate when it looks right.")
+
+
+def _vehicle_templates() -> tuple[Template, ...]:
+    """Vehicle starting points, built from the shipped vehicle specs (vehicles/examples). Each keeps its link to the
+    vehicle spec, so a chat edit such as "make the tray 900 mm long" changes the vehicle's own parameters. A problem
+    here must never take the other templates down, so it logs and returns nothing."""
+    try:
+        import json
+        from pathlib import Path
+
+        import vehicle_chat
+        base = Path(__file__).resolve().parent / "vehicles" / "examples"
+        cards = (
+            ("wheelbarrow", "veh-wheelbarrow", "Wheelbarrow", "A one-wheel garden barrow: tray, frame, legs and a wheel on a bearing axle.",
+             ("Vehicle", "Concept layout"), "Try: make the tray 900 mm long"),
+            ("bicycle", "veh-bicycle", "Bicycle", "A road-bike layout: frame tubes, two wheels, cranks and chainring, bars and saddle.",
+             ("Vehicle", "Concept layout"), "Try: make the wheel diameter 700 mm"),
+            ("two_axle_cart", "veh-two-axle-cart", "Two-axle cart", "A bare two-wheel axle set: an axle and two wheels, the smallest vehicle layout.",
+             ("Vehicle", "Concept layout"), "Try: make the wheel diameter 300 mm"),
+            ("rc_helicopter", "veh-rc-helicopter", "RC helicopter", "An electric RC helicopter with its internals: motor, gears, rotor head, tail and skids.",
+             ("Vehicle", "Internals", "Concept layout"), "Try: make the rotor span 500 mm"),
+        )
+        out = []
+        for stem, tid, title, summary, tags, hint in cards:
+            built = vehicle_chat.to_chat_spec(json.loads((base / f"{stem}.json").read_text(encoding="utf-8")))
+            if not built["ok"]:
+                continue
+            out.append(Template(tid, title, "vehicles", summary, tags, hint, built["spec"]))
+        return tuple(out)
+    except Exception:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).exception("vehicle templates could not be built")
+        return ()
+
+
+TEMPLATES = TEMPLATES + _vehicle_templates()
+_BY_ID = {t.id: t for t in TEMPLATES}          # rebuilt: the vehicle starters are added after the first lookup is made
