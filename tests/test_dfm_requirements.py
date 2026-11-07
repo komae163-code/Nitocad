@@ -250,5 +250,5 @@ def test_standard_hint_reaches_the_ai_planner():
     system = seen[0][0]["content"]
     assert "STANDARD PART" in system and "ISO 4017" in system and '"size": "M8"' in system
     seen.clear()
-    plan_turn([{"role": "user", "content": "a bracket"}], None, llm=llm, catalogue="CAT")
+    plan_turn([{"role": "user", "content": "a bracket 50 mm wide and 60 mm tall"}], None, llm=llm, catalogue="CAT")
     assert "STANDARD PART" not in seen[0][0]["content"]

@@ -82,6 +82,37 @@ def _validate_file(path: Path) -> dict[str, str]:
     return _check(f"file:{rel}", "not_run", "no structural check for this format")
 
 
+def _safe_rel(p: str) -> str:
+    parts = [x for x in str(p).replace("\\", "/").split("/") if x not in ("", ".")]
+    if not parts or ".." in parts or str(p).startswith(("/", "\\")) or ":" in parts[0]:
+        raise ValueError(f"unsafe path {p!r}")
+    return "/".join(parts)
+
+
+def _copy_external(s: dict[str, Any], out: Path, written: list[Path]) -> str:
+    """Copy one fetched asset into External/ and return the package-relative path of its main file."""
+    rec, src = s["record"], Path(s["file"])
+    files = s.get("files")
+    pairs: list[tuple[Path, Path]] = []
+    if files:                      # a multi-file package (NVIDIA SimReady): keep its layout so references resolve
+        root = src.parents[1]
+        top = _safe_rel(rec["id"])
+        for f in files:
+            rel = _safe_rel(f["path"])
+            pairs.append((root / rel, out / "External" / top / rel))
+        main = f"External/{top}/{_safe_rel(src.relative_to(root).as_posix())}"
+    else:
+        dest = out / "External" / _safe_rel(src.name)
+        pairs.append((src, dest))
+        main = f"External/{dest.name}"
+    for a, b in pairs:
+        b.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(a, b)
+        if b not in written:
+            written.append(b)
+    return main
+
+
 def package_assembly(
     name: str,
     parts: list[dict[str, Any]],
@@ -148,6 +179,35 @@ def package_assembly(
         checks.append(_check(f"requested:{m}", "fail", "requested but not delivered"))
 
     # --- parameters, BOM, assembly list -------------------------------------------------------
+    # --- copy fetched external assets into the package ---------------------------------------
+    sources = list(sources)
+    packaged: dict[int, str] = {}
+    for i, s in enumerate(sources):
+        rec, src = s.get("record") or {}, s.get("file")
+        if not src:                # a recipe-only source (cq_warehouse) has no file to deliver
+            continue
+        label = f"external_file:{rec.get('name', i)}"
+        if not Path(src).is_file():
+            checks.append(_check(label, "fail", "the downloaded file is missing, so it is not in the package"))
+            continue
+        try:
+            rel = _copy_external(s, out, written)
+        except (OSError, ValueError, KeyError) as e:
+            checks.append(_check(label, "fail", f"could not copy into the package: {e}"))
+            continue
+        packaged[i] = rel
+        checks.append(_check(label, "pass", f"packaged as {rel}"))
+        if (out / rel).suffix.lower() in (".step", ".stp", ".stl"):
+            checks.append(_validate_file(out / rel))
+    if packaged:
+        by_key = {(sources[i]["record"]["provider"], sources[i]["record"]["id"]): rel for i, rel in packaged.items()}
+        fixed = []
+        for p in parts:
+            prm = p.get("parameters") or {}
+            rel = by_key.get((prm.get("source"), prm.get("id")))
+            fixed.append({**p, "parameters": {**prm, "file": rel}} if rel and "file" in prm else p)
+        parts = fixed
+
     p_path = out / "Parameters" / "params.json"
     p_path.write_text(json.dumps(params or {}, indent=2, sort_keys=True, default=str), encoding="utf-8")
     written.append(p_path)
@@ -169,7 +229,8 @@ def package_assembly(
     if sources:
         from asset_providers import notices
         s_path = out / "Assembly" / "sources.json"
-        s_path.write_text(json.dumps([{**s["record"], "file": s.get("file")} for s in sources], indent=2, default=str),
+        s_path.write_text(json.dumps([{**s["record"], "file": packaged.get(i, s.get("file")), "files": s.get("files")}
+                                      for i, s in enumerate(sources)], indent=2, default=str),
                           encoding="utf-8")
         n_path = out / "NOTICES.txt"
         n_path.write_text(notices(sources), encoding="utf-8")

@@ -13,3 +13,6 @@ artifacts/
 
 # Learned vehicle specs (vehicle_chat.py)
 data/spec_library/
+
+# Downloaded external assets (asset_providers.py)
+data/asset_cache/

@@ -71,9 +71,16 @@ def _now() -> str:
 
 @contextmanager
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # WAL lets the admin dashboard read while a build is writing, instead of
+    # one blocking the other. It is stored in the DB file, so this is a cheap
+    # no-op after the first call. Fine on a Railway volume (local disk). Do not
+    # use WAL if DB_PATH ever points at a network share.
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA busy_timeout = 10000")
     try:
         yield conn
         conn.commit()

@@ -1,0 +1,318 @@
+{
+ "name": "wheelie_bin",
+ "notes": "Concept layout of a wheelie bin (rubbish bin, trash can, garbage bin, dustbin) with a tapered tub, a flat lid, a hinge pin, a rear handle bar on two brackets and two wheels on an axle that passes through the lower rear of the tub. Front is +X, the hinge is at the back (-X). The tub is a lofted rectangle with the inside cut out by a second loft, so the walls are parallel to the outside. The lid is a flat slab (no rim lip, no dome). The axle crosses the tub wall without a bush. Not a rated capacity or load design.",
+ "params": {
+  "top_l": {
+   "default": 730,
+   "min": 300,
+   "max": 1500
+  },
+  "top_w": {
+   "default": 580,
+   "min": 250,
+   "max": 1200
+  },
+  "base_l": {
+   "default": 560,
+   "min": 200,
+   "max": 1400
+  },
+  "base_w": {
+   "default": 480,
+   "min": 200,
+   "max": 1100
+  },
+  "bin_h": {
+   "default": 1000,
+   "min": 400,
+   "max": 1600
+  },
+  "wall": {
+   "default": 4,
+   "min": 1.5,
+   "max": 12
+  },
+  "lid_over": {
+   "default": 12,
+   "min": 0,
+   "max": 60
+  },
+  "wheel_dia": {
+   "default": 200,
+   "min": 100,
+   "max": 400
+  },
+  "tyre_w": {
+   "default": 45,
+   "min": 20,
+   "max": 100
+  },
+  "rim_dia": {
+   "default": 120,
+   "min": 50,
+   "max": 300
+  }
+ },
+ "derived": {
+  "sx": "=(top_l - base_l)/(2*bin_h)",
+  "sy": "=(top_w - base_w)/(2*bin_h)",
+  "in_bl": "=base_l + 2*sx*wall - 2*wall",
+  "in_bw": "=base_w + 2*sy*wall - 2*wall",
+  "in_tl": "=base_l + 2*sx*(bin_h + 10) - 2*wall",
+  "in_tw": "=base_w + 2*sy*(bin_h + 10) - 2*wall",
+  "lid_l": "=top_l + 2*lid_over",
+  "lid_w": "=top_w + 2*lid_over",
+  "wheel_r": "=wheel_dia/2",
+  "axle_x": "=-(base_l/2 - 40)",
+  "wheel_y": "=base_w/2 + sy*wheel_dia + 5 + tyre_w/2",
+  "stub_len": "=tyre_w + 60",
+  "axle_half": "=wheel_y - tyre_w/2 - 30",
+  "hz": "=bin_h - 80",
+  "x_back": "=base_l/2 + sx*(bin_h - 80)",
+  "bracket_y": "=base_w/2 - 20",
+  "bar_len": "=2*(base_w/2 - 20) + 60"
+ },
+ "components": [
+  {
+   "id": "tub",
+   "type": "feature_tree",
+   "assembly": "tub",
+   "fixed": true,
+   "material": "HDPE",
+   "parameters": {
+    "features": [
+     {
+      "id": "outer",
+      "op": "loft",
+      "ruled": true,
+      "sections": [
+       {
+        "plane": "XY",
+        "offset": 0,
+        "profile": {
+         "type": "rect",
+         "width": "=base_l",
+         "height": "=base_w"
+        }
+       },
+       {
+        "plane": "XY",
+        "offset": "=bin_h",
+        "profile": {
+         "type": "rect",
+         "width": "=top_l",
+         "height": "=top_w"
+        }
+       }
+      ]
+     },
+     {
+      "id": "inner",
+      "op": "loft",
+      "ruled": true,
+      "mode": "cut",
+      "sections": [
+       {
+        "plane": "XY",
+        "offset": "=wall",
+        "profile": {
+         "type": "rect",
+         "width": "=in_bl",
+         "height": "=in_bw"
+        }
+       },
+       {
+        "plane": "XY",
+        "offset": "=bin_h + 10",
+        "profile": {
+         "type": "rect",
+         "width": "=in_tl",
+         "height": "=in_tw"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "lid",
+   "type": "simple_box",
+   "assembly": "lid",
+   "material": "HDPE",
+   "parameters": {
+    "length_mm": "=lid_l",
+    "width_mm": "=lid_w",
+    "height_mm": 10,
+    "hollow": false
+   },
+   "position": [
+    0,
+    0,
+    "=bin_h + 5"
+   ]
+  },
+  {
+   "id": "hinge_pin",
+   "type": "tube",
+   "assembly": "lid",
+   "material": "steel",
+   "parameters": {
+    "outer_diameter_mm": 16,
+    "wall_thickness_mm": 2,
+    "length_mm": "=top_w - 80"
+   },
+   "position": [
+    "=-(lid_l/2 - 8)",
+    "=-(top_w - 80)/2",
+    "=bin_h + 18"
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "handle_bracket",
+   "type": "tube",
+   "assembly": "tub",
+   "material": "steel",
+   "mirror": "y",
+   "parameters": {
+    "outer_diameter_mm": 25,
+    "wall_thickness_mm": 3,
+    "length_mm": 55
+   },
+   "position": [
+    "=-(x_back + 55)",
+    "=bracket_y",
+    "=hz"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "handle_bar",
+   "type": "tube",
+   "assembly": "tub",
+   "material": "steel",
+   "parameters": {
+    "outer_diameter_mm": 32,
+    "wall_thickness_mm": 3,
+    "length_mm": "=bar_len"
+   },
+   "position": [
+    "=-(x_back + 55 + 10)",
+    "=-bar_len/2",
+    "=hz"
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "axle",
+   "type": "shaft",
+   "assembly": "wheels",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 24,
+    "length_mm": "=2*axle_half"
+   },
+   "position": [
+    "=axle_x",
+    "=-axle_half",
+    "=wheel_r"
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "wheel_right",
+   "module": "wheel_on_axle",
+   "assembly": "wheels",
+   "params": {
+    "tyre_dia": "=wheel_dia",
+    "rim_dia": "=rim_dia",
+    "tyre_w": "=tyre_w",
+    "axle_dia": 24,
+    "axle_len": "=stub_len",
+    "bearing_w": 8
+   },
+   "position": [
+    "=axle_x",
+    "=wheel_y",
+    "=wheel_r"
+   ]
+  },
+  {
+   "id": "wheel_left",
+   "module": "wheel_on_axle",
+   "assembly": "wheels",
+   "params": {
+    "tyre_dia": "=wheel_dia",
+    "rim_dia": "=rim_dia",
+    "tyre_w": "=tyre_w",
+    "axle_dia": 24,
+    "axle_len": "=stub_len",
+    "bearing_w": 8
+   },
+   "position": [
+    "=axle_x",
+    "=-wheel_y",
+    "=wheel_r"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "name": "tub_widens_upward",
+   "expr": "=top_l > base_l and top_w > base_w",
+   "message": "the tub must be wider at the top so bins nest and empty"
+  },
+  {
+   "name": "wall_thin_enough",
+   "expr": "=wall*4 < base_w and wall*4 < base_l",
+   "message": "wall is too thick for this tub"
+  },
+  {
+   "name": "lid_covers_tub",
+   "expr": "=lid_l >= top_l and lid_w >= top_w",
+   "message": "lid is smaller than the opening"
+  },
+  {
+   "name": "wheel_clears_tub",
+   "expr": "=wheel_y - tyre_w/2 > base_w/2 + sy*wheel_dia",
+   "message": "wheel rubs on the tub wall"
+  },
+  {
+   "name": "handle_below_rim",
+   "expr": "=hz < bin_h and hz > wheel_dia*2",
+   "message": "handle bar is outside the tub height"
+  },
+  {
+   "name": "bracket_inside_width",
+   "expr": "=bracket_y > 0 and bracket_y < base_w/2",
+   "message": "handle bracket is off the back face"
+  },
+  {
+   "name": "rim_inside_tyre",
+   "expr": "=rim_dia < wheel_dia - 20",
+   "message": "rim leaves no tyre wall"
+  }
+ ]
+}

@@ -1,0 +1,350 @@
+{
+ "name": "hatchback_car",
+ "notes": "Concept layout of a small car (automobile, hatchback, saloon, sedan). Front is +X, wheels on the ground at z = 0. The body is a solid shell shape: a side-profile lower body plus a narrower cabin on top, with the four wheel arches cut out. There is no interior, no glass, no doors and no engine bay. Wheels are tyre, hub stub and bearings from the wheel_on_axle module. Not a crash-rated or road-legal design.",
+ "params": {
+  "wheelbase": {
+   "default": 2600,
+   "min": 1800,
+   "max": 4000
+  },
+  "track": {
+   "default": 1550,
+   "min": 1100,
+   "max": 2200
+  },
+  "body_len": {
+   "default": 4200,
+   "min": 3000,
+   "max": 6000
+  },
+  "body_w": {
+   "default": 1780,
+   "min": 1300,
+   "max": 2300
+  },
+  "body_h": {
+   "default": 1450,
+   "min": 1100,
+   "max": 2200
+  },
+  "ground_clr": {
+   "default": 150,
+   "min": 80,
+   "max": 400
+  },
+  "belt_z": {
+   "default": 780,
+   "min": 500,
+   "max": 1100
+  },
+  "wheel_dia": {
+   "default": 640,
+   "min": 400,
+   "max": 900
+  },
+  "tyre_w": {
+   "default": 205,
+   "min": 125,
+   "max": 355
+  },
+  "rim_dia": {
+   "default": 430,
+   "min": 250,
+   "max": 650
+  }
+ },
+ "derived": {
+  "half_l": "=body_len/2",
+  "wheel_r": "=wheel_dia/2",
+  "arch_dia": "=wheel_dia + 90",
+  "arch_w": "=tyre_w + 140",
+  "wheel_y": "=track/2",
+  "front_x": "=wheelbase/2",
+  "rear_x": "=-wheelbase/2",
+  "cab_w": "=body_w - 220",
+  "cab_base_front": "=body_len/2 - 1100",
+  "cab_base_rear": "=-body_len/2 + 380",
+  "roof_front": "=cab_base_front - 480",
+  "roof_rear": "=cab_base_rear + 420",
+  "stub_len": "=tyre_w + 60",
+  "ex_x0": "=-body_len/2 + 150",
+  "ex_len": "=body_len*0.75"
+ },
+ "components": [
+  {
+   "id": "body",
+   "type": "feature_tree",
+   "assembly": "body",
+   "fixed": true,
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "lower",
+      "op": "extrude",
+      "plane": "XZ",
+      "symmetric": true,
+      "distance": "=body_w",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=-half_l",
+         "=ground_clr"
+        ],
+        [
+         "=half_l",
+         "=ground_clr"
+        ],
+        [
+         "=half_l",
+         "=belt_z - 110"
+        ],
+        [
+         "=half_l - 380",
+         "=belt_z"
+        ],
+        [
+         "=-half_l + 260",
+         "=belt_z"
+        ],
+        [
+         "=-half_l",
+         "=belt_z - 70"
+        ]
+       ]
+      }
+     },
+     {
+      "id": "cabin",
+      "op": "extrude",
+      "plane": "XZ",
+      "symmetric": true,
+      "distance": "=cab_w",
+      "mode": "add",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=cab_base_rear",
+         "=belt_z - 1"
+        ],
+        [
+         "=cab_base_front",
+         "=belt_z - 1"
+        ],
+        [
+         "=roof_front",
+         "=body_h"
+        ],
+        [
+         "=roof_rear",
+         "=body_h"
+        ]
+       ]
+      }
+     },
+     {
+      "id": "arch_fr",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-wheel_y",
+      "symmetric": true,
+      "distance": "=arch_w",
+      "mode": "cut",
+      "profile": {
+       "type": "circle",
+       "diameter": "=arch_dia",
+       "center": [
+        "=front_x",
+        "=wheel_r"
+       ]
+      }
+     },
+     {
+      "id": "arch_rr",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-wheel_y",
+      "symmetric": true,
+      "distance": "=arch_w",
+      "mode": "cut",
+      "profile": {
+       "type": "circle",
+       "diameter": "=arch_dia",
+       "center": [
+        "=rear_x",
+        "=wheel_r"
+       ]
+      }
+     },
+     {
+      "id": "arch_fl",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=wheel_y",
+      "symmetric": true,
+      "distance": "=arch_w",
+      "mode": "cut",
+      "profile": {
+       "type": "circle",
+       "diameter": "=arch_dia",
+       "center": [
+        "=front_x",
+        "=wheel_r"
+       ]
+      }
+     },
+     {
+      "id": "arch_rl",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=wheel_y",
+      "symmetric": true,
+      "distance": "=arch_w",
+      "mode": "cut",
+      "profile": {
+       "type": "circle",
+       "diameter": "=arch_dia",
+       "center": [
+        "=rear_x",
+        "=wheel_r"
+       ]
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "wheel_fr",
+   "module": "wheel_on_axle",
+   "assembly": "wheels",
+   "params": {
+    "tyre_dia": "=wheel_dia",
+    "rim_dia": "=rim_dia",
+    "tyre_w": "=tyre_w",
+    "axle_dia": 24,
+    "axle_len": "=stub_len"
+   },
+   "position": [
+    "=front_x",
+    "=wheel_y",
+    "=wheel_r"
+   ]
+  },
+  {
+   "id": "wheel_fl",
+   "module": "wheel_on_axle",
+   "assembly": "wheels",
+   "params": {
+    "tyre_dia": "=wheel_dia",
+    "rim_dia": "=rim_dia",
+    "tyre_w": "=tyre_w",
+    "axle_dia": 24,
+    "axle_len": "=stub_len"
+   },
+   "position": [
+    "=front_x",
+    "=-wheel_y",
+    "=wheel_r"
+   ]
+  },
+  {
+   "id": "wheel_rr",
+   "module": "wheel_on_axle",
+   "assembly": "wheels",
+   "params": {
+    "tyre_dia": "=wheel_dia",
+    "rim_dia": "=rim_dia",
+    "tyre_w": "=tyre_w",
+    "axle_dia": 24,
+    "axle_len": "=stub_len"
+   },
+   "position": [
+    "=rear_x",
+    "=wheel_y",
+    "=wheel_r"
+   ]
+  },
+  {
+   "id": "wheel_rl",
+   "module": "wheel_on_axle",
+   "assembly": "wheels",
+   "params": {
+    "tyre_dia": "=wheel_dia",
+    "rim_dia": "=rim_dia",
+    "tyre_w": "=tyre_w",
+    "axle_dia": 24,
+    "axle_len": "=stub_len"
+   },
+   "position": [
+    "=rear_x",
+    "=-wheel_y",
+    "=wheel_r"
+   ]
+  },
+  {
+   "id": "exhaust",
+   "type": "tube",
+   "assembly": "body",
+   "material": "steel",
+   "parameters": {
+    "outer_diameter_mm": 50,
+    "wall_thickness_mm": 2,
+    "length_mm": "=ex_len"
+   },
+   "position": [
+    "=ex_x0",
+    300,
+    "=ground_clr - 50"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "name": "wheels_inside_body_width",
+   "expr": "=track/2 + tyre_w/2 < body_w/2 + 60",
+   "message": "wheels stick out too far past the body"
+  },
+  {
+   "name": "wheelbase_fits_body",
+   "expr": "=wheelbase + wheel_dia < body_len",
+   "message": "wheels would hang off the ends of the body"
+  },
+  {
+   "name": "rim_inside_tyre",
+   "expr": "=rim_dia < wheel_dia - 2*tyre_w*0.25",
+   "message": "rim leaves no tyre wall"
+  },
+  {
+   "name": "roof_above_belt",
+   "expr": "=body_h > belt_z + 300",
+   "message": "not enough height for a cabin"
+  },
+  {
+   "name": "arch_top_below_belt",
+   "expr": "=wheel_r + arch_dia/2 < belt_z - 40",
+   "message": "wheel arch cuts through the beltline"
+  },
+  {
+   "name": "cabin_slopes_valid",
+   "expr": "=roof_front > roof_rear + 300",
+   "message": "roof is too short, shorten the slopes or lengthen the body"
+  },
+  {
+   "name": "wheel_in_arch_width",
+   "expr": "=tyre_w < arch_w",
+   "message": "arch is narrower than the tyre"
+  }
+ ]
+}

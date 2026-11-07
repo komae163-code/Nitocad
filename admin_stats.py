@@ -40,6 +40,9 @@ from starlette.concurrency import run_in_threadpool
 
 import config
 import db
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # A succeeded build that was either never a draft, or was a draft the owner paid for.
 _PAID = "success = 1 AND (draft = 0 OR (charged_at IS NOT NULL AND COALESCE(charged_pool, '') != 'pending'))"
@@ -48,8 +51,24 @@ _PAID_AT = "COALESCE(charged_at, created_at)"
 _REAL_USER = "user_id NOT IN ('anonymous', 'default')"
 
 
+_MIN_TOKEN_LEN = 24
+
+
+def _admin_token() -> str | None:
+    """The configured token, or None when unset or too short to trust. A short
+    token is treated as no token at all, so the routes stay hidden rather than
+    guarded by something guessable."""
+    token = config.get_settings().ADMIN_TOKEN
+    if not token:
+        return None
+    if len(token) < _MIN_TOKEN_LEN:
+        logger.warning("ADMIN_TOKEN is shorter than %d characters, admin routes disabled", _MIN_TOKEN_LEN)
+        return None
+    return token
+
+
 def _check_token(request: Request) -> None:
-    expected = config.get_settings().ADMIN_TOKEN
+    expected = _admin_token()
     if not expected:
         raise HTTPException(status_code=404, detail="Not found")
     supplied = request.headers.get("x-admin-token", "")
@@ -149,6 +168,84 @@ def compute_stats(days: int = 30) -> dict[str, Any]:
             (c_window,),
         )
 
+        # Parser path. used_deepseek = 1 means the LLM parsed the prompt, 0 means
+        # the regex/template fallback did. Counted over succeeded real-user builds.
+        ds_window = _one(
+            conn,
+            f"SELECT COUNT(*) FROM jobs WHERE {_REAL_USER} AND success = 1 AND used_deepseek = 1 AND created_at >= ?",
+            (c_window,),
+        )
+        fb_window = _one(
+            conn,
+            f"SELECT COUNT(*) FROM jobs WHERE {_REAL_USER} AND success = 1 AND used_deepseek = 0 AND created_at >= ?",
+            (c_window,),
+        )
+        # Failure rate per part type, so untested templates show themselves.
+        part_health = []
+        for r in conn.execute(
+            f"SELECT COALESCE(part_type, 'unknown'), COUNT(*), "
+            f"SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), "
+            f"SUM(CASE WHEN success = 0 AND state IN ('failed', 'refunded') THEN 1 ELSE 0 END) "
+            f"FROM jobs WHERE {_REAL_USER} AND created_at >= ? GROUP BY 1 ORDER BY 2 DESC LIMIT 15",
+            (c_window,),
+        ).fetchall():
+            ok, bad = int(r[2] or 0), int(r[3] or 0)
+            part_health.append(
+                {
+                    "part_type": r[0],
+                    "builds": int(r[1]),
+                    "succeeded": ok,
+                    "failed": bad,
+                    "failure_rate": round(bad / (ok + bad), 3) if (ok + bad) else None,
+                }
+            )
+
+        # Money. Only Bachs checkouts store an amount locally. Stripe and Paystack
+        # payments are not recorded with an amount here, so they are absent.
+        bachs_paid = [
+            {
+                "currency": r[0] or "unknown",
+                "checkouts": int(r[1]),
+                "amount": round(float(r[2] or 0), 2),
+            }
+            for r in conn.execute(
+                "SELECT currency, COUNT(*), SUM(CAST(amount AS REAL)) FROM bachs_checkouts "
+                "WHERE status = 'paid' AND created_at >= ? GROUP BY currency",
+                (c_window,),
+            ).fetchall()
+        ]
+        bachs_paid_users = _one(
+            conn, "SELECT COUNT(DISTINCT wallet_address) FROM bachs_checkouts WHERE status = 'paid'"
+        )
+        subs_by_tier = {
+            (r[0] or "unknown"): int(r[1])
+            for r in conn.execute(
+                "SELECT tier, COUNT(*) FROM subscriptions WHERE status = 'active' GROUP BY tier"
+            ).fetchall()
+        }
+        topup_credits_window = _one(
+            conn,
+            "SELECT COALESCE(SUM(amount), 0) FROM credit_grants WHERE source = 'topup' AND created_at >= ?",
+            (c_window,),
+        )
+        signup_credits_window = _one(
+            conn,
+            "SELECT COALESCE(SUM(amount), 0) FROM credit_grants WHERE source LIKE 'signup%' AND created_at >= ?",
+            (c_window,),
+        )
+        # Net credits spent = reservations and extra charges, minus anything returned.
+        credits_spent_window = -_one(
+            conn,
+            "SELECT COALESCE(SUM(delta), 0) FROM credit_ledger "
+            "WHERE kind IN ('reserve', 'settle_extra', 'settle_return', 'refund') AND created_at >= ?",
+            (c_window,),
+        )
+        credits_spent_users = _one(
+            conn,
+            "SELECT COUNT(DISTINCT user_id) FROM credit_ledger WHERE kind = 'reserve' AND created_at >= ?",
+            (c_window,),
+        )
+
         ai_total = _one(conn, "SELECT COUNT(*) FROM ai_usage")
         ai_window = _one(conn, "SELECT COUNT(*) FROM ai_usage WHERE created_at >= ?", (c_window,))
         ai_by_tier = {
@@ -203,6 +300,23 @@ def compute_stats(days: int = 30) -> dict[str, Any]:
             "paid_by_ai_tier": by_tier,
             "top_part_types_in_window": top_parts,
         },
+        "parser": {
+            "deepseek_builds_in_window": ds_window,
+            "fallback_builds_in_window": fb_window,
+            "deepseek_share": rate(ds_window, ds_window + fb_window),
+        },
+        "part_health_in_window": part_health,
+        "money": {
+            "bachs_paid_in_window": bachs_paid,
+            "users_who_ever_paid_via_bachs": bachs_paid_users,
+            "active_subscriptions_by_tier": subs_by_tier,
+            "topup_credits_granted_in_window": topup_credits_window,
+            "signup_credits_granted_in_window": signup_credits_window,
+            "credits_spent_in_window": credits_spent_window,
+            "users_who_spent_credits_in_window": credits_spent_users,
+            "avg_credits_spent_per_spender": round(credits_spent_window / credits_spent_users, 1) if credits_spent_users else None,
+            "note": "Only Bachs checkouts carry an amount locally. Stripe and Paystack revenue is not stored here.",
+        },
         "ai_messages": {"total": ai_total, "in_window": ai_window, "by_tier_in_window": ai_by_tier},
         "daily": daily,
         "visitors": "Not tracked by the backend. Use the analytics script on the frontend pages.",
@@ -244,6 +358,9 @@ async function load(){
   if(!r.ok){$('err').textContent=r.status===401?'Wrong token':'Error '+r.status;return}
   const d=await r.json();const o=$('out');o.replaceChildren();
   o.append(el('h2','Users'),cards(d.users),el('h2','Generations'),cards(d.generations),
+   el('h2','Parser path'),cards(d.parser),el('h2','Money and credits'),cards(d.money),
+   table(d.money.bachs_paid_in_window.length?d.money.bachs_paid_in_window:[{currency:'none',checkouts:0,amount:0}],['currency','checkouts','amount']),
+   el('h2','Part health'),table(d.part_health_in_window,['part_type','builds','succeeded','failed','failure_rate']),
    el('h2','AI messages'),cards(d.ai_messages),el('h2','Per day'),
    table(d.daily.slice().reverse(),['date','signups','builds','paid_generations']),
    el('h2','Top part types'),table(d.generations.top_part_types_in_window,['part_type','count']));
@@ -256,7 +373,7 @@ def build_router(*, limiter: Any = None) -> APIRouter:
     router = APIRouter(tags=["admin"])
 
     def _limit(fn):
-        return limiter.limit("30/minute")(fn) if limiter is not None else fn
+        return limiter.limit("10/minute")(fn) if limiter is not None else fn
 
     @router.get("/admin/stats")
     @_limit
@@ -270,7 +387,7 @@ def build_router(*, limiter: Any = None) -> APIRouter:
         # The page itself holds no data. It only shows numbers after the
         # browser sends the token to /admin/stats. Hidden entirely until a
         # token is configured.
-        if not config.get_settings().ADMIN_TOKEN:
+        if not _admin_token():
             raise HTTPException(status_code=404, detail="Not found")
         return HTMLResponse(_DASHBOARD, headers={"Cache-Control": "no-store"})
 

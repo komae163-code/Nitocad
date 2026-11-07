@@ -171,8 +171,9 @@ def validate_spec(spec: Any, catalog: dict[str, dict[str, Any]] | None = None
                 ok = _is_num(val) and val >= 0
             elif isinstance(default, str):
                 ok = isinstance(val, str)
-            else:  # unknown default: accept any finite scalar
-                ok = isinstance(val, (str, bool)) or (_is_num(val))
+            else:  # unknown or list default: accept a finite scalar, or a short list of finite numbers (crank phase angles)
+                ok = (isinstance(val, (str, bool)) or _is_num(val)
+                      or (isinstance(val, list) and 0 < len(val) <= 64 and all(_is_num(x) for x in val)))
             if not ok:
                 errors.append(f"{label}: parameter {key!r} has an invalid value {val!r} "
                               f"(expected like {default!r}).")

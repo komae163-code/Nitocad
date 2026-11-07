@@ -5,6 +5,7 @@ from .motor_mount import generate_motor_mount
 from .l_bracket import generate_l_bracket
 from .flat_plate import generate_flat_plate
 from .simple_box import generate_simple_box
+from .tapered_tray import generate_tapered_tray
 from .primitives import generate_shaft, generate_bearing, generate_spacer, generate_washer, generate_sphere
 from .transmission import generate_gear, generate_pulley, generate_sprocket
 from .structural import generate_structural_beam, generate_angle, generate_tube
@@ -31,6 +32,7 @@ TEMPLATES = {
     "l_bracket": generate_l_bracket,
     "flat_plate": generate_flat_plate,
     "simple_box": generate_simple_box,
+    "tapered_tray": generate_tapered_tray,
     
     # Primitives
     "shaft": generate_shaft,

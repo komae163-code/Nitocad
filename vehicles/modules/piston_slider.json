@@ -1,0 +1,172 @@
+{
+ "description": "Piston, gudgeon pin and connecting rod for one cylinder. Origin on the crank axis at the middle of the rod journal. The cylinder axis is +X, the crank axis is Z. crank_deg is the crank pin angle from +X (0 = top dead centre).",
+ "params": {
+  "bore": {
+   "default": 28,
+   "min": 10,
+   "max": 200
+  },
+  "stroke": {
+   "default": 30,
+   "min": 8,
+   "max": 200
+  },
+  "rod_len": {
+   "default": 52,
+   "min": 20,
+   "max": 600
+  },
+  "pin_dia": {
+   "default": 7,
+   "min": 3,
+   "max": 40
+  },
+  "rod_t": {
+   "default": 9,
+   "min": 3,
+   "max": 40
+  },
+  "crank_pin_dia": {
+   "default": 12,
+   "min": 4,
+   "max": 120
+  },
+  "crank_deg": {
+   "default": 0,
+   "min": 0,
+   "max": 360
+  }
+ },
+ "derived": {
+  "cr": "=stroke/2",
+  "a": "=radians(crank_deg)",
+  "px": "=cr*cos(a) + sqrt(rod_len**2 - (cr*sin(a))**2)",
+  "phi": "=degrees(atan2(cr*sin(a), cr*cos(a) - px))",
+  "piston_h": "=bore*0.85",
+  "comp_h": "=bore*0.45",
+  "crown_t": "=bore*0.15",
+  "crown_x": "=px + comp_h",
+  "bot_x": "=crown_x - piston_h",
+  "r_out": "=bore/2 - 0.05",
+  "r_in": "=r_out - bore*0.08"
+ },
+ "components": [
+  {
+   "id": "piston",
+   "type": "feature_tree",
+   "material": "aluminium",
+   "parameters": {
+    "features": [
+     {
+      "id": "body",
+      "op": "revolve",
+      "plane": "XY",
+      "axis": "x",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=bot_x",
+         "=r_in"
+        ],
+        [
+         "=bot_x",
+         "=r_out"
+        ],
+        [
+         "=crown_x",
+         "=r_out"
+        ],
+        [
+         "=crown_x",
+         0
+        ],
+        [
+         "=crown_x - crown_t",
+         0
+        ],
+        [
+         "=crown_x - crown_t",
+         "=r_in"
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "pin",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": "=pin_dia",
+    "length_mm": "=2*r_in"
+   },
+   "position": [
+    "=px",
+    0,
+    "=-r_in"
+   ]
+  },
+  {
+   "id": "rod",
+   "type": "connecting_rod",
+   "material": "steel",
+   "parameters": {
+    "big_end_diameter_mm": "=crank_pin_dia",
+    "big_end_boss_diameter_mm": "=crank_pin_dia*1.5",
+    "small_end_diameter_mm": "=pin_dia",
+    "small_end_boss_diameter_mm": "=pin_dia*1.6",
+    "center_distance_mm": "=rod_len",
+    "shank_width_mm": "=pin_dia*0.9",
+    "thickness_mm": "=rod_t",
+    "rib_height_mm": 0,
+    "cap_bolt_diameter_mm": 0,
+    "fillet_mm": 1
+   },
+   "position": [
+    "=px",
+    0,
+    "=-rod_t/2"
+   ],
+   "rotation": [
+    0,
+    0,
+    "=phi"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "name": "rod_longer_than_crank",
+   "expr": "=rod_len > 1.5*cr",
+   "message": "rod must be clearly longer than the crank radius"
+  },
+  {
+   "name": "pin_fits_piston",
+   "expr": "=pin_dia < bore*0.3",
+   "message": "gudgeon pin is too big for this bore"
+  },
+  {
+   "name": "pin_clears_crown",
+   "expr": "=comp_h - pin_dia/2 > crown_t",
+   "message": "pin would touch the crown"
+  },
+  {
+   "name": "skirt_below_pin",
+   "expr": "=piston_h - comp_h > pin_dia",
+   "message": "no skirt left below the pin"
+  },
+  {
+   "name": "big_end_fits_bore",
+   "expr": "=crank_pin_dia*1.5/2 + cr < bore",
+   "message": "big end would not clear the cylinder walls"
+  }
+ ]
+}

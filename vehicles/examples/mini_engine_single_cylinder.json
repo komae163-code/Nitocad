@@ -1,0 +1,46 @@
+{
+ "name": "mini_engine_single_cylinder",
+ "notes": "A small single cylinder piston engine, shown as its moving core: crankshaft and flywheel, rods, pistons and pins, then the cylinder liners and head. Pistons are solid and there is no crankcase, valves or camshaft. Change bore, stroke or crank_deg.",
+ "params": {
+  "bore": {
+   "default": 30,
+   "min": 8,
+   "max": 120
+  },
+  "stroke": {
+   "default": 30,
+   "min": 6,
+   "max": 120
+  },
+  "crank_deg": {
+   "default": 0,
+   "min": 0,
+   "max": 360
+  }
+ },
+ "components": [
+  {
+   "id": "engine",
+   "module": "piston_engine_1",
+   "assembly": "engine",
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "params": {
+    "bore": "=bore",
+    "stroke": "=stroke",
+    "crank_deg": "=crank_deg",
+    "rod_cd": "=stroke*1.9",
+    "piston_h": "=bore",
+    "main_dia": "=stroke*0.55",
+    "rodj_dia": "=stroke*0.47",
+    "web": "=stroke*0.17",
+    "rodj_len": "=stroke*0.33",
+    "main_len": "=bore*0.67"
+   }
+  }
+ ],
+ "dev_notes": "Part origins are read from the template source and are not yet confirmed on real CadQuery."
+}

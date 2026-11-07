@@ -51,7 +51,7 @@ def test_llm_prompt_contains_history_and_current_spec():
 
 def test_llm_json_in_fences_and_prose_is_accepted():
     raw = 'Sure!\n```json\n{"intent":"build","reply":"ok","spec":{"part_type":"gear","parameters":{"teeth":24}}}\n```'
-    plan = cv.plan_turn(H(("user", "gear")), None, llm=llm_returning(raw))
+    plan = cv.plan_turn(H(("user", "gear with 24 teeth and an 8 mm bore")), None, llm=llm_returning(raw))
     assert plan.intent == "build" and plan.spec["parameters"]["teeth"] == 24 and plan.spec["operations"] == []
 
 
@@ -70,7 +70,7 @@ def test_bad_output_retries_then_succeeds_with_correction_note():
 
 def test_unusable_twice_falls_back_to_rules_and_never_raises():
     llm = llm_returning(RuntimeError("timeout"), {"intent": "build", "spec": {"part_type": "unknown", "parameters": {}}})
-    plan = cv.plan_turn(H(("user", "make me a gear")), None, llm=llm, regex_parse=fake_regex)
+    plan = cv.plan_turn(H(("user", "make me a gear with 20 teeth and an 8 mm bore")), None, llm=llm, regex_parse=fake_regex)
     assert plan.source == "rules" and plan.intent == "build" and plan.spec["part_type"] == "gear"
 
 

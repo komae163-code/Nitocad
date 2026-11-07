@@ -335,6 +335,21 @@ def validate_simple_box(params: dict[str, Any]) -> ValidationResult:
     
     return result
 
+def validate_tapered_tray(params: dict[str, Any]) -> ValidationResult:
+    """Validate tapered tray parameters: a floor no bigger than the opening, and a wall the tray can hold."""
+    result = ValidationResult()
+    length, width = params.get('length_mm', 800.0), params.get('width_mm', 560.0)
+    base_l, base_w = params.get('bottom_length_mm', 560.0), params.get('bottom_width_mm', 460.0)
+    height, wall = params.get('height_mm', 280.0), params.get('wall_thickness_mm', 2.0)
+    if min(length, width, base_l, base_w, height, wall) <= 0:
+        result.add_error("Every size of a tapered tray must be positive")
+        return result
+    if base_l > length or base_w > width:
+        result.add_error("The floor of a tapered tray cannot be larger than its opening")
+    if wall >= height or 2 * wall >= min(base_l, base_w):
+        result.add_error("The wall is too thick for this tray")
+    return result
+
 def validate_connecting_rod(params: dict[str, Any]) -> ValidationResult:
     """Validate connecting rod parameters."""
     result = ValidationResult()
@@ -1257,6 +1272,7 @@ def validate_parameters(part_type, params, description=None):
         'gear': validate_gear,
         'bearing': validate_bearing,
         'simple_box': validate_simple_box,
+        'tapered_tray': validate_tapered_tray,
         'connecting_rod': validate_connecting_rod,
         'crankshaft': validate_crankshaft,
         'road_segment': validate_road_segment,

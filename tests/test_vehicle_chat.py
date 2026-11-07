@@ -69,9 +69,9 @@ def test_ai_plan_becomes_a_free_assembly_preview_that_carries_its_vehicle():
     assert plan.intent == "build" and plan.source == "llm"
     p = plan.spec["parameters"]
     assert plan.spec["part_type"] == "assembly" and p["layout"] == "custom"
-    assert len(p["parts"]) == 13 and all(len(x["position"]) == 3 for x in p["parts"])
+    assert len(p["parts"]) == 15 and all(len(x["position"]) == 3 for x in p["parts"])
     assert p["vehicle"]["name"] == "wheelbarrow"
-    assert "free preview" in plan.reply and "Generate" in plan.reply and "13 parts" in plan.reply
+    assert "free preview" in plan.reply and "Generate" in plan.reply and "15 parts" in plan.reply
     assert "wheel dia 400" in plan.reply
 
 
@@ -178,7 +178,7 @@ def test_a_polite_edit_phrased_as_a_question_is_an_edit():
 
 def test_a_question_without_an_ai_is_answered_from_the_plan():
     plan = VC.plan_vehicle_turn("is it going to fit through a door?", current_barrow(), llm=None, library=lib())
-    assert plan.intent == "answer" and plan.source == "rules" and "13 parts" in plan.reply
+    assert plan.intent == "answer" and plan.source == "rules" and "15 parts" in plan.reply
 
 
 def test_a_new_vehicle_replaces_the_current_one():
@@ -204,9 +204,10 @@ def test_mated_parts_are_placed_with_a_box_function_and_downloads_are_noted():
 def test_plan_turn_routes_a_vehicle_and_skips_the_shaft_and_overlap_rules():
     VC.set_library(lib())
     try:
-        history = [{"role": "user", "content": "I want to create a wheelbarrow"}]
+        history = [{"role": "user", "content": "I want to create a wheelbarrow, 90 litre steel tray, one wheel"}]
         first = conversation.plan_turn(history, None, llm=None)
         assert first.intent == "build" and first.spec["parameters"]["vehicle"]["name"] == "wheelbarrow"
+        assert "stage" not in first.spec["parameters"]                    # a full order is built whole
         history.append({"role": "assistant", "content": first.reply})
         history.append({"role": "user", "content": "make the wheel diameter 450 mm"})
         second = conversation.plan_turn(history, first.spec, llm=None)
@@ -415,5 +416,244 @@ def test_the_app_library_queues_instead_of_promoting_by_default(tmp_path, monkey
         rec = l.get(planned.spec["parameters"]["library_id"])
         assert rec["status"] == "candidate" and rec["pending_review"] is True and len(l.pending_review()) == 1
         assert l.approve(rec["id"])["status"] == "accepted"
+    finally:
+        VC.set_library(None)
+
+
+# ---------------------------------------------------------------- asking before building, and building in steps
+def _ask(history):
+    return conversation.plan_turn(history, None, llm=None)
+
+
+def test_a_bare_request_gets_a_question_not_a_model():
+    VC.set_library(lib())
+    try:
+        plan = _ask([{"role": "user", "content": "Hey let's build a wheelbarrow"}])
+        assert plan.intent == "answer" and plan.spec is None and plan.source == "rules"
+        assert plan.reply.startswith("Before I build") and "tray and handles" in plan.reply
+        assert len(plan.choices) == 1 and plan.choices[0]["question"] == "What size should it be?"
+    finally:
+        VC.set_library(None)
+
+
+def test_a_full_order_is_built_whole_and_just_build_it_skips_the_questions():
+    VC.set_library(lib())
+    try:
+        full = _ask([{"role": "user", "content": "let's build a wheelbarrow: tray 800 x 560 x 280, 400 mm wheel, steel"}])
+        assert full.intent == "build" and "stage" not in full.spec["parameters"]
+        skip = _ask([{"role": "user", "content": "build a wheelbarrow, just build it"}])
+        assert skip.intent == "build" and len(skip.spec["parameters"]["parts"]) == 15
+    finally:
+        VC.set_library(None)
+
+
+def _talk(first, answers):
+    history = [{"role": "user", "content": first}]
+    plan = _ask(history)
+    for a in answers:
+        history += [{"role": "assistant", "content": plan.reply}, {"role": "user", "content": a}]
+        plan = _ask(history)
+    return history, plan
+
+
+def test_answering_the_questions_builds_the_first_step_only():
+    VC.set_library(lib())
+    try:
+        history, plan = _talk("Hey let's build a wheelbarrow",
+                              ["What size should it be? Garden, about 90 litre",
+                               "What is it made of? Steel tray and steel tube frame",
+                               "How many wheels? One wheel"])
+        assert plan.intent == "build" and plan.spec["parameters"]["stage"] == {"shown": 1, "of": 3}
+        assert len(plan.spec["parameters"]["parts"]) == 5 and "Step 1 of 3" in plan.reply and "the legs and crossbars" in plan.reply
+        history += [{"role": "assistant", "content": plan.reply}, {"role": "user", "content": "Next step"}]
+        second = conversation.plan_turn(history, plan.spec, llm=None)
+        assert second.intent == "edit" and second.spec["parameters"]["stage"] == {"shown": 2, "of": 3}
+        assert len(second.spec["parameters"]["parts"]) == 9
+        history += [{"role": "assistant", "content": second.reply}, {"role": "user", "content": "Finish the whole thing"}]
+        done = conversation.plan_turn(history, second.spec, llm=None)
+        assert len(done.spec["parameters"]["parts"]) == 15 and "stage" not in done.spec["parameters"]
+        again = VC.plan_vehicle_turn("next", done.spec, llm=None, library=lib())
+        assert again.intent == "answer" and "already showing" in again.reply
+    finally:
+        VC.set_library(None)
+
+
+def test_a_size_edit_keeps_the_step_and_restore_vehicle_keeps_it_after_generate():
+    VC.set_library(lib())
+    try:
+        _, plan = _talk("I want a wheelbarrow", ["What size should it be? Garden, about 90 litre", "just build it"])
+        assert plan.spec["parameters"].get("stage") is None            # "just build it" skips the steps
+        _, staged = _talk("I want a wheelbarrow", ["What size should it be? Garden, about 90 litre",
+                                                   "What is it made of? Steel", "How many wheels? One wheel"])
+        edit = VC.plan_vehicle_turn("make the wheel diameter 450 mm", staged.spec, llm=None, library=lib())
+        assert edit.spec["parameters"]["stage"] == {"shown": 1, "of": 3} and len(edit.spec["parameters"]["parts"]) == 5
+        built = VC.restore_vehicle(edit.spec, {"part_type": "assembly", "parameters": {"parts": []}})
+        assert built["parameters"]["stage"] == {"shown": 1, "of": 3}
+    finally:
+        VC.set_library(None)
+
+
+def test_cars_bins_planes_and_engines_start_a_conversation_but_part_names_do_not():
+    VC.set_library(lib())
+    try:
+        for text, q in [("I want to build a car", "What kind of car?"), ("let's build a bin", "What kind of bin?"),
+                        ("build an airplane", "What kind of aircraft?"), ("I want a V8 engine", "What kind of engine?")]:
+            plan = _ask([{"role": "user", "content": text}])
+            assert plan.intent == "answer" and plan.choices[0]["question"] == q, text
+        for text in ("a car door hinge", "engine block 80 mm bore", "bin lid 200 mm"):
+            assert not VC.is_vehicle_request(text), text
+    finally:
+        VC.set_library(None)
+
+
+def test_an_example_of_a_different_kind_is_never_handed_back():
+    # An airplane has a built-in example since the merge with the car/bin/airplane/engine branch,
+    # so a truck (no example of its own) stands in for "a kind with nothing built in".
+    plan = VC.plan_vehicle_turn("build a truck 6 m long steel", None, llm=None, library=lib())
+    assert plan.intent == "answer" and plan.spec is None and "Without an AI" in plan.reply
+
+
+def test_stage_plans_always_have_two_parts_per_step():
+    for name in ("wheelbarrow", "bicycle", "rc_helicopter", "two_axle_cart"):
+        v = example(name)
+        ex = VS.expand_vehicle(v, None, None, None)
+        steps = VC.stage_plan(v, ex)
+        assert all(len(m) >= 2 for _, m in steps)
+        if steps:
+            assert sorted(n for _, m in steps for n in m) == sorted(p["name"] for p in ex["parts"])
+
+
+# ---------------------------------------------------------------- the wheelbarrow's shape
+def test_the_wheelbarrow_has_a_sloped_tray_and_handles_that_rise():
+    v = example("wheelbarrow")
+    ex = VS.expand_vehicle(v, None, None, None)
+    assert ex["ok"] and all(c["status"] == "pass" for c in ex["checks"])
+    parts = {p["name"]: p for p in ex["parts"]}
+    assert parts["tray"]["part_type"] == "tapered_tray"
+    p = parts["tray"]["parameters"]
+    assert p["bottom_length_mm"] < p["length_mm"] and p["bottom_width_mm"] < p["width_mm"]
+    rail, handle = parts["rail_l"], parts["handle_l"]
+    assert max(e[2] for e in _tube_ends(handle)) > max(e[2] for e in _tube_ends(rail))   # the grips are higher than the rails
+    assert abs(handle["rotation"][1]) not in (0, 90)                     # and the handle is angled, not level
+    assert abs(parts["tray"]["position"][2] - (rail["position"][2] + 12.5)) < 1   # the tray stands on the rails
+
+
+def test_a_tapered_tray_with_a_floor_bigger_than_its_opening_is_rejected():
+    import validator
+    bad = validator.validate_tapered_tray({"length_mm": 400, "width_mm": 300, "bottom_length_mm": 500, "bottom_width_mm": 200,
+                                           "height_mm": 100, "wall_thickness_mm": 2})
+    assert bad.errors
+    ok = validator.validate_tapered_tray({})
+    assert not ok.errors
+
+
+# ---------------------------------------------------------------- tubes that slant in plan view
+def _tube_ends(part):
+    """Where a tube's two ends land. The tube and shaft templates extrude along local +Z from the origin, so the
+    position is one end and the rotated +Z axis times the length gives the other."""
+    import mating
+    t = mating.transform_from_pose(tuple(part["position"]), tuple(part["rotation"]))
+    length = part["parameters"]["length_mm"]
+    return [list(part["position"]), [t.R[i][2] * length + part["position"][i] for i in range(3)]]
+
+
+def _same(a, b, tol=1e-3):
+    return all(abs(x - y) < tol for x, y in zip(a, b))
+
+
+def test_between_accepts_any_direction_and_mirrors_it():
+    spec = {"name": "t", "params": {}, "components": [
+        {"id": "rail", "type": "tube", "assembly": "a", "mirror": "y",
+         "between": [[100, 20, 50], [-300, 200, 80]],
+         "parameters": {"outer_diameter_mm": 25, "wall_thickness_mm": 2}}]}
+    ex = VS.expand_vehicle(spec, None, None, None)
+    assert ex["ok"], ex["errors"]
+    parts = {p["name"]: p for p in ex["parts"]}
+    left = sorted(_tube_ends(parts["rail_l"]), key=lambda e: -e[0])
+    right = sorted(_tube_ends(parts["rail_r"]), key=lambda e: -e[0])
+    assert _same(left[0], [100, 20, 50]) and _same(left[1], [-300, 200, 80])
+    assert _same(right[0], [100, -20, 50]) and _same(right[1], [-300, -200, 80])
+
+
+def test_the_wheelbarrow_rails_close_in_and_meet_the_forks():
+    v = example("wheelbarrow")
+    ex = VS.expand_vehicle(v, None, None, None)
+    assert ex["ok"] and all(c["status"] == "pass" for c in ex["checks"])
+    parts = {p["name"]: p for p in ex["parts"]}
+    fork_y = parts["fork_l"]["position"][1]
+    for side, sign in (("l", 1), ("r", -1)):
+        front, rear = sorted(_tube_ends(parts["rail_" + side]), key=lambda e: -e[0])
+        assert abs(front[1] - sign * fork_y) < 1e-3 and abs(front[0] - parts["fork_" + side]["position"][0]) < 1e-3
+        assert abs(rear[1]) > abs(front[1]) + 50                    # the rails are wider at the back than at the fork
+        grip = sorted(_tube_ends(parts["handle_" + side]), key=lambda e: e[0])[0]
+        assert abs(grip[1]) > abs(rear[1]) and grip[2] > rear[2]    # the handles flare out and rise
+        assert _same(sorted(_tube_ends(parts["handle_" + side]), key=lambda e: -e[0])[0], rear)   # and join the rails
+
+
+# ---------------------------------------------------------------- the piston engine modules
+def _engine(n, crank_deg=0):
+    name = {1: "mini_engine_single_cylinder", 2: "mini_engine_inline_two", 4: "mini_engine_inline_four"}[n]
+    v = example(name)
+    v["params"]["crank_deg"]["default"] = crank_deg
+    ex = VS.expand_vehicle(v, None, None, None)
+    assert ex["ok"], ex["errors"]
+    return v, ex, {p["name"]: p for p in ex["parts"]}
+
+
+def _point(part, local):
+    """A point given in a part's own coordinates, placed in the engine's coordinates."""
+    import mating
+    t = mating.transform_from_pose(tuple(part["position"]), tuple(part["rotation"]))
+    return [sum(t.R[i][j] * local[j] for j in range(3)) + part["position"][i] for i in range(3)]
+
+
+def test_every_rod_joins_its_crank_pin_to_its_piston_pin_at_every_crank_angle():
+    import math
+    for n, phases in ((1, [0]), (2, [0, 180]), (4, [0, 180, 180, 0])):
+        for deg in (0, 37, 90, 145, 180, 250, 311):
+            v, ex, parts = _engine(n, deg)
+            crank = parts["engine_crank"]["parameters"]
+            r, web, rodj, main = crank["stroke_mm"] / 2, crank["web_thickness_mm"], crank["rod_journal_length_mm"], crank["main_journal_length_mm"]
+            pitch = 2 * web + rodj + main
+            for k, ph in enumerate(phases, start=1):
+                rod = parts[f"engine_rod_{k}"]
+                length = rod["parameters"]["center_distance_mm"]
+                a = math.radians(ph + deg)
+                # the crank turned by [0, 90, 0]: a journal at angle a is at (x, y, z) = (along the shaft, r sin a, -r cos a)
+                journal = [main + (k - 1) * pitch + web + rodj / 2, r * math.sin(a), -r * math.cos(a)]
+                big = _point(rod, [length, 0, rod["parameters"]["thickness_mm"] / 2])
+                small = _point(rod, [0, 0, rod["parameters"]["thickness_mm"] / 2])
+                assert all(abs(big[i] - journal[i]) < 1e-3 for i in range(3)), (n, deg, k, big, journal)
+                pin = parts[f"engine_pin_{k}"]
+                pin_centre = _point(pin, [0, 0, pin["parameters"]["length_mm"] / 2])
+                assert all(abs(small[i] - pin_centre[i]) < 1e-3 for i in range(3)), (n, deg, k, small, pin_centre)
+                assert abs(pin_centre[1]) < 1e-9                                  # the pin stays on the cylinder axis
+
+
+def test_pistons_stay_inside_their_liners_and_a_four_has_its_cylinders_apart():
+    for deg in (0, 90, 180, 270):
+        v, ex, parts = _engine(4, deg)
+        assert all(c["status"] == "pass" for c in ex["checks"])
+        for k in range(1, 5):
+            liner, piston = parts[f"engine_liner_{k}"], parts[f"engine_piston_{k}"]
+            lo, hi = liner["position"][2], liner["position"][2] + liner["parameters"]["length_mm"]
+            assert lo <= piston["position"][2] and piston["position"][2] + piston["parameters"]["length_mm"] <= hi
+        xs = [parts[f"engine_liner_{k}"]["position"][0] for k in range(1, 5)]
+        assert all(b - a >= parts["engine_liner_1"]["parameters"]["outer_diameter_mm"] for a, b in zip(xs, xs[1:]))
+
+
+def test_an_engine_request_without_an_ai_gets_the_matching_engine_in_three_steps():
+    VC.set_library(lib())
+    try:
+        history, plan = _talk("I want to build a four cylinder inline engine",
+                              ["What size should it be? Small, bore about 30 mm",
+                               "What is it made of? Steel and aluminium"])
+        assert plan.intent == "build", plan.reply
+        assert plan.spec["parameters"]["vehicle"]["name"] == "mini_engine_inline_four"
+        assert plan.spec["parameters"]["stage"] == {"shown": 1, "of": 3} and len(plan.spec["parameters"]["parts"]) == 2
+        again = VC.plan_vehicle_turn("next", plan.spec, llm=None, library=lib())
+        assert again.spec["parameters"]["stage"] == {"shown": 2, "of": 3} and len(again.spec["parameters"]["parts"]) == 14
+        done = VC.plan_vehicle_turn("finish", again.spec, llm=None, library=lib())
+        assert len(done.spec["parameters"]["parts"]) == 19 and "stage" not in done.spec["parameters"]
     finally:
         VC.set_library(None)

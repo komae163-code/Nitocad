@@ -75,19 +75,36 @@ def _lib():
 def test_a_vehicle_message_builds_a_free_preview_that_keeps_its_vehicle():
     chat = setup()
     w = Wallet()
-    out = svc.run_turn(w.deps(), U, chat, "I want to create a wheelbarrow")
+    out = svc.run_turn(w.deps(), U, chat, "I want to create a wheelbarrow, 90 litre steel tray, one wheel")
     assert out["charged"] == 0 and w.credits == 5
     part = out["part"]
-    assert part["part_type"] == "assembly" and len(part["spec"]["parameters"]["parts"]) == 13
+    assert part["part_type"] == "assembly" and len(part["spec"]["parameters"]["parts"]) == 15
     assert part["spec"]["parameters"]["vehicle"]["name"] == "wheelbarrow"
     assert "Here is the plan for your wheelbarrow" in out["assistant_message"]["content"]
+    VC.set_library(None)
+
+
+def test_a_bare_request_is_asked_about_first_and_builds_nothing():
+    chat = setup()
+    w = Wallet()
+    out = svc.run_turn(w.deps(), U, chat, "Hey let's build a wheelbarrow")
+    assert out["charged"] == 0 and w.credits == 5 and out["part"] is None and out["intent"] == "answer"
+    msg = out["assistant_message"]
+    assert msg["content"].startswith("Before I build") and msg["meta"]["choices"][0]["question"] == "What size should it be?"
+    for ans in ("What size should it be? Garden, about 90 litre", "What is it made of? Steel tray and steel tube frame",
+                "How many wheels? One wheel"):
+        out = svc.run_turn(w.deps(), U, chat, ans)
+    assert out["part"] is not None and len(out["part"]["spec"]["parameters"]["parts"]) == 5
+    assert out["part"]["spec"]["parameters"]["stage"] == {"shown": 1, "of": 3} and out["charged"] == 0
+    out = svc.run_turn(w.deps(), U, chat, "Next step")
+    assert len(out["part"]["spec"]["parameters"]["parts"]) == 9 and out["part"]["version"] == 2
     VC.set_library(None)
 
 
 def test_chatting_edits_the_plan_for_free_and_makes_version_two():
     chat = setup()
     w = Wallet()
-    svc.run_turn(w.deps(), U, chat, "I want to create a wheelbarrow")
+    svc.run_turn(w.deps(), U, chat, "I want to create a wheelbarrow, 90 litre steel tray, one wheel")
     out = svc.run_turn(w.deps(), U, chat, "make the wheel diameter 450 mm")
     assert out["charged"] == 0 and w.credits == 5
     assert out["part"]["version"] == 2 and out["intent"] == "edit"
@@ -101,7 +118,7 @@ def test_chatting_edits_the_plan_for_free_and_makes_version_two():
 def test_only_generate_spends_credits_and_only_once():
     chat = setup()
     w = Wallet(credits=5, cost=3)
-    out = svc.run_turn(w.deps(), U, chat, "I want to create a wheelbarrow")
+    out = svc.run_turn(w.deps(), U, chat, "I want to create a wheelbarrow, 90 litre steel tray, one wheel")
     r1 = svc.unlock_part(w.deps(), U, chat, out["part"]["id"])
     r2 = svc.unlock_part(w.deps(), U, chat, out["part"]["id"])
     assert r1["charged"] == 3 and r2["charged"] == 0 and w.credits == 2
@@ -111,7 +128,7 @@ def test_only_generate_spends_credits_and_only_once():
 def test_a_failed_file_build_refunds_the_generate_charge():
     chat = setup()
     w = Wallet(credits=5, cost=3, build_error=RuntimeError("kernel down"))
-    out = svc.run_turn(w.deps(), U, chat, "I want to create a wheelbarrow")
+    out = svc.run_turn(w.deps(), U, chat, "I want to create a wheelbarrow, 90 litre steel tray, one wheel")
     try:
         svc.unlock_part(w.deps(), U, chat, out["part"]["id"])
         raise AssertionError("should have failed")
@@ -125,6 +142,6 @@ def test_an_ai_vehicle_plan_counts_one_ai_message_and_costs_no_credits():
     chat = setup()
     w = Wallet()
     ex = json.loads((ROOT / "vehicles" / "examples" / "wheelbarrow.json").read_text())
-    out = svc.run_turn(w.deps(llm=lambda messages: json.dumps(ex)), U, chat, "I want to create a wheelbarrow")
+    out = svc.run_turn(w.deps(llm=lambda messages: json.dumps(ex)), U, chat, "I want to create a wheelbarrow, 90 litre steel tray, one wheel")
     assert out["plan_source"] == "llm" and w.ai_used == 1 and out["charged"] == 0 and w.credits == 5
     VC.set_library(None)

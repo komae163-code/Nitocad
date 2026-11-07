@@ -1,6 +1,6 @@
 {
  "name": "wheelbarrow",
- "notes": "Concept layout. The tray is a plain box (NitoCAD has no shells or fillets), so it has sharp corners.",
+ "notes": "Concept layout. The tray is a sloped tub, smaller at the bottom than the top. The rails close in toward the front and meet the fork tubes above the wheel, then the handles flare out to the grips and rise toward them. Not load-rated.",
  "params": {
   "tray_len": {
    "default": 800,
@@ -48,7 +48,7 @@
    "max": 1000
   },
   "rail_gap": {
-   "default": 520,
+   "default": 440,
    "min": 250,
    "max": 900
   },
@@ -61,6 +61,26 @@
    "default": 700,
    "min": 300,
    "max": 2000
+  },
+  "tray_base_len": {
+   "default": 560,
+   "min": 200,
+   "max": 1400
+  },
+  "tray_base_w": {
+   "default": 460,
+   "min": 200,
+   "max": 950
+  },
+  "handle_rise": {
+   "default": 300,
+   "min": 0,
+   "max": 600
+  },
+  "grip_gap": {
+   "default": 620,
+   "min": 400,
+   "max": 900
   }
  },
  "derived": {
@@ -70,12 +90,14 @@
   "hy": "=rail_gap/2",
   "wheel_x": "=tray_len/2 - wheel_dia/2 - 20",
   "fork_y": "=tyre_w/2 + 14",
-  "axle_len": "=2*(tyre_w/2 + 14) + 2*tube_od"
+  "axle_len": "=2*(tyre_w/2 + 14) + 2*tube_od",
+  "rail_slope": "=(hy - fork_y)/max(wheel_x + tray_len/2, 100)",
+  "cross_front_x": "=wheel_x - wheel_r - 40"
  },
  "components": [
   {
    "id": "tray",
-   "type": "simple_box",
+   "type": "tapered_tray",
    "assembly": "tray",
    "fixed": true,
    "material": "steel",
@@ -83,9 +105,9 @@
     "length_mm": "=tray_len",
     "width_mm": "=tray_w",
     "height_mm": "=tray_h",
-    "wall_thickness_mm": "=tray_wall",
-    "hollow": true,
-    "has_lid": false
+    "bottom_length_mm": "=tray_base_len",
+    "bottom_width_mm": "=tray_base_w",
+    "wall_thickness_mm": "=tray_wall"
    },
    "position": [
     0,
@@ -100,14 +122,38 @@
    "material": "steel",
    "between": [
     [
-     "=tray_len/2",
+     "=wheel_x",
+     "=fork_y",
+     "=rail_z"
+    ],
+    [
+     "=-tray_len/2",
+     "=hy",
+     "=rail_z"
+    ]
+   ],
+   "parameters": {
+    "outer_diameter_mm": "=tube_od",
+    "wall_thickness_mm": "=tube_wall"
+   },
+   "mirror": "y",
+   "fixed": true
+  },
+  {
+   "id": "handle",
+   "type": "tube",
+   "assembly": "frame",
+   "material": "steel",
+   "between": [
+    [
+     "=-tray_len/2",
      "=hy",
      "=rail_z"
     ],
     [
      "=-tray_len/2 - handle_len",
-     "=hy",
-     "=rail_z"
+     "=grip_gap/2",
+     "=rail_z + handle_rise"
     ]
    ],
    "parameters": {
@@ -125,12 +171,12 @@
    "between": [
     [
      "=-tray_len/2 + leg_inset",
-     "=hy",
+     "=hy - rail_slope*leg_inset",
      0
     ],
     [
      "=-tray_len/2 + leg_inset",
-     "=hy",
+     "=hy - rail_slope*leg_inset",
      "=rail_z - tube_od/2"
     ]
    ],
@@ -147,13 +193,13 @@
    "material": "steel",
    "between": [
     [
-     "=tray_len/2 - 60",
-     "=-hy",
+     "=cross_front_x",
+     "=-(fork_y + rail_slope*(wheel_x - cross_front_x))",
      "=rail_z - tube_od"
     ],
     [
-     "=tray_len/2 - 60",
-     "=hy",
+     "=cross_front_x",
+     "=fork_y + rail_slope*(wheel_x - cross_front_x)",
      "=rail_z - tube_od"
     ]
    ],
@@ -170,12 +216,12 @@
    "between": [
     [
      "=-tray_len/2 + 60",
-     "=-hy",
+     "=-(hy - rail_slope*60)",
      "=rail_z - tube_od"
     ],
     [
      "=-tray_len/2 + 60",
-     "=hy",
+     "=hy - rail_slope*60",
      "=rail_z - tube_od"
     ]
    ],
@@ -229,7 +275,7 @@
  "checks": [
   {
    "name": "fits_through_door",
-   "expr": "=max(tray_w, rail_gap + tube_od) <= max_width",
+   "expr": "=max(tray_w, grip_gap + tube_od) <= max_width",
    "message": "wider than max_width"
   },
   {
@@ -251,6 +297,46 @@
    "name": "handles_long_enough",
    "expr": "=handle_len >= 400",
    "message": "handles shorter than 400 mm are hard to push"
+  },
+  {
+   "name": "tray_tapers",
+   "expr": "=tray_base_len <= tray_len and tray_base_w <= tray_w",
+   "message": "the tray floor is larger than its opening"
+  },
+  {
+   "name": "rails_under_tray_floor",
+   "expr": "=rail_gap/2 <= tray_base_w/2",
+   "message": "the rails sit outside the tray floor, so the tray would not rest on them"
+  },
+  {
+   "name": "grips_at_a_usable_height",
+   "expr": "=rail_z + handle_rise >= 600",
+   "message": "grips lower than 600 mm are hard on the back"
+  },
+  {
+   "name": "legs_under_tray",
+   "expr": "=leg_inset < tray_len - 100",
+   "message": "the legs would stand behind the tray, past the straight rails"
+  },
+  {
+   "name": "rails_close_in",
+   "expr": "=hy > fork_y + tube_od",
+   "message": "the rails are not wider at the back than at the fork"
+  },
+  {
+   "name": "rails_run_front_to_back",
+   "expr": "=wheel_x > -tray_len/2 + 200",
+   "message": "the wheel is too far back for the rails to run to it"
+  },
+  {
+   "name": "cross_clear_of_wheel",
+   "expr": "=cross_front_x > -tray_len/2 + 120",
+   "message": "no room for the front crossbar behind the wheel"
+  },
+  {
+   "name": "grips_wider_than_rails",
+   "expr": "=grip_gap/2 >= hy",
+   "message": "the grips are narrower than the rails at the back"
   }
  ],
  "explode": {
@@ -277,5 +363,5 @@
    ]
   }
  },
- "dev_notes": "Tube origin/axis assumptions of 'between' and every orientation are UNVERIFIED on real CadQuery. Not load-rated."
+ "dev_notes": "Tubes are placed from their start point (the template extrudes from z=0). That and the slanted orientations are read from the source and not yet confirmed on real CadQuery. Not load-rated."
 }

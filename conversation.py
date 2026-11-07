@@ -34,7 +34,7 @@ import assembly_gate
 import assembly_relations
 import import_ops
 
-INTENTS = ("build", "edit", "answer")
+INTENTS = ("build", "edit", "answer", "custom")
 MAX_REPLY_CHARS = 700
 # Part types a chat spec cannot name directly. "assembly" is allowed: its parameters carry a
 # parts list (see _clean_assembly_params).
@@ -61,6 +61,9 @@ class Plan:
     source: str = "rules"            # llm | rules
     changes: list[str] = field(default_factory=list)
     choices: list[dict] = field(default_factory=list)  # [{"question": str, "options": [str, ...]}]
+    no_match: bool = False           # a request for a new part that no catalogue part_type can make
+    stage_request: bool = False      # the person answered the questions: show this build in steps (build_steps.py)
+    stage_move: bool = False         # this plan is a "next" or "finish" on a build in steps
 
 
 # ------------------------------------------------------------------ prompt ---
@@ -69,7 +72,7 @@ _INSTRUCTIONS = """You are NitoCAD's design assistant inside a chat. The person 
 
 Reply with ONLY a JSON object, no markdown fences:
 {
-  "intent": "build" | "edit" | "answer",
+  "intent": "build" | "edit" | "answer" | "custom",
   "reply": "one or two short plain sentences to the person",
   "spec": { "part_type": "...", "parameters": { ... }, "material": "..." or null, "operations": [] } or null,
   "choices": [ { "question": "short question", "options": ["short option", "short option"] } ]
@@ -79,6 +82,7 @@ Rules:
 - "build": they want a NEW part. Return a complete spec.
 - "edit": they want to change the CURRENT part. Start from the current spec and return the COMPLETE updated spec. Change only what they asked. Every other value stays exactly as it was. "Thicker" with no number means about 20 percent more. Keep the same part_type unless they clearly ask for a different part.
 - "answer": a question, a greeting, a request for design advice, or a request that is too vague to act on safely. Set spec to null. When they ask for guidance (which material, what tolerance, how thick, which part suits their job), give short practical advice in plain words and say what you would pick. When something essential is missing, ask instead of guessing. Never invent a dimension they gave no hint of when it would change the part a lot.
+- "custom": they want a NEW part, but no part_type in the catalogue can make its shape (a sculpted or freeform shape, an unusual mechanism, a decorative form). Set spec to null and reply with one sentence saying you will write it as code. Use "build" whenever a catalogue part fits, even roughly. Never use "custom" for questions, advice or edits.
 - Answer any normal question the person asks, about design, materials, tolerances, manufacturing, how NitoCAD works, or anything else you can help with, in the same plain words. Answering is free, so never ask them to build or generate something just to get an answer. If a question has nothing to do with engineering, answer it briefly and invite them back to their part. Do not quote prices or credit costs, the screen shows them.
 - "choices": only with "answer", otherwise []. Use it when the person is better served by tapping than typing. Up to 3 questions, each with 2 to 5 short options (a few words each). Put the question itself in "question" and keep "reply" to one sentence that introduces them. Do not repeat the questions inside "reply".
 - Use only parameter names from the catalogue below for the chosen part_type. Dimensions are millimetres. Leave out a parameter the person did not mention so the template default applies.
@@ -345,6 +349,9 @@ def coerce_plan(raw: dict, current_spec: dict | None) -> Plan:
     if intent not in INTENTS:
         raise ValueError(f"bad intent {intent!r}")
     reply = " ".join(str(raw.get("reply") or "").split())[:MAX_REPLY_CHARS]
+    if intent == "custom":
+        return Plan("answer", reply or "That shape is outside my catalogue, so I will write it as code.", None, "llm",
+                    no_match=True)
     if intent == "answer":
         if not reply:
             raise ValueError("answer without a reply")
@@ -662,7 +669,7 @@ def rules_plan(text: str, current_spec: dict | None, regex_parse: Callable[[str]
         return Plan("answer", "I did not catch which value to change. Tell me the dimension and the new size, "
                     "for example \"make the thickness 5 mm\" or \"add 2 more holes\".", None, "rules")
     return Plan("answer", "I could not tell which part you want yet. Name the part and its main sizes, "
-                "for example \"L-bracket 50 mm wide, 60 mm tall, 3 mm thick, 4 holes\".", None, "rules")
+                "for example \"L-bracket 50 mm wide, 60 mm tall, 3 mm thick, 4 holes\".", None, "rules", no_match=True)
 
 
 # --------------------------------------------------------------- circuit boards ---
@@ -754,12 +761,23 @@ def _pcb_turn(last_user: str, current_spec: dict | None, llm: "LLM | None") -> "
 
 # ------------------------------------------------------------------- vehicles ---
 
-def _vehicle_turn(last_user: str, current_spec: dict | None, llm: "LLM | None") -> "Plan | None":
+def _vehicle_turn(last_user: str, current_spec: dict | None, llm: "LLM | None",
+                  history: list[dict] | None = None) -> "Plan | None":
     """A whole vehicle or machine (wheelbarrow, bicycle, ...) or an edit to the one on the bench. None means this
-    message is not about a vehicle and the normal planner handles it. See vehicle_chat.py."""
+    message is not about a vehicle and the normal planner handles it. See vehicle_chat.py.
+
+    "I want to build a wheelbarrow" with few details starts a short conversation (one tappable question at a time,
+    free) and the vehicle is then built in steps. A request that already has its sizes, material and counts is built
+    whole, as before."""
     import vehicle_chat
 
-    return vehicle_chat.plan_vehicle_turn(last_user, current_spec, llm=llm)
+    staged = False
+    scoped = vehicle_chat.scope_turn(history, current_spec) if history else None
+    if scoped is not None:
+        if scoped[0] == "ask":
+            return scoped[1]
+        _, last_user, staged = scoped
+    return vehicle_chat.plan_vehicle_turn(last_user, current_spec, llm=llm, staged=staged)
 
 
 # -------------------------------------------------------------------- entry ---
@@ -823,13 +841,39 @@ def plan_turn(
     """Decide what the newest user message means. Never raises: any failure of the model
     drops to the rules planner. `facts` is facts_digest(...) of the current version. The model
     sees it; the rules planner does not need it."""
+    # A build in steps keeps its finished design inside the spec. Changes are planned against that design and the
+    # step that is showing is cut again afterwards (build_steps.py).
+    cur = _finished_design(current_spec)
     plan = _plan_core(history, current_spec, llm=llm, regex_parse=regex_parse, catalogue=catalogue,
                       attempts=attempts, facts=facts)
-    if plan.source == "llm":
-        return plan                       # relations and the gate already ran inside the retry loop
-    plan = _carry_through(plan, current_spec)
-    report = _gate_report(plan)
-    return _rejected_plan(plan, report) if report.errors else _note_warnings(plan, report)
+    if plan.stage_move:
+        return plan                       # "next" and "finish" are views of a design that already passed its checks
+    if plan.source != "llm":              # for the AI, relations and the gate already ran inside the retry loop
+        plan = _carry_through(plan, cur)
+        report = _gate_report(plan)
+        plan = _rejected_plan(plan, report) if report.errors else _note_warnings(plan, report)
+    return _stage_turn(plan, current_spec)
+
+
+def _finished_design(current_spec: dict | None) -> dict | None:
+    try:
+        import build_steps
+
+        return build_steps.target_of(current_spec)
+    except Exception:  # noqa: BLE001
+        return current_spec
+
+
+def _stage_turn(plan: Plan, current_spec: dict | None) -> Plan:
+    """Show a new build in steps when the person answered the questions, and keep a build in steps in step."""
+    try:
+        import build_steps
+
+        if plan.stage_request and plan.intent == "build" and plan.spec:
+            return build_steps.start(plan)
+        return build_steps.restage(plan, current_spec)
+    except Exception:  # noqa: BLE001 - a steps problem must never break the chat
+        return plan
 
 
 def _plan_core(
@@ -844,11 +888,51 @@ def _plan_core(
 ) -> Plan:
     last_user = next((m["content"] for m in reversed(history) if m.get("role") == "user"), "")
     try:
-        vehicle_plan = _vehicle_turn(last_user, current_spec, llm)
+        import build_steps
+
+        stepped = build_steps.advance_turn(last_user, current_spec)      # "next" / "finish" on a build in steps
+    except Exception:  # noqa: BLE001
+        stepped = None
+    if stepped is not None:
+        return stepped
+    staged_out: list[bool] = []
+    plan = _plan_body(history, _finished_design(current_spec), llm=llm, regex_parse=regex_parse, catalogue=catalogue,
+                      attempts=attempts, facts=facts, staged_out=staged_out)
+    plan.stage_request = bool(staged_out)
+    return plan
+
+
+def _plan_body(
+    history: list[dict],
+    current_spec: dict | None,
+    *,
+    llm: LLM | None,
+    regex_parse: Callable[[str], Any] | None,
+    catalogue: str | None,
+    attempts: int,
+    facts: dict | None,
+    staged_out: list[bool],
+) -> Plan:
+    last_user = next((m["content"] for m in reversed(history) if m.get("role") == "user"), "")
+    try:
+        vehicle_plan = _vehicle_turn(last_user, current_spec, llm, history)
     except Exception:  # noqa: BLE001 - a vehicle problem must never break the chat; fall through
         vehicle_plan = None
     if vehicle_plan is not None:
         return vehicle_plan
+    # Everything else the chat builds gets the same questions-first conversation the vehicles have (build_scope.py).
+    try:
+        import build_scope
+
+        scoped = build_scope.scope_turn(history, current_spec, has_ai=llm is not None)
+    except Exception:  # noqa: BLE001 - a scoping problem must never break the chat; build as before
+        scoped = None
+    if scoped is not None:
+        if scoped[0] == "ask":
+            return scoped[1]
+        _, last_user, history, staged = scoped    # the question chat folded into one plain request
+        if staged:
+            staged_out.append(True)
     try:
         pcb_plan = _pcb_turn(last_user, current_spec, llm)
     except Exception:  # noqa: BLE001 - a board problem must never break the chat; fall through

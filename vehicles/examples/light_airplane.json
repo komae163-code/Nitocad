@@ -1,0 +1,284 @@
+{
+ "name": "light_airplane",
+ "notes": "Concept layout of a small propeller airplane (aeroplane, plane, aircraft, light aircraft) in the outer-mold-line style of the aerospace templates: nose at x = 0, tail toward +X, +Y right wing, +Z up, ground at z = ground_z. Fuselage, a straight high wing, horizontal tail, fin, a flat two-blade propeller with a spinner and tricycle landing gear. The wing root passes through the fuselage on purpose. No engine, cockpit, control surfaces or internal structure. Not an airworthy design: aircraft need real aerodynamic and structural engineering.",
+ "params": {
+  "fus_len": {
+   "default": 8200,
+   "min": 2000,
+   "max": 60000
+  },
+  "fus_d": {
+   "default": 1250,
+   "min": 400,
+   "max": 8000
+  },
+  "wing_semi_span": {
+   "default": 5600,
+   "min": 500,
+   "max": 40000
+  },
+  "wing_root": {
+   "default": 1700,
+   "min": 200,
+   "max": 8000
+  },
+  "wing_tip": {
+   "default": 1100,
+   "min": 150,
+   "max": 6000
+  },
+  "wing_x": {
+   "default": 2300,
+   "min": 300,
+   "max": 30000
+  },
+  "tail_semi_span": {
+   "default": 1700,
+   "min": 200,
+   "max": 10000
+  },
+  "fin_height": {
+   "default": 1600,
+   "min": 200,
+   "max": 8000
+  },
+  "prop_dia": {
+   "default": 1800,
+   "min": 300,
+   "max": 5000
+  },
+  "main_tyre": {
+   "default": 380,
+   "min": 100,
+   "max": 1200
+  },
+  "nose_tyre": {
+   "default": 320,
+   "min": 80,
+   "max": 1000
+  },
+  "belly_clear": {
+   "default": 420,
+   "min": 100,
+   "max": 1500
+  }
+ },
+ "derived": {
+  "fus_r": "=fus_d/2",
+  "wing_z": "=fus_r*0.9",
+  "ground_z": "=-(fus_r + belly_clear)",
+  "main_top": "=wing_z - 80",
+  "main_len": "=main_top - (ground_z + main_tyre/2)",
+  "nose_top": "=-fus_r*0.6",
+  "nose_len": "=nose_top - (ground_z + nose_tyre/2)",
+  "main_x": "=wing_x + 600",
+  "main_y": "=wing_semi_span*0.22",
+  "tail_x": "=fus_len - 1500",
+  "fin_x": "=fus_len - 1700"
+ },
+ "components": [
+  {
+   "id": "fuselage",
+   "type": "fuselage",
+   "assembly": "airframe",
+   "fixed": true,
+   "material": "aluminium",
+   "parameters": {
+    "length_mm": "=fus_len",
+    "diameter_mm": "=fus_d",
+    "nose_ratio": 0.1,
+    "tail_ratio": 0.38,
+    "tail_end_diameter_mm": 150
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "wing",
+   "type": "airfoil_wing",
+   "assembly": "airframe",
+   "material": "aluminium",
+   "parameters": {
+    "naca": "2412",
+    "root_chord_mm": "=wing_root",
+    "tip_chord_mm": "=wing_tip",
+    "span_mm": "=wing_semi_span",
+    "sweep_deg": 0,
+    "both_halves": true
+   },
+   "position": [
+    "=wing_x",
+    0,
+    "=wing_z"
+   ]
+  },
+  {
+   "id": "h_tail",
+   "type": "tail_surface",
+   "assembly": "airframe",
+   "material": "aluminium",
+   "parameters": {
+    "orientation": "horizontal",
+    "naca": "0012",
+    "root_chord_mm": 1300,
+    "tip_chord_mm": 800,
+    "span_mm": "=tail_semi_span",
+    "sweep_deg": 8,
+    "both_halves": true
+   },
+   "position": [
+    "=tail_x",
+    0,
+    60
+   ]
+  },
+  {
+   "id": "fin",
+   "type": "tail_surface",
+   "assembly": "airframe",
+   "material": "aluminium",
+   "parameters": {
+    "orientation": "vertical",
+    "naca": "0012",
+    "root_chord_mm": 1500,
+    "tip_chord_mm": 800,
+    "span_mm": "=fin_height",
+    "sweep_deg": 30
+   },
+   "position": [
+    "=fin_x",
+    0,
+    40
+   ]
+  },
+  {
+   "id": "prop",
+   "type": "feature_tree",
+   "assembly": "propulsion",
+   "material": "aluminium",
+   "parameters": {
+    "features": [
+     {
+      "id": "blades",
+      "op": "extrude",
+      "plane": "YZ",
+      "distance": 25,
+      "profile": {
+       "type": "rect",
+       "width": "=prop_dia",
+       "height": 120
+      }
+     }
+    ]
+   },
+   "position": [
+    -110,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "spinner",
+   "type": "sphere",
+   "assembly": "propulsion",
+   "material": "aluminium",
+   "parameters": {
+    "diameter_mm": 240
+   },
+   "position": [
+    -35,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "gear_nose",
+   "module": "landing_gear",
+   "assembly": "gear",
+   "params": {
+    "strut_len": "=nose_len",
+    "strut_od": 36,
+    "tyre_dia": "=nose_tyre",
+    "tyre_w": 110,
+    "rim_dia": "=nose_tyre*0.55",
+    "axle_dia": 22
+   },
+   "position": [
+    900,
+    0,
+    "=nose_top"
+   ]
+  },
+  {
+   "id": "gear_main_r",
+   "module": "landing_gear",
+   "assembly": "gear",
+   "params": {
+    "strut_len": "=main_len",
+    "strut_od": 45,
+    "tyre_dia": "=main_tyre",
+    "tyre_w": 130,
+    "rim_dia": "=main_tyre*0.55",
+    "axle_dia": 26
+   },
+   "position": [
+    "=main_x",
+    "=main_y",
+    "=main_top"
+   ]
+  },
+  {
+   "id": "gear_main_l",
+   "module": "landing_gear",
+   "assembly": "gear",
+   "params": {
+    "strut_len": "=main_len",
+    "strut_od": 45,
+    "tyre_dia": "=main_tyre",
+    "tyre_w": 130,
+    "rim_dia": "=main_tyre*0.55",
+    "axle_dia": 26
+   },
+   "position": [
+    "=main_x",
+    "=-main_y",
+    "=main_top"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "name": "wing_on_fuselage",
+   "expr": "=wing_x + wing_root < fus_len*0.62",
+   "message": "wing trailing edge runs into the tail cone"
+  },
+  {
+   "name": "wing_taper",
+   "expr": "=wing_tip < wing_root",
+   "message": "tip chord should be smaller than the root chord"
+  },
+  {
+   "name": "tail_behind_wing",
+   "expr": "=tail_x > wing_x + wing_root",
+   "message": "tail plane overlaps the wing"
+  },
+  {
+   "name": "prop_clears_ground",
+   "expr": "=prop_dia/2 < fus_r + belly_clear - 100",
+   "message": "propeller would hit the ground"
+  },
+  {
+   "name": "main_gear_under_wing",
+   "expr": "=main_y < wing_semi_span*0.5 and main_y > fus_r",
+   "message": "main gear is not under the wing outside the fuselage"
+  },
+  {
+   "name": "gear_struts_positive",
+   "expr": "=main_len > 100 and nose_len > 100",
+   "message": "gear struts would have no length"
+  }
+ ]
+}

@@ -34,9 +34,11 @@ Rules
     has its own params/derived/components/checks and cannot see the vehicle's names (it is reusable). Its parts are
     named <id>_<component>. Modules are translated only (no rotation), cannot repeat or nest; list instances instead.
   * `between`: [[x1,y1,z1],[x2,y2,z2]] on a linear part (tube, shaft) sets position, rotation and length_mm from the two
-    end points, so frames are drawn by their joints. Only tubes in the X-Z plane or along Y are supported. Assumes the
-    part's axis is local Z and (origin "center", default) its origin is mid-length; use "origin": "base" if the origin
-    is at the start. THESE TWO ASSUMPTIONS ARE NOT VERIFIED against the real templates; check them on CadQuery.
+    end points, so frames are drawn by their joints. Any direction works, including rails that close in toward the
+    front when seen from above. With `mirror`, the right-hand tube is the mirror image of the left, not a copy. The part's
+    axis is local +Z and its origin is at the START of the part ("origin": "base", the default), which is how the tube and
+    shaft templates are built (`extrude(length)` from the XY plane). Use "origin": "center" only for a part whose
+    origin is mid-length. Read from the template source; not yet confirmed by building real geometry.
   * Parameters are checked against the part catalog by assembly_planner.validate_spec, so a bad parameter fails here.
   * No part-count cap. A guard on expansion size (MAX_EXPANDED) stops a typo such as n = 1e9 from hanging the server.
   * Nothing here builds geometry or measures it. `checks` are arithmetic on your parameters only.
@@ -142,6 +144,16 @@ def evaluate(expr: str, env: dict[str, float]) -> float | bool:
     return out
 
 
+def _tube_rotation(d: list[float], length: float) -> list[float]:
+    """Euler angles [rx, ry, 0] in degrees that turn a part's local +Z axis onto the direction d, in the assembly's
+    convention (R = Rx * Ry * Rz, as in mating.transform_from_pose). The roll about the axis is free for a tube, so
+    rz = 0. From R*z = (sin ry, -sin rx cos ry, cos rx cos ry)."""
+    ux, uy, uz = (c / length for c in d)
+    ry = math.asin(max(-1.0, min(1.0, ux)))
+    rx = math.atan2(-uy, uz) if math.cos(ry) > 1e-9 else 0.0
+    return [math.degrees(rx), math.degrees(ry), 0.0]
+
+
 def _resolve_value(v: Any, env: dict[str, float]) -> Any:
     """Walk a literal/expression tree: strings starting with '=' are evaluated, containers recurse."""
     if isinstance(v, str) and v.startswith("="):
@@ -175,7 +187,7 @@ def _eval_derived(items: Any, env: dict[str, float], errors: list[str], prefix: 
                 del pending[k]
                 progressed = True
             except SpecError as e:
-                if str(e).startswith("unknown name"):
+                if "unknown name" in str(e):
                     waiting[k] = str(e)                      # may resolve once another value exists
                 else:
                     errors.append(f"{prefix}derived {k!r}: {e}")
@@ -373,6 +385,7 @@ def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
             except SpecError as e:
                 errors.append(f"{label}: {e}")
                 break
+            flip_r = False                      # a tube slanted in plan view must be mirrored by flipping its direction
             if "between" in comp:
                 if rep or "position" in comp or "rotation" in comp or "mate" in comp or "source" in comp:
                     errors.append(f"{label}: 'between' cannot be combined with repeat, position, rotation, mate or source")
@@ -393,12 +406,12 @@ def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
                 elif abs(d[0]) < 1e-9 and abs(d[2]) < 1e-9:
                     rot = [-90.0 if d[1] > 0 else 90.0, 0.0, 0.0]
                 else:
-                    errors.append(f"{label}: between supports tubes in the X-Z plane or along Y only")
-                    break
-                if comp.get("origin", "center") not in ("center", "base"):
+                    rot = _tube_rotation(d, length)             # any other direction, slanted in plan view as well
+                    flip_r = True
+                if comp.get("origin", "base") not in ("center", "base"):
                     errors.append(f"{label}: origin must be 'center' or 'base'")
                     break
-                pos = [float(c) for c in (a if comp.get("origin") == "base" else [(float(a[k]) + float(b[k])) / 2 for k in range(3)])]
+                pos = [float(c) for c in (a if comp.get("origin", "base") == "base" else [(float(a[k]) + float(b[k])) / 2 for k in range(3)])]
                 params = {**(params if isinstance(params, dict) else {}), "length_mm": round(length, 4)}
             if not (isinstance(step, list) and len(step) == 3 and isinstance(pos, list) and len(pos) == 3
                     and isinstance(rot, list) and len(rot) == 3):
@@ -435,9 +448,10 @@ def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
                     external.append({"name": name, "source": comp["source"], "assembly": asm,
                                      "position": [round(c, 4) for c in p3], "rotation": rot})
                 else:
+                    side_rot = [-rot[0], rot[1], rot[2]] if (flip_r and side_suffix == "_r") else rot
                     parts.append({"name": name, "part_type": comp.get("type"), "parameters": params,
                                   **({"mate": mate} if mate is not None else {"position": [round(c, 4) for c in p3]}),
-                                  "rotation": rot,
+                                  "rotation": side_rot,
                                   **({"material": comp["material"]} if comp.get("material") else {})})
                 assemblies.setdefault(asm, []).append(name)
                 if comp.get("fixed"):

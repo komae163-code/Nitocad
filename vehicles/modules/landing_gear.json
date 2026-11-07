@@ -1,0 +1,139 @@
+{
+ "description": "One landing gear leg: vertical strut, axle and wheel. Origin at the top of the strut; the strut runs down (-Z) and the wheel centre is strut_len below the origin. The axle runs along Y.",
+ "params": {
+  "strut_len": {
+   "default": 600,
+   "min": 50,
+   "max": 3000
+  },
+  "strut_od": {
+   "default": 40,
+   "min": 8,
+   "max": 200
+  },
+  "strut_wall": {
+   "default": 4,
+   "min": 1,
+   "max": 20
+  },
+  "tyre_dia": {
+   "default": 380,
+   "min": 60,
+   "max": 1500
+  },
+  "tyre_w": {
+   "default": 130,
+   "min": 15,
+   "max": 500
+  },
+  "rim_dia": {
+   "default": 200,
+   "min": 30,
+   "max": 1200
+  },
+  "axle_dia": {
+   "default": 26,
+   "min": 6,
+   "max": 100
+  }
+ },
+ "derived": {
+  "tyre_r": "=tyre_dia/2",
+  "rim_r": "=rim_dia/2",
+  "axle_len": "=tyre_w + 60"
+ },
+ "components": [
+  {
+   "id": "strut",
+   "type": "tube",
+   "material": "steel",
+   "parameters": {
+    "outer_diameter_mm": "=strut_od",
+    "wall_thickness_mm": "=strut_wall",
+    "length_mm": "=strut_len"
+   },
+   "position": [
+    0,
+    0,
+    "=-strut_len"
+   ]
+  },
+  {
+   "id": "axle",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": "=axle_dia",
+    "length_mm": "=axle_len"
+   },
+   "position": [
+    0,
+    "=-axle_len/2",
+    "=-strut_len"
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "tyre",
+   "type": "feature_tree",
+   "material": "rubber",
+   "parameters": {
+    "features": [
+     {
+      "id": "ring",
+      "op": "revolve",
+      "plane": "XY",
+      "axis": "y",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=rim_r",
+         0
+        ],
+        [
+         "=tyre_r",
+         0
+        ],
+        [
+         "=tyre_r",
+         "=tyre_w"
+        ],
+        [
+         "=rim_r",
+         "=tyre_w"
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    "=-tyre_w/2",
+    "=-strut_len"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "name": "rim_inside_tyre",
+   "expr": "=rim_dia < tyre_dia",
+   "message": "rim must be smaller than the tyre"
+  },
+  {
+   "name": "axle_inside_rim",
+   "expr": "=axle_dia < rim_dia",
+   "message": "axle is bigger than the rim"
+  },
+  {
+   "name": "strut_wall_ok",
+   "expr": "=strut_wall*2 < strut_od",
+   "message": "strut wall is thicker than the tube"
+  }
+ ]
+}

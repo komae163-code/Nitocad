@@ -401,6 +401,7 @@ async function blobDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 async function fetchStl(part, asBlob) {
+  if (isCodegen(part)) { const buf = await codegenStl(part); return asBlob ? new Blob([buf], { type: "model/stl" }) : buf; }
   const url = `${BASE}/download/job/${part.jobId}/stl`;
   const r = await fetch(url, { headers: Auth.authHeader() });
   if (!r.ok) throw new Error("Could not load the mesh (HTTP " + r.status + ").");
@@ -600,7 +601,7 @@ const ASSIST_AVA = '<div class="ava"><img src="logo-mark.png" alt=""></div>';
 function partCardHtml(c, part, isLatest, isNewest) {
   const vers = versionsOf(c, part), v = vers.findIndex((p) => p.id === part.id) + 1;
   const editable = !!isNewest && part.partType !== "assembly";
-  const chips = part.partType === "assembly" ? assemblyChips(part) : buildingChips(part, !!isNewest) || Object.entries(part.params).slice(0, 4).map(([k, val]) => {
+  const chips = part.partType === "assembly" ? assemblyChips(part) : isCodegen(part) ? codegenChips(part) : buildingChips(part, !!isNewest) || Object.entries(part.params).slice(0, 4).map(([k, val]) => {
     const label = `${esc(k.replace(/_mm$/, "").replace(/_/g, " "))} ${esc(val)}${/_mm$/.test(k) ? " mm" : ""}`;
     return editable && typeof val === "number" ? `<span class="spec-chip editable" role="button" tabindex="0" data-edit-param="${esc(k)}" data-val="${esc(val)}" title="Tap to change">${label}</span>` : `<span class="spec-chip">${label}</span>`;
   }).join("");
@@ -610,7 +611,7 @@ function partCardHtml(c, part, isLatest, isNewest) {
     `<div class="part-meta"><div class="part-title">${esc(part.title)} <span class="ver">v${v}</span>${anchored}</div><div class="part-specs">${chips}</div></div>` +
     `<span class="part-open">Open <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M9 6l6 6-6 6"/></svg></span></button>` +
     `<div class="part-actions">` + (part.paid
-      ? `<button class="chip" data-export="${part.id}">Download files</button><button class="chip" data-part="${part.id}" data-tab="chain">Anchor on-chain</button>`
+      ? `<button class="chip" data-export="${part.id}">Download files</button>${isCodegen(part) ? "" : `<button class="chip" data-part="${part.id}" data-tab="chain">Anchor on-chain</button>`}`
       : `<button class="btn btn-primary btn-sm" data-generate="${part.id}">Generate files</button><span class="preview-tag">Free preview</span>`) + `</div></div>` +
     (isLatest ? followupsHtml(part) : "");
 }
@@ -628,13 +629,20 @@ function buildingChips(part, live) {
   return out.filter(Boolean).join("");
 }
 function followupsHtml(part) {
+  // A build shown in steps (any kind, not only vehicles): the chips walk through the steps.
+  if (part.spec && part.spec.stage && part.spec.stage.target) {
+    const set = ["Next step", "Finish the whole thing", "What are the weak points?"];
+    return '<div class="followups">' + set.map((t) => `<button class="chip" data-say="${esc(t)}">${esc(t)}</button>`).join("") + "</div>";
+  }
   if (part.partType === "building") {
     const roof = String(part.params.roof_type || "gable"), floors = Number(part.params.floors) || 1;
     const set = [roof === "flat" ? "Use a gable roof at 30 degrees" : "Use a flat roof", floors < 4 ? `Make it ${floors + 1} floors` : "Make it 2 floors", roof === "gable" ? "Make the roof steeper, 35 degrees" : "Add a study"];
     return '<div class="followups">' + set.map((t) => `<button class="chip" data-say="${esc(t)}">${esc(t)}</button>`).join("") + "</div>";
   }
   if (isVehicle(part)) {
-    const set = ["Make the wheel diameter 450 mm", "Add a second axle", "What are the weak points?"];
+    const staged = part.spec && part.spec.parameters && part.spec.parameters.stage;
+    const set = staged ? ["Next step", "Finish the whole thing", "What are the weak points?"]
+      : ["Make the wheel diameter 450 mm", "Add a second axle", "What are the weak points?"];
     return '<div class="followups">' + set.map((t) => `<button class="chip" data-say="${esc(t)}">${esc(t)}</button>`).join("") + "</div>";
   }
   const k = kindOf(part);
@@ -944,8 +952,11 @@ function renderCanvas() {
     if (part.material) rows += `<div class="row"><span>material</span><span>${esc(part.material)}</span></div>`;
     let notes = "";
     if (part.notes && part.notes.length) notes = `<div class="note"><b>Notes on this part</b><ul>${part.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>`;
+    if (isCodegen(part)) { panel.innerHTML = codegenSpecsHtml(part) + requirementsHtml(part); codegenMount(part); return; }
     panel.innerHTML = part.partType === "assembly" ? `${isVehicle(part) ? vehicleBoxHtml(part) : ""}${assemblyHtml(part)}${requirementsHtml(part)}` : `<div class="kv">${rows}</div>${notes}${requirementsHtml(part)}`;
     if (isVehicle(part)) loadVehicleSummary(part);
+  } else if (S.tab === "files" && isCodegen(part)) {
+    panel.innerHTML = codegenFilesHtml();
   } else if (S.tab === "files") {
     const F = [["STEP", "step", "3D solid for CAD and CAM"], ["IGES", "iges", "3D solid, older systems"], ["DXF", "dxf", "2D cut layers for laser and CNC"], ["PDF", "pdf", "1:1 drawing"], ["GLB", "glb", "3D model for web viewers, AR and game engines"], ["3MF", "3mf", "3D model for slicers and print services"], ["URDF", "urdf", "Robot description (zip) for ROS and simulators"], ["STL", "stl", "Mesh for 3D printing"]];
     const lock = !part.paid;
@@ -956,6 +967,8 @@ function renderCanvas() {
       return `<div class="file${locked ? " locked" : ""}"><span class="ext">${n}</span><div class="what"><b>${n} file</b><span>${locked ? "Unlocks when you press Generate" : d}</span></div><button class="btn btn-ghost btn-sm" ${locked ? "disabled" : `data-dl="${f}"`}>${locked ? "Locked" : "Download"}</button></div>`;
     }).join("") + (isVehicle(part) ? vehicleFileRows(part, lock) : "") + (part.partType === "pcb_board" ? [["KICAD", "pcb:kicad", "KiCad project", "Open and edit in KiCad"], ["GERBER", "pcb:gerbers", "Gerber and drill files", "Send to a circuit board maker"], ["BOM", "pcb:bom", "Parts list", "CSV of every part"], ["POS", "pcb:pos", "Part positions", "For assembly machines"]].map(([n, f, t, d]) =>
       `<div class="file${lock ? " locked" : ""}"><span class="ext">${n}</span><div class="what"><b>${t}</b><span>${lock ? "Unlocks when you press Generate" : d}</span></div><button class="btn btn-ghost btn-sm" ${lock ? "disabled" : `data-dl="${f}"`}>${lock ? "Locked" : "Download"}</button></div>`).join("") : "") + "</div>" + (part.partType === "pcb_board" && !lock ? '<div class="note"><p>Board files are built when you download them and can take up to a minute. Gerber, drill and part-position files need KiCad on the server.</p></div>' : "") + (lock ? "" : checkCardHtml(part));
+  } else if (isCodegen(part)) {
+    panel.innerHTML = '<div class="note"><b>No on-chain record for code parts yet</b><p>Anchoring needs the standard build record, which a part written as code does not have. Downloads and the manufacturability check still work.</p></div>';
   } else {
     if (part.anchor) {
       const tx = part.anchor.anchor_tx || "";
@@ -968,6 +981,106 @@ function renderCanvas() {
     }
   }
 }
+/* ============================================================ code parts (written as code by the code builder)
+   A part with partType "codegen" has no job. Its shape is a saved model on the code builder, rebuilt from slider values on
+   demand, so the viewer, the sliders and the downloads call /codegen/{id}/... instead of /download/job/... */
+function isCodegen(part) { return !!(part && part.partType === "codegen" && part.spec && part.spec.parameters && part.spec.parameters.codegen); }
+function codegenRef(part) {
+  const g = part.spec.parameters.codegen;
+  return { id: g.id, values: Object.assign({}, g.values || {}, part.cgValues || {}) };
+}
+async function cgApi(path, body, wantBlob) {
+  const r = await fetch(BASE + path, { method: "POST", headers: Object.assign({ "Content-Type": "application/json" }, Auth.authHeader()), body: JSON.stringify(body) });
+  if (!r.ok) {
+    let detail = null; try { detail = (await r.json()).detail; } catch (e) { /* not json */ }
+    throw new Error(typeof detail === "string" && detail ? detail : "The code builder could not do that (HTTP " + r.status + ").");
+  }
+  return wantBlob ? r.blob() : r.json();
+}
+const cgRebuilds = new Map(), cgBuffers = new Map();      // one rebuild and one mesh download per model and set of values
+function cgKey(part) { const g = codegenRef(part); return g.id + ":" + JSON.stringify(g.values); }
+function cgRemember(map, key, make) {
+  if (!map.has(key)) {
+    if (map.size >= 12) map.delete(map.keys().next().value);
+    map.set(key, make().catch((e) => { map.delete(key); throw e; }));
+  }
+  return map.get(key);
+}
+function codegenRebuild(part) {
+  const g = codegenRef(part);
+  return cgRemember(cgRebuilds, cgKey(part), () => cgApi(`/codegen/${encodeURIComponent(g.id)}/rebuild`, { params: g.values }));
+}
+async function codegenStl(part) {
+  const buf = await cgRemember(cgBuffers, cgKey(part), async () => {
+    const data = await codegenRebuild(part);
+    const r = await fetch(BASE + data.mesh_url, { headers: Auth.authHeader() });
+    if (!r.ok) throw new Error("Could not load the mesh (HTTP " + r.status + ").");
+    return r.arrayBuffer();
+  });
+  return buf.slice(0);
+}
+function codegenChips(part) {
+  const f = part.facts || {}, size = Array.isArray(f.size_mm) ? f.size_mm.map((n) => +Number(n).toFixed(1)).join(" x ") + " mm" : "";
+  return '<span class="spec-chip">written as code</span>' + (size ? `<span class="spec-chip">${esc(size)}</span>` : "");
+}
+function codegenSpecsHtml(part) {
+  const f = part.facts || {};
+  let rows = '<div class="row"><span>made</span><span>written as code</span></div>';
+  if (Array.isArray(f.size_mm)) rows += `<div class="row"><span>size</span><span>${esc(f.size_mm.map((n) => +Number(n).toFixed(2)).join(" x "))} mm</span></div>`;
+  if (f.mass_g != null) rows += `<div class="row"><span>mass</span><span>${esc(f.mass_g)} g</span></div>`;
+  else if (f.mass_note) rows += `<div class="row"><span>mass</span><span>${esc(f.mass_note)}</span></div>`;
+  return `<div class="kv">${rows}</div><div class="note"><b>Adjust it for free</b><p>Moving a slider re-runs the saved code. No AI is used and nothing is charged. These changes are not saved as a new version, so to keep one, ask for it in the chat.</p>` +
+    '<div id="cgSliders">Loading the sliders...</div></div>';
+}
+function codegenFilesHtml() {
+  const rows = [["STEP", "step", "3D solid for CAD and CAM"], ["STL", "stl", "Mesh for 3D printing"], ["ZIP", "package", "STEP, STL, the code, and credits for any library parts"]];
+  return '<div class="note"><b>Already paid for</b><p>Writing the part covered these files. They are built from the code at the slider values you have now. To read or edit the code itself, open the <a href="codegen.html">code page</a>.</p></div><div class="files">' +
+    rows.map(([n, f, d]) => `<div class="file"><span class="ext">${n}</span><div class="what"><b>${n} file</b><span>${d}</span></div><button class="btn btn-ghost btn-sm" data-cg-dl="${f}">Download</button></div>`).join("") +
+    '</div><div class="fine" id="cgDlErr" role="alert"></div>';
+}
+function cgNiceStep(min, max, isInt) {
+  if (isInt) return 1;
+  const raw = (max - min) / 200 || 0.01, p = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / p;
+  return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * p;
+}
+const cgFmt = (v) => String(+Number(v).toFixed(3));
+let cgTimer = null;
+async function codegenMount(part) {
+  if (!$("cgSliders")) return;
+  try {
+    const data = await codegenRebuild(part);
+    const box = $("cgSliders");
+    if (!box || S.activePartId !== part.id) return;
+    const values = codegenRef(part).values, params = data.params || [];
+    if (!params.length) { box.textContent = "This part has no adjustable values."; return; }
+    box.innerHTML = params.map((p) => {
+      const v = values[p.name] != null ? values[p.name] : p.default, unit = p.unit === "count" ? "" : (p.unit || "");
+      return `<div style="margin:10px 0"><div style="display:flex;justify-content:space-between;gap:8px"><label for="cg_${esc(p.name)}">${esc(p.label || p.name)}</label><output id="cgo_${esc(p.name)}">${esc(cgFmt(v))} ${esc(unit)}</output></div>` +
+        `<input type="range" style="width:100%" id="cg_${esc(p.name)}" data-cg-p="${esc(p.name)}" data-unit="${esc(unit)}" data-int="${p.int ? 1 : 0}" min="${p.min}" max="${p.max}" step="${cgNiceStep(p.min, p.max, p.int)}" value="${v}"></div>`;
+    }).join("");
+  } catch (e) { const b = $("cgSliders"); if (b) b.textContent = e.message || "Could not load the sliders."; }
+}
+async function codegenDownload(btn, part, kind) {
+  const err = $("cgDlErr"); if (err) err.textContent = "";
+  const old = btn.textContent; btn.disabled = true; btn.textContent = "Preparing...";
+  try {
+    const g = codegenRef(part);
+    const blob = await cgApi(`/codegen/${encodeURIComponent(g.id)}/export`, { fmt: kind, params: g.values }, true);
+    const name = String(part.title || "part").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 40) || "part";
+    await blobDownload(blob, name + "." + (kind === "package" ? "zip" : kind));
+  } catch (e) { if (err) err.textContent = e.message; }
+  finally { btn.disabled = false; btn.textContent = old; }
+}
+$("panel").addEventListener("input", (e) => {
+  const el = e.target && e.target.closest ? e.target.closest("[data-cg-p]") : null; if (!el) return;
+  const c = chat(), part = c && partOf(c, S.activePartId); if (!part || !isCodegen(part)) return;
+  const v = el.dataset.int === "1" ? Math.round(+el.value) : +el.value;
+  part.cgValues = Object.assign({}, part.cgValues || {}, { [el.dataset.cgP]: v });
+  const out = $("cgo_" + el.dataset.cgP); if (out) out.textContent = cgFmt(v) + " " + el.dataset.unit;
+  clearTimeout(cgTimer);
+  cgTimer = setTimeout(() => { stlCache.delete(part.id + ":" + (part.jobId || part.demoKind || "")); viewerShow(part); }, 280);
+});
+
 /* ============================================================ manufacturability check */
 const CHECK_PROCESSES = [["cnc", "CNC", "CNC machining"], ["sheet_metal", "Sheet metal", "sheet metal"], ["injection_molding", "Molding", "injection molding"], ["fdm", "FDM print", "FDM 3D printing"], ["resin", "Resin print", "resin 3D printing"]];
 const CHECK_TAG = { pass: ["OK", "ok"], warn: ["Review", "warn"], fail: ["Problem", "bad"], not_checked: ["Not checked", "nc"], info: ["Note", "info"] };
@@ -1622,6 +1735,7 @@ $("threadInner").addEventListener("click", async (e) => {
 });
 $("panel").addEventListener("click", async (e) => {
   const c = chat(), part = c && partOf(c, S.activePartId); if (!part) return;
+  const cgd = e.target.closest("[data-cg-dl]"); if (cgd) { await codegenDownload(cgd, part, cgd.dataset.cgDl); return; }
   const gen = e.target.closest("[data-generate]"); if (gen) { await generateFiles(gen, part.id); return; }
   const proc = e.target.closest("[data-proc]"); if (proc) { S.checkProc = proc.dataset.proc; renderCanvas(); return; }
   const chk = e.target.closest("[data-check]"); if (chk) { await runCheck(chk, part, chk.dataset.check); return; }

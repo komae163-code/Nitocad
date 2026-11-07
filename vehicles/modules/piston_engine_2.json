@@ -1,0 +1,350 @@
+{
+ "description": "Small inline two cylinder piston engine core: crankshaft with flywheel, connecting rods, pistons, pins, cylinder liners and a head plate. Crankshaft along +X from x = 0, cylinders upright along +Z, first cylinder nearest the nose. crank_deg sets the pose (0 = first piston at the bottom of its stroke). No crankcase, valves or camshaft.",
+ "params": {
+  "bore": {
+   "default": 30,
+   "min": 8,
+   "max": 120
+  },
+  "stroke": {
+   "default": 30,
+   "min": 6,
+   "max": 120
+  },
+  "rod_cd": {
+   "default": 56,
+   "min": 14,
+   "max": 300
+  },
+  "main_dia": {
+   "default": 16,
+   "min": 4,
+   "max": 60
+  },
+  "rodj_dia": {
+   "default": 14,
+   "min": 4,
+   "max": 55
+  },
+  "web": {
+   "default": 5,
+   "min": 2,
+   "max": 20
+  },
+  "main_len": {
+   "default": 20,
+   "min": 3,
+   "max": 60
+  },
+  "rodj_len": {
+   "default": 10,
+   "min": 3,
+   "max": 40
+  },
+  "piston_h": {
+   "default": 30,
+   "min": 6,
+   "max": 100
+  },
+  "liner_wall": {
+   "default": 3,
+   "min": 1,
+   "max": 10
+  },
+  "crank_deg": {
+   "default": 0,
+   "min": 0,
+   "max": 360
+  }
+ },
+ "derived": {
+  "r": "=stroke/2",
+  "pitch": "=2*web + rodj_len + main_len",
+  "crank_len": "=main_len + 2*(2*web + rodj_len + main_len)",
+  "nose_len": "=main_dia*0.75",
+  "flange_len": "=main_dia*0.4",
+  "rod_t": "=rodj_len - 1",
+  "pin_dia": "=bore*0.25",
+  "pin_len": "=bore*0.85",
+  "cw_r": "=main_dia/2 + stroke*0.15",
+  "cw_off": "=stroke*0.3",
+  "liner_od": "=bore + 2*liner_wall",
+  "liner_z": "=rod_cd - r - 0.55*piston_h - 1",
+  "liner_len": "=2*r + piston_h + 4",
+  "head_t": "=6",
+  "fly_t": "=main_dia*0.5",
+  "x0": "=main_len + web + rodj_len/2",
+  "xc1": "=x0 + 0*pitch",
+  "ph1": "=0 + crank_deg",
+  "jy1": "=r*sin(radians(ph1))",
+  "jz1": "=-r*cos(radians(ph1))",
+  "dz1": "=sqrt(rod_cd*rod_cd - jy1*jy1)",
+  "pz1": "=jz1 + dz1",
+  "lean1": "=degrees(atan2(jy1, dz1))",
+  "xc2": "=x0 + 1*pitch",
+  "ph2": "=180 + crank_deg",
+  "jy2": "=r*sin(radians(ph2))",
+  "jz2": "=-r*cos(radians(ph2))",
+  "dz2": "=sqrt(rod_cd*rod_cd - jy2*jy2)",
+  "pz2": "=jz2 + dz2",
+  "lean2": "=degrees(atan2(jy2, dz2))"
+ },
+ "components": [
+  {
+   "id": "crank",
+   "type": "crankshaft",
+   "material": "steel",
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ],
+   "parameters": {
+    "num_throws": 2,
+    "stroke_mm": "=stroke",
+    "main_journal_diameter_mm": "=main_dia",
+    "main_journal_length_mm": "=main_len",
+    "rod_journal_diameter_mm": "=rodj_dia",
+    "rod_journal_length_mm": "=rodj_len",
+    "web_thickness_mm": "=web",
+    "counterweight_radius_mm": "=cw_r",
+    "counterweight_offset_mm": "=cw_off",
+    "phase_angles_deg": [
+     "=ph1",
+     "=ph2"
+    ],
+    "nose_length_mm": "=nose_len",
+    "nose_diameter_mm": "=main_dia*0.7",
+    "flange_length_mm": "=flange_len",
+    "flange_diameter_mm": "=main_dia*1.3"
+   }
+  },
+  {
+   "id": "flywheel",
+   "type": "spacer",
+   "material": "steel",
+   "position": [
+    "=crank_len",
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ],
+   "parameters": {
+    "outer_diameter_mm": "=stroke*2",
+    "inner_diameter_mm": "=main_dia*0.5",
+    "length_mm": "=fly_t"
+   }
+  },
+  {
+   "id": "rod_1",
+   "type": "connecting_rod",
+   "material": "steel",
+   "position": [
+    "=xc1 - rod_t/2",
+    0,
+    "=pz1"
+   ],
+   "rotation": [
+    "=lean1",
+    90,
+    0
+   ],
+   "parameters": {
+    "big_end_diameter_mm": "=rodj_dia + 0.2",
+    "big_end_boss_diameter_mm": "=rodj_dia + 8",
+    "small_end_diameter_mm": "=pin_dia",
+    "small_end_boss_diameter_mm": "=pin_dia + 6",
+    "center_distance_mm": "=rod_cd",
+    "shank_width_mm": "=rodj_dia*0.6",
+    "thickness_mm": "=rod_t",
+    "rib_height_mm": 0,
+    "cap_bolt_diameter_mm": 0,
+    "fillet_mm": 1.5
+   }
+  },
+  {
+   "id": "piston_1",
+   "type": "shaft",
+   "material": "aluminium",
+   "position": [
+    "=xc1",
+    0,
+    "=pz1 - 0.55*piston_h"
+   ],
+   "parameters": {
+    "diameter_mm": "=bore - 0.3",
+    "length_mm": "=piston_h"
+   }
+  },
+  {
+   "id": "pin_1",
+   "type": "shaft",
+   "material": "steel",
+   "position": [
+    "=xc1 - pin_len/2",
+    0,
+    "=pz1"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ],
+   "parameters": {
+    "diameter_mm": "=pin_dia",
+    "length_mm": "=pin_len"
+   }
+  },
+  {
+   "id": "liner_1",
+   "type": "tube",
+   "material": "steel",
+   "position": [
+    "=xc1",
+    0,
+    "=liner_z"
+   ],
+   "parameters": {
+    "outer_diameter_mm": "=liner_od",
+    "wall_thickness_mm": "=liner_wall",
+    "length_mm": "=liner_len"
+   }
+  },
+  {
+   "id": "rod_2",
+   "type": "connecting_rod",
+   "material": "steel",
+   "position": [
+    "=xc2 - rod_t/2",
+    0,
+    "=pz2"
+   ],
+   "rotation": [
+    "=lean2",
+    90,
+    0
+   ],
+   "parameters": {
+    "big_end_diameter_mm": "=rodj_dia + 0.2",
+    "big_end_boss_diameter_mm": "=rodj_dia + 8",
+    "small_end_diameter_mm": "=pin_dia",
+    "small_end_boss_diameter_mm": "=pin_dia + 6",
+    "center_distance_mm": "=rod_cd",
+    "shank_width_mm": "=rodj_dia*0.6",
+    "thickness_mm": "=rod_t",
+    "rib_height_mm": 0,
+    "cap_bolt_diameter_mm": 0,
+    "fillet_mm": 1.5
+   }
+  },
+  {
+   "id": "piston_2",
+   "type": "shaft",
+   "material": "aluminium",
+   "position": [
+    "=xc2",
+    0,
+    "=pz2 - 0.55*piston_h"
+   ],
+   "parameters": {
+    "diameter_mm": "=bore - 0.3",
+    "length_mm": "=piston_h"
+   }
+  },
+  {
+   "id": "pin_2",
+   "type": "shaft",
+   "material": "steel",
+   "position": [
+    "=xc2 - pin_len/2",
+    0,
+    "=pz2"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ],
+   "parameters": {
+    "diameter_mm": "=pin_dia",
+    "length_mm": "=pin_len"
+   }
+  },
+  {
+   "id": "liner_2",
+   "type": "tube",
+   "material": "steel",
+   "position": [
+    "=xc2",
+    0,
+    "=liner_z"
+   ],
+   "parameters": {
+    "outer_diameter_mm": "=liner_od",
+    "wall_thickness_mm": "=liner_wall",
+    "length_mm": "=liner_len"
+   }
+  },
+  {
+   "id": "head",
+   "type": "flat_plate",
+   "material": "aluminium",
+   "position": [
+    "=x0 + 1*pitch/2",
+    0,
+    "=liner_z + liner_len + head_t/2"
+   ],
+   "parameters": {
+    "length_mm": "=1*pitch + liner_od + 6",
+    "width_mm": "=liner_od + 6",
+    "thickness_mm": "=head_t"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "name": "rod_long_enough",
+   "expr": "=rod_cd >= 1.5*stroke",
+   "message": "a rod shorter than 1.5 strokes leans too hard on the cylinder wall"
+  },
+  {
+   "name": "big_end_passes_bore",
+   "expr": "=rodj_dia + 8 <= bore - 2",
+   "message": "the rod's big end is wider than the cylinder"
+  },
+  {
+   "name": "pin_shorter_than_bore",
+   "expr": "=pin_len < bore - 2",
+   "message": "the piston pin is longer than the piston"
+  },
+  {
+   "name": "counterweight_clears_piston",
+   "expr": "=cw_off + cw_r < rod_cd - r - 0.55*piston_h - 1",
+   "message": "the crank counterweight would hit the piston at the bottom of its stroke"
+  },
+  {
+   "name": "rod_journal_fits_stroke",
+   "expr": "=rodj_dia/2 + main_dia/2 < stroke",
+   "message": "the rod journal overlaps the main journal"
+  },
+  {
+   "name": "piston_not_shorter_than_bore",
+   "expr": "=piston_h >= bore",
+   "message": "a piston shorter than its bore rocks in the cylinder"
+  },
+  {
+   "name": "cylinders_do_not_overlap",
+   "expr": "=pitch >= liner_od + 2",
+   "message": "the cylinders are closer together than their walls; lengthen main_len or shrink the bore"
+  }
+ ]
+}

@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<script>(function(){var e=/[?&]embed=1/.test(location.search);if(e)document.documentElement.classList.add("embed");})();</script>
+<style>html.embed header,html.embed footer,html.embed nav.wrap{display:none!important}html.embed body{padding-top:0!important}</style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Describe it, tune it | NitoCAD</title>
+<meta name="description" content="Describe a part. The AI writes the CAD code once, and sliders re-shape the solid for free.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#1C1C1E;--ink-soft:#5E5E63;--orange:#1C1C1E;--dot:#E8601C;--paper:#FAFAF8;--fog:#F0F0EE;--line:#E3E3E0;--ok:#13794f;--bad:#b3261e;--radius:12px;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased;line-height:1.5;}
+  a{color:inherit;}
+  h1,h2,h3{font-family:'Fraunces',serif;font-weight:700;margin:0;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 20px;}
+  header{border-bottom:1px solid var(--line);}
+  header .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;}
+  .logo{font-family:'Fraunces',serif;font-style:italic;font-size:1.4rem;text-decoration:none;color:var(--ink);}
+  .logo span{color:var(--dot);}
+  nav a{margin-left:18px;text-decoration:none;color:var(--ink-soft);font-size:.92rem;font-weight:500;}
+  main{padding:24px 0 64px;}
+  h1{font-size:2rem;margin-bottom:4px;}
+  .lead{color:var(--ink-soft);font-weight:600;max-width:70ch;margin:0 0 16px;}
+  .layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,1fr);gap:18px;align-items:start;}
+  @media(max-width:900px){.layout{grid-template-columns:1fr;}}
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px;}
+  .card h3{font-size:1.05rem;margin-bottom:10px;}
+  #view{position:relative;width:100%;height:460px;border-radius:var(--radius);overflow:hidden;background:linear-gradient(#eef0f3,#dfe3e8);border:1px solid var(--line);}
+  #view canvas{display:block;width:100%;height:100%;}
+  #viewmsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--ink-soft);font-weight:600;pointer-events:none;}
+  #viewbusy{position:absolute;top:10px;right:12px;font-size:.8rem;font-weight:600;color:var(--ink-soft);display:none;}
+  textarea,input[type=text],input[type=number]{font:400 .95rem 'IBM Plex Sans',sans-serif;border:1px solid var(--line);border-radius:8px;padding:8px 10px;color:var(--ink);background:#fff;width:100%;}
+  textarea{min-height:96px;resize:vertical;}
+  .btn{display:inline-flex;align-items:center;padding:10px 18px;border-radius:999px;border:1.5px solid var(--orange);background:var(--orange);color:#fff;font:600 .9rem 'IBM Plex Sans',sans-serif;cursor:pointer;text-decoration:none;}
+  .btn.ghost{background:transparent;color:var(--ink);border-color:var(--ink);}
+  .btn.small{padding:6px 12px;font-size:.82rem;}
+  .btn:disabled{opacity:.5;cursor:wait;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center;}
+  .err{background:#fdecea;border:1px solid #f5c2bd;color:#7a1c14;border-radius:8px;padding:10px 12px;font-size:.9rem;margin-top:10px;}
+  .warn{background:#fff6e5;border:1px solid #f0d9a8;border-radius:8px;padding:8px 12px;font-size:.88rem;margin-top:8px;}
+  .note{color:var(--ink-soft);font-size:.85rem;margin-top:8px;}
+  .slider{margin-bottom:12px;}
+  .slider .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:.85rem;font-weight:600;color:var(--ink-soft);}
+  .slider .top output{font-family:'IBM Plex Mono',monospace;color:var(--ink);font-weight:500;}
+  .slider input[type=range]{width:100%;accent-color:var(--dot);}
+  .kv{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;font-size:.88rem;}
+  .kv div{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding:3px 0;gap:8px;}
+  .kv b{font-family:'IBM Plex Mono',monospace;font-weight:500;}
+  .hist{list-style:none;margin:0;padding:0;max-height:240px;overflow:auto;}
+  .hist li{display:flex;gap:6px;align-items:center;border-bottom:1px solid var(--line);padding:6px 0;}
+  .hist button.open{flex:1;text-align:left;background:none;border:0;font:500 .88rem 'IBM Plex Sans',sans-serif;color:var(--ink);cursor:pointer;padding:2px 0;}
+  .hist button.del{background:none;border:0;color:var(--ink-soft);cursor:pointer;font-size:1rem;}
+  pre#code{background:var(--fog);border-radius:8px;padding:10px;overflow:auto;max-height:340px;font:400 .78rem 'IBM Plex Mono',monospace;margin:8px 0 0;}
+  #gate{display:none;text-align:center;padding:60px 0;}
+  details{margin-top:10px;} summary{cursor:pointer;font-weight:600;font-size:.92rem;}
+</style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+<header><div class="wrap"><a href="index.html" class="logo">Nit<span>o</span>CAD</a>
+<nav><a href="studio.html">CAD Studio</a><a href="pricing.html">Pricing</a><a href="exports.html">Exports</a></nav></div></header>
+
+<main><div class="wrap">
+  <div id="gate"><h2>Sign in to describe a part</h2><p class="lead" style="margin:10px auto 18px">It uses your NitoCAD account.</p><a class="btn" href="studio.html">Sign in through CAD Studio</a></div>
+
+  <div id="app" style="display:none">
+    <h1>Describe it, then tune it</h1>
+    <p class="lead">The AI writes the CAD code once. After that, every slider re-shapes the real solid on the server, with no AI call.</p>
+    <div class="layout">
+      <section>
+        <div id="view" role="img" aria-label="3D preview"><div id="viewmsg">Describe a part on the right and press Generate.</div><div id="viewbusy">Updating...</div></div>
+        <div class="row">
+          <button class="btn small" id="exStep" disabled>Download STEP</button>
+          <button class="btn small ghost" id="exStl" disabled>STL</button>
+          <button class="btn small ghost" id="exPkg" disabled>Package (zip)</button>
+        </div>
+        <div id="exMsg"></div>
+        <div class="card" style="margin-top:14px">
+          <h3>About this model</h3>
+          <div id="summary" class="note">Nothing yet.</div>
+          <div id="stats" class="kv" style="margin-top:10px"></div>
+          <div id="notes"></div>
+          <div id="lib"></div>
+          <details id="codeBox"><summary>View the code</summary><pre id="code">Loading...</pre></details>
+        </div>
+      </section>
+      <aside>
+        <div class="card">
+          <h3>Describe a part</h3>
+          <textarea id="prompt" maxlength="2000" placeholder="A wheelie bin with a hinged lid, 240 litres. Or: a bracket for a 20 mm tube with four mounting holes."></textarea>
+          <div class="row"><button class="btn" id="go">Generate</button><span id="goMsg" class="note" style="margin:0"></span></div>
+          <div id="genErr"></div>
+        </div>
+        <div class="card" id="tuneCard" style="display:none">
+          <h3>Adjust</h3>
+          <div id="sliders"></div>
+          <p class="note">Sliders re-run the same code. They are free and keep the AI out of it.</p>
+          <div id="tuneErr"></div>
+          <h3 style="margin-top:16px">Change it with words</h3>
+          <input type="text" id="revise" maxlength="2000" placeholder="Make the lid domed and add a second handle">
+          <div class="row"><button class="btn small ghost" id="reviseGo">Revise</button><span id="reviseMsg" class="note" style="margin:0"></span></div>
+          <div id="reviseErr"></div>
+        </div>
+        <div class="card">
+          <h3>Your models</h3>
+          <ul class="hist" id="hist"><li class="note">Nothing saved yet.</li></ul>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div></main>
+
+<script src="config.js"></script>
+<script src="auth.js"></script>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { STLLoader } from "three/addons/loaders/STLLoader.js";
+import { applyRealisticLook, prepareStlGeometry, buildPartObject, disposeObject } from "./viewer-look.js";
+
+const Auth = window.NitoAuth, BASE = Auth.API_BASE;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (v, d = 3) => (v === null || v === undefined || Number.isNaN(+v)) ? "-" : (+v).toLocaleString("en-US", { maximumFractionDigits: d });
+
+let cur = null;            // the model on screen: {id, params, values, library, ...}
+let seq = 0;               // newest rebuild request; older answers are ignored
+let abortCtl = null;
+let viewScale = null;      // fixed per model so a slider visibly changes the size
+let framedFor = null;
+let codeFor = null;
+let timer = null;
+
+/* ------------------------------------------------------------------ server calls */
+async function api(path, { method = "GET", body, signal, blob = false, text = false } = {}) {
+  const s = Auth.getSession();
+  if (!s) { gate(); throw new Error("Please sign in first."); }
+  let res;
+  try {
+    res = await fetch(BASE + path, { method, signal, headers: { Authorization: "Bearer " + s.session_id, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  } catch (e) {
+    if (e && e.name === "AbortError") throw e;
+    throw new Error("Could not reach the server. Check your connection.");
+  }
+  if (res.status === 401) { Auth.clearSession(); gate(); throw new Error("Your session ended. Sign in again."); }
+  if (!res.ok) {
+    let detail = null; try { detail = (await res.json()).detail; } catch (e) { /* empty */ }
+    if (res.status === 429) throw new Error("Too many requests. Wait a moment and try again.");
+    throw new Error(typeof detail === "string" && detail ? detail : "That was not accepted. Try again.");
+  }
+  if (res.status === 204) return null;
+  if (blob) return res.blob();
+  if (text) return res.text();
+  if ((res.headers.get("content-type") || "").includes("application/json")) return res.json();
+  return res.arrayBuffer();
+}
+const showErr = (id, msg) => { $(id).innerHTML = msg ? `<div class="err">${esc(msg)}</div>` : ""; };
+
+/* ------------------------------------------------------------------ viewer */
+const host = $("view");
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+host.insertBefore(renderer.domElement, host.firstChild);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(35, 1, 0.5, 2000);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xb7c3d1, 0.35));
+const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(60, 90, 50); scene.add(key);
+applyRealisticLook(scene, renderer, key);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = false;
+controls.addEventListener("change", draw);
+let model = null;
+function draw() { renderer.render(scene, camera); }
+function resize() {
+  const w = host.clientWidth || 600, h = host.clientHeight || 400;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); draw();
+}
+new ResizeObserver(resize).observe(host);
+camera.position.set(120, 90, 120); controls.target.set(0, 25, 0); controls.update(); resize();
+
+async function showMesh(url, id) {
+  const buf = await api(url);
+  let geo = new STLLoader().parse(buf);
+  geo.rotateX(-Math.PI / 2);                                    // CAD is Z-up, the viewer is Y-up
+  geo.computeBoundingBox();
+  const size = new THREE.Vector3(); geo.boundingBox.getSize(size);
+  const biggest = Math.max(size.x, size.y, size.z) || 1;
+  if (viewScale === null || framedFor !== id || biggest * viewScale > 150 || biggest * viewScale < 15) viewScale = 100 / biggest;
+  geo.scale(viewScale, viewScale, viewScale);
+  geo.computeBoundingBox();
+  const c = new THREE.Vector3(); geo.boundingBox.getCenter(c);
+  geo.translate(-c.x, -geo.boundingBox.min.y, -c.z);            // stand it on the ground, centred
+  geo = prepareStlGeometry(geo);
+  if (model) { scene.remove(model); disposeObject(model); }
+  model = buildPartObject(geo, "aluminium");
+  scene.add(model);
+  if (framedFor !== id) {                                       // frame once per model, then leave the camera where the person put it
+    const h = size.y * viewScale, d = Math.max(size.x, size.z) * viewScale;
+    const r = Math.max(h, d, 40);
+    camera.position.set(r * 1.5, r * 1.1, r * 1.5); controls.target.set(0, h / 2, 0); controls.update();
+    framedFor = id;
+  }
+  $("viewmsg").style.display = "none";
+  draw();
+}
+
+/* ------------------------------------------------------------------ sliders */
+function niceStep(min, max, isInt) {
+  if (isInt) return 1;
+  const raw = (max - min) / 200;
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const n = raw / p;
+  return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * p;
+}
+function currentValues() {
+  const out = {};
+  for (const p of cur.params) {
+    const el = document.querySelector(`input[data-p="${p.name}"]`);
+    if (el) out[p.name] = p.int ? Math.round(+el.value) : +el.value;
+  }
+  return out;
+}
+function buildSliders(data) {
+  const box = $("sliders"); box.innerHTML = "";
+  for (const p of data.params) {
+    const v = data.values[p.name] ?? p.default;
+    const step = niceStep(p.min, p.max, p.int);
+    const row = document.createElement("div"); row.className = "slider";
+    row.innerHTML = `<div class="top"><label for="s_${esc(p.name)}">${esc(p.label)}</label><output id="o_${esc(p.name)}">${esc(fmt(v))} ${esc(p.unit === "count" ? "" : p.unit)}</output></div>
+      <input type="range" id="s_${esc(p.name)}" data-p="${esc(p.name)}" min="${p.min}" max="${p.max}" step="${step}" value="${v}">`;
+    box.appendChild(row);
+    const input = row.querySelector("input");
+    input.addEventListener("input", () => { $("o_" + p.name).textContent = fmt(input.value) + " " + (p.unit === "count" ? "" : p.unit); schedule(); });
+  }
+}
+function schedule() { clearTimeout(timer); timer = setTimeout(rebuild, 280); }
+
+async function rebuild() {
+  if (!cur) return;
+  const my = ++seq;
+  if (abortCtl) abortCtl.abort();
+  abortCtl = new AbortController();
+  $("viewbusy").style.display = "block"; showErr("tuneErr", "");
+  try {
+    const data = await api(`/codegen/${encodeURIComponent(cur.id)}/rebuild`, { method: "POST", body: { params: currentValues() }, signal: abortCtl.signal });
+    if (my !== seq) return;
+    await showMesh(data.mesh_url, data.id);
+    if (my !== seq) return;
+    cur.values = data.values; paintInfo(data);
+  } catch (e) {
+    if (e && e.name === "AbortError") return;
+    if (my === seq) showErr("tuneErr", e.message);
+  } finally { if (my === seq) $("viewbusy").style.display = "none"; }
+}
+
+/* ------------------------------------------------------------------ model info */
+function paintInfo(data) {
+  const s = data.stats || {};
+  $("summary").textContent = data.summary || data.prompt || "";
+  const sz = s.size || [];
+  $("stats").innerHTML = [["Size (mm)", sz.length ? sz.map((n) => fmt(n, 1)).join(" x ") : "-"], ["Volume", s.volume !== undefined ? fmt(s.volume / 1000, 1) + " cm3" : "-"],
+    ["Solids", fmt(s.solids, 0)], ["Faces", fmt(s.faces, 0)]].map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("");
+  $("notes").innerHTML = (s.notes || []).map((n) => `<div class="warn">${esc(n)}</div>`).join("");
+  const lib = data.library || [];
+  $("lib").innerHTML = lib.length ? `<div class="note" style="margin-top:10px"><b>Standard parts used</b></div>` + lib.map((l) =>
+    `<div class="note">${esc(l.part_name)} (${esc(l.licence)}). ${l.credit_resolved ? esc(l.attribution) : "The author credit could not be looked up yet, so file downloads wait until it can."}</div>`).join("") : "";
+}
+function openModel(data) {
+  const fresh = !cur || cur.id !== data.id;
+  cur = data;
+  $("tuneCard").style.display = "block";
+  for (const id of ["exStep", "exStl", "exPkg"]) $(id).disabled = false;
+  if (fresh) { buildSliders(data); codeFor = null; $("code").textContent = "Loading..."; $("codeBox").open = false; viewScale = null; }
+  paintInfo(data);
+}
+
+/* ------------------------------------------------------------------ actions */
+async function generate() {
+  const prompt = $("prompt").value.trim();
+  if (prompt.length < 3) { showErr("genErr", "Describe what to build."); return; }
+  $("go").disabled = true; showErr("genErr", ""); $("goMsg").textContent = "Writing and building the model. This can take up to a minute.";
+  try {
+    const data = await api("/codegen/generate", { method: "POST", body: { prompt } });
+    openModel(data); await showMesh(data.mesh_url, data.id); await loadHistory();
+  } catch (e) { showErr("genErr", e.message); } finally { $("go").disabled = false; $("goMsg").textContent = ""; }
+}
+async function revise() {
+  const instruction = $("revise").value.trim();
+  if (!cur || instruction.length < 3) { showErr("reviseErr", "Say what to change."); return; }
+  $("reviseGo").disabled = true; showErr("reviseErr", ""); $("reviseMsg").textContent = "Rewriting the code...";
+  try {
+    const data = await api(`/codegen/${encodeURIComponent(cur.id)}/revise`, { method: "POST", body: { instruction } });
+    openModel(data); await showMesh(data.mesh_url, data.id); $("revise").value = ""; await loadHistory();
+  } catch (e) { showErr("reviseErr", e.message); } finally { $("reviseGo").disabled = false; $("reviseMsg").textContent = ""; }
+}
+async function download(kind) {
+  if (!cur) return;
+  showErr("exMsg", "");
+  try {
+    const blob = await api(`/codegen/${encodeURIComponent(cur.id)}/export`, { method: "POST", body: { fmt: kind, params: currentValues() }, blob: true });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "model." + (kind === "package" ? "zip" : kind);
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  } catch (e) { showErr("exMsg", e.message); }
+}
+async function openById(id) {
+  showErr("genErr", ""); $("viewbusy").style.display = "block";
+  try {
+    const data = await api(`/codegen/${encodeURIComponent(id)}/rebuild`, { method: "POST", body: { params: {} } });
+    framedFor = null; cur = null; openModel(data); await showMesh(data.mesh_url, data.id);
+  } catch (e) { showErr("genErr", e.message); } finally { $("viewbusy").style.display = "none"; }
+}
+async function loadHistory() {
+  try {
+    const { models } = await api("/codegen");
+    const ul = $("hist");
+    if (!models.length) { ul.innerHTML = '<li class="note">Nothing saved yet.</li>'; return; }
+    ul.innerHTML = models.map((m) => `<li><button class="open" data-open="${esc(m.id)}" title="${esc(m.prompt)}">${esc((m.prompt || "Model").slice(0, 70))}</button><button class="del" data-del="${esc(m.id)}" aria-label="Delete">&times;</button></li>`).join("");
+  } catch (e) { /* the list is a convenience: stay quiet */ }
+}
+$("hist").addEventListener("click", async (ev) => {
+  const open = ev.target.closest("[data-open]"), del = ev.target.closest("[data-del]");
+  if (open) openById(open.dataset.open);
+  if (del && confirm("Delete this saved model?")) {
+    try { await api(`/codegen/${encodeURIComponent(del.dataset.del)}`, { method: "DELETE" }); if (cur && cur.id === del.dataset.del) cur = null; await loadHistory(); }
+    catch (e) { showErr("genErr", e.message); }
+  }
+});
+$("codeBox").addEventListener("toggle", async () => {
+  if (!$("codeBox").open || !cur || codeFor === cur.id) return;
+  const id = cur.id;
+  try { $("code").textContent = await api(`/codegen/${encodeURIComponent(id)}/code`, { text: true }); codeFor = id; } catch (e) { $("code").textContent = e.message; }
+});
+$("go").addEventListener("click", generate);
+$("reviseGo").addEventListener("click", revise);
+$("revise").addEventListener("keydown", (e) => { if (e.key === "Enter") revise(); });
+$("exStep").addEventListener("click", () => download("step"));
+$("exStl").addEventListener("click", () => download("stl"));
+$("exPkg").addEventListener("click", () => download("package"));
+
+function gate() { const ok = !!Auth.getSession(); $("gate").style.display = ok ? "none" : "block"; $("app").style.display = ok ? "block" : "none"; return ok; }
+Auth.onChange(() => { if (gate()) loadHistory(); });
+if (gate()) loadHistory();
+</script>
+</body>
+</html>

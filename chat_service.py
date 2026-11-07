@@ -35,7 +35,9 @@ import conversation
 import dfm
 import edit_diff
 import import_ops
+import codegen_chat
 import import_store
+import materials
 import manufacturability
 import requirements as reqmod
 import studio_templates
@@ -104,6 +106,12 @@ class Deps:
     build_files: Callable[[str], None] | None = None                         # raises if the files cannot be built
     # Manufacturability check (see run_check). part_mesh gives (vertices, triangles) in mm or None.
     part_mesh: Callable[[str], Any] | None = None                            # (job_id) -> (verts, tris) | None
+    # Code-first parts (see codegen_chat). All three are None when the code builder is not available, and then nothing
+    # in the chat changes. start(user_id, prompt) and revise(user_id, model_id, instruction) return
+    # {"ok", "id", "summary", "values", "stats", "params", "charged"} or {"ok": False, "message", "needs_credits"}.
+    codegen_start: Callable[[str, str], dict] | None = None
+    codegen_revise: Callable[[str, str, str], dict] | None = None
+    codegen_mesh: Callable[[str, dict], Any] | None = None                   # (user_id, ref) -> (verts, tris)
     check_cost: int = 5
     # What a plain answer costs (a question, advice, a clarifying reply) when an AI plan wrote it. Previews cost
     # nothing. uses_ai says whether the plan the person picked calls an AI model at all (Engine does not).
@@ -155,6 +163,16 @@ def _spec_from_result(result: dict, fallback: dict) -> dict:
         "material": p.get("material") or fallback.get("material"),
         "operations": p.get("operations") or fallback.get("operations") or [],
     }
+
+
+def _keep_stage(planned: dict, built: dict) -> dict:
+    """A build in steps keeps its finished design and the step that is showing (build_steps.py). The generator
+    keeps four fields, so put the stage back on the saved spec. Never raises."""
+    try:
+        import build_steps
+        return build_steps.keep_stage(planned, built)
+    except Exception:  # noqa: BLE001
+        return built
 
 
 def _keep_vehicle(planned: dict, built: dict) -> dict:
@@ -246,9 +264,21 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
             return finish("You have used today's messages for this AI. Pick a different AI in the box below, "
                           "or try again later. Nothing was changed and nothing was charged.", meta={"limit": True})
 
-        # The planner sees what the current version measured, so it knows what an edit would disturb.
-        before_results = evaluate(current["facts"]) if current else []
-        plan = _call_plan(deps, history, current_spec, conversation.facts_digest(current["facts"], before_results) if current else None)
+        # Code-first parts: an edit to a part the code builder wrote, or a person asking for code outright.
+        cg_mode = codegen_chat.pre_plan_mode(text, current_spec) if (deps.codegen_start and not added) else None
+        if cg_mode == "material":
+            plan = Plan("edit", "", None, "rules")
+            return _codegen_material_turn(user_id, chat_id, text, current, finish, evaluate)
+        if cg_mode:
+            plan = Plan("edit" if cg_mode == "revise" else "build", "", None, "rules")
+            return _codegen_turn(deps, user_id, chat_id, text, cg_mode, current, finish, evaluate, count_ai=True)
+
+        # The planner sees what the current version measured, so it knows what an edit would disturb. A code part has no
+        # template spec for it to edit, so a question about one is planned as if no part were open.
+        on_code = codegen_chat.is_part_spec(current_spec)
+        before_results = evaluate(current["facts"]) if current and not on_code else []
+        plan = _call_plan(deps, history, None if on_code else current_spec,
+                          conversation.facts_digest(current["facts"], before_results) if current and not on_code else None)
         if plan.source == "llm":
             try:
                 deps.ai_used(user_id)
@@ -256,8 +286,16 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
                 import logging
                 logging.getLogger(__name__).exception("ai usage log failed")
 
+        if (deps.codegen_start and plan.intent == "answer" and plan.spec is None and plan.no_match and not added
+                and codegen_chat.looks_like_build(text)):
+            plan = Plan("build", "", None, plan.source)
+            return _codegen_turn(deps, user_id, chat_id, text, "start", current, finish, evaluate, count_ai=plan.source != "llm")
+
         if plan.intent == "answer" or plan.spec is None:
             reply = plan.reply or "Tell me a bit more about the part you want."
+            if plan.no_match and plan.source == "llm" and not deps.codegen_start:
+                reply = ("That shape is outside my part catalogue, and the code builder is not available on this plan, "
+                         "so I cannot make it.")
             results = evaluate(current["facts"]) if current else []
             if added:
                 reply = "Noted. I will check every version against: " + "; ".join(reqmod.describe(r) for r in added) + "."
@@ -288,6 +326,7 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
 
         spec = _spec_from_result(result, plan.spec)
         spec = _keep_vehicle(plan.spec, spec)
+        spec = _keep_stage(plan.spec, spec)
         facts = reqmod.facts_from_result(result, spec["part_type"])
         part = chat_store.add_part(
             user_id, chat_id, job_id=result.get("job_id"), title=part_title(spec),
@@ -312,6 +351,73 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
         return finish(reply, part=part, requirements=results, meta={"diff": diff} if diff else None, diff=diff)
     finally:
         lock.release()
+
+
+def _codegen_material_turn(user_id: str, chat_id: str, text: str, current: dict, finish: Callable[..., dict],
+                           evaluate: Callable[[dict], list]) -> dict[str, Any]:
+    """Set the material of a code part. The shape is untouched, so this is a new version with new mass, free of AI and
+    of charge. It is what lets a "weigh under 80 g" requirement be answered for a part written as code."""
+    material = codegen_chat.material_of(text)
+    old = current["facts"] or {}
+    facts = dict(old, material=material, mass_note=None)
+    volume = old.get("volume_mm3")
+    density = materials.density_g_cm3(material)
+    facts["mass_g"] = round(float(volume) / 1000.0 * density, 3) if volume and density else None
+    if facts["mass_g"] is None:
+        facts["mass_note"] = "mass is unknown because the volume was not measured"
+    spec = dict(current["spec"], material=material)
+    part = chat_store.add_part(user_id, chat_id, job_id=None, title=current["title"], part_type=codegen_chat.PART_TYPE,
+                               spec=spec, notes=[], facts=facts)
+    results = evaluate(facts)
+    answer = f"Set the material to {material}. The shape is unchanged and nothing was charged."
+    if facts["mass_g"] is not None:
+        answer += f" It now weighs about {facts['mass_g']:g} g."
+    sentence = _requirement_sentence(results, f"Version {part['version']}")
+    if sentence:
+        answer += " " + sentence
+    return finish(answer, part=part, requirements=results)
+
+
+def _codegen_turn(deps: Deps, user_id: str, chat_id: str, text: str, mode: str, current: dict | None,
+                  finish: Callable[..., dict], evaluate: Callable[[dict], list], *, count_ai: bool) -> dict[str, Any]:
+    """Write or revise a part as code, save it as a chat part, and answer. The code builder charges for itself and
+    refunds itself unless it saved a model, so a failure here costs nothing."""
+    import logging
+    log = logging.getLogger(__name__)
+    if count_ai:
+        try:
+            deps.ai_used(user_id)
+        except Exception:  # noqa: BLE001 - a counting problem must never lose the person's answer
+            log.exception("ai usage log failed")
+    try:
+        if mode == "revise":
+            out = deps.codegen_revise(user_id, codegen_chat.ref(current["spec"])["id"], text)
+        else:
+            out = deps.codegen_start(user_id, text)
+    except Exception:  # noqa: BLE001 - the chat must survive a code builder problem
+        log.exception("code builder failed in chat")
+        return finish("The code builder hit a problem, so nothing was added to this chat. You are only charged when a part is saved. Try again in a moment.",
+                      meta={"error": True})
+    if not out.get("ok"):
+        needs = bool(out.get("needs_credits"))
+        message = (out.get("message") or "The code builder could not make that. You were not charged.").strip()
+        return finish(message, meta={"needs_credits": True} if needs else {"error": True}, needs_credits=needs)
+    material = (current["spec"].get("material") if current and mode == "revise" else None)
+    spec = codegen_chat.make_spec(out["id"], out.get("values"), material)
+    facts = codegen_chat.facts_from_stats(out.get("stats"), material)
+    try:
+        part = chat_store.add_part(user_id, chat_id, job_id=None, title=codegen_chat.title(out),
+                                   part_type=codegen_chat.PART_TYPE, spec=spec, notes=[], facts=facts)
+    except Exception:  # noqa: BLE001
+        log.exception("could not save the code part to the chat")
+        return finish("The part was written but could not be added to this chat. It is saved in your code models.",
+                      meta={"error": True}, charged=int(out.get("charged") or 0))
+    results = evaluate(facts)
+    answer = codegen_chat.reply(out, revised=mode == "revise")
+    sentence = _requirement_sentence(results, f"Version {part['version']}")
+    if sentence:
+        answer += " " + sentence
+    return finish(answer, part=part, requirements=results, charged=int(out.get("charged") or 0))
 
 
 def unlock_part(deps: Deps, user_id: str, chat_id: str, part_id: str) -> dict[str, Any]:
@@ -428,7 +534,17 @@ def run_check(deps: Deps, user_id: str, chat_id: str, part_id: str, process: str
             raise NeedCredits(balance, cost)
         spec = part["spec"]
         mesh = None
-        if deps.part_mesh and part.get("job_id"):
+        is_code = codegen_chat.is_part_spec(spec)
+        if is_code and deps.codegen_mesh:
+            try:
+                mesh = deps.codegen_mesh(user_id, codegen_chat.ref(spec))
+            except Exception:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning("code part mesh unavailable for check", exc_info=True)
+        if is_code and mesh is None:
+            # A code part has no dimension rules, so without its mesh the report would be empty.
+            raise CheckFailed("I could not rebuild this part to read its mesh, so nothing was checked and you were not charged.")
+        if deps.part_mesh and part.get("job_id") and not is_code:
             try:
                 mesh = deps.part_mesh(part["job_id"])
             except Exception:  # noqa: BLE001 - no mesh means a dimensions-only check, which the report says
@@ -546,6 +662,10 @@ def dfm_answer(text: str, part: dict | None) -> str | None:
         return None
     spec = part["spec"]
     params, material, ptype = spec.get("parameters") or {}, spec.get("material"), spec["part_type"]
+    if ptype in ("codegen", "imported"):
+        # There are no dimension rules for a free shape, so the rules would find nothing and say "no problems".
+        return ("I have no dimension rules for this shape, so a quick yes from me would mean nothing. Run the "
+                "manufacturability check on the part instead. It reads the mesh for closed surfaces, thin walls and overhangs.")
     names = {"fdm_print": "3D printing", "sheet_metal": "sheet metal", "turning": "turning", "cnc_milling": "CNC milling"}
     tail = " These are rule-of-thumb checks, not a shop quote."
     if process:

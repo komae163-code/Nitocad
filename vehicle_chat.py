@@ -48,12 +48,17 @@ _KINDS = {
     "locomotive": "locomotive", "loco": "locomotive", "train": "locomotive",
     "cart": "cart", "trolley": "cart", "wagon": "cart", "trailer": "cart",
     "vehicle": "vehicle", "buggy": "vehicle", "scooter": "scooter", "go-kart": "vehicle", "gokart": "vehicle",
+    "car": "car", "sedan": "car", "truck": "truck", "lorry": "truck", "pickup": "truck",
+    "bin": "bin", "dustbin": "bin", "wheelie bin": "bin",
+    "airplane": "airplane", "aeroplane": "airplane", "plane": "airplane", "aircraft": "airplane", "jet": "airplane",
+    "engine": "engine",
 }
 _KIND_RE = re.compile(r"\b(" + "|".join(sorted(map(re.escape, _KINDS), key=len, reverse=True)) + r")s?\b", re.I)
 _COMPONENT_AFTER = re.compile(
     r"\b(?:" + "|".join(sorted(map(re.escape, _KINDS), key=len, reverse=True)) + r")s?[\s-]+"
     r"(?:frame|crank|hub|bracket|pedal|handle|handlebar|wheel|gear|sprocket|chain|seat|saddle|fork|axle|bearing|part|"
-    r"component|tyre|tire|brake|spoke|rim|bell|basket|rack)\b", re.I)
+    r"component|tyre|tire|brake|spoke|rim|bell|basket|rack|mount|mounts|holder|housing|cover|lid|plate|adapter|clip|hook|cap|"
+    r"door|panel|block|piston|valve|head|gasket|cylinder|flange|pump|filter|key|keys|seal|wiper|jack|stand|ramp)\b", re.I)
 _MAKE = re.compile(r"\b(creat\w*|make|build|design|draw|model|generate|plan|want|need|wish|start|sketch|prepare|draft|"
                    r"construct|assemble|show me|give me|get me)\b|^\s*(?:an?|the)\s", re.I)
 _EDIT_VERB = re.compile(r"\b(make|change|set|add|remove|delete|use|increase|reduce|decrease|resize|replace|swap|move|put|give|"
@@ -169,8 +174,10 @@ def _words(name: str) -> list[str]:
 # ------------------------------------------------------------------------------ spec -> chat part
 def to_chat_spec(vspec: dict[str, Any], overrides: dict[str, Any] | None = None, *,
                  bbox_fn: BBoxFn | None = None, module_dir: Path | None = None,
-                 library_id: str | None = None) -> dict[str, Any]:
-    """Expand a vehicle spec into the chat's assembly part. Returns {"ok", "spec", "errors", "notes", "expanded"}."""
+                 library_id: str | None = None, stage: int | None = None) -> dict[str, Any]:
+    """Expand a vehicle spec into the chat's assembly part. Returns {"ok", "spec", "errors", "notes", "expanded"}.
+    With `stage` (1, 2, ...) only the parts of the first `stage` build steps are placed (see stage_plan); the result
+    also carries "stage_plan" and, while steps remain, "stage": {"shown", "of"}."""
     ex = VS.expand_vehicle(vspec, overrides, None, module_dir or _module_dir)
     if not ex["ok"]:
         return {"ok": False, "errors": ex["errors"], "notes": [], "spec": None, "expanded": ex}
@@ -195,6 +202,14 @@ def to_chat_spec(vspec: dict[str, Any], overrides: dict[str, Any] | None = None,
         names = ", ".join(e["name"] for e in ex["external"][:4])
         notes.append(f"{len(ex['external'])} downloaded part(s) ({names}) are not in the preview. They are added "
                      "to the package when you press Generate.")
+    splan = stage_plan(vspec, ex) if stage is not None else []
+    stage_info: dict[str, int] | None = None
+    if splan:
+        k = max(1, min(int(stage), len(splan)))
+        if k < len(splan):
+            shown = {n for _, members in splan[:k] for n in members}
+            parts = [p for p in parts if p["name"] in shown]
+            stage_info = {"shown": k, "of": len(splan)}
     out = []
     for p in parts:
         pos = p.get("position")
@@ -211,7 +226,10 @@ def to_chat_spec(vspec: dict[str, Any], overrides: dict[str, Any] | None = None,
                            "name": str(vspec.get("name") or "vehicle")[:40]}}
     if isinstance(library_id, str) and re.match(r"^[a-z0-9_]+$", library_id):
         spec["parameters"]["library_id"] = library_id        # which library record this came from (see on_generated)
-    return {"ok": True, "spec": spec, "errors": [], "notes": notes, "expanded": ex}
+    if stage_info:
+        spec["parameters"]["stage"] = stage_info
+    return {"ok": True, "spec": spec, "errors": [], "notes": notes, "expanded": ex, "stage_plan": splan,
+            "stage": stage_info}
 
 
 def restore_vehicle(planned: dict[str, Any] | None, built: dict[str, Any]) -> dict[str, Any]:
@@ -223,6 +241,9 @@ def restore_vehicle(planned: dict[str, Any] | None, built: dict[str, Any]) -> di
         lid = planned["parameters"].get("library_id")
         if isinstance(lid, str):
             built["parameters"]["library_id"] = lid
+        st = planned["parameters"].get("stage")
+        if isinstance(st, dict):
+            built["parameters"]["stage"] = dict(st)
     return built
 
 
@@ -247,6 +268,84 @@ def on_generated(spec: dict[str, Any] | None, library: SL.SpecLibrary | None = N
         return bool(lib.feedback(added["id"], True).get("ok"))
     except Exception:  # noqa: BLE001
         return False
+
+
+# ------------------------------------------------------------------------------ building in steps
+# Which parts belong to which step, by the start of the part's name. A part that matches nothing joins the last step.
+_STAGES: dict[str, list[tuple[str, tuple[str, ...]]]] = {
+    "wheelbarrow": [("the tray and handles", ("tray", "rail", "handle")), ("the legs and crossbars", ("leg", "cross")),
+                    ("the fork and wheel", ("fork", "front_wheel", "wheel"))],
+    "engine": [("the crankshaft and flywheel", ("engine_crank", "engine_flywheel")),
+               ("the rods and pistons", ("engine_rod", "engine_pin", "engine_piston")),
+               ("the cylinders and head", ("engine_liner", "engine_head"))],
+}
+_NEXT = re.compile(r"^\W*(?:continue\W*)?(next(?: step)?|continue|go on|go ahead|keep going|carry on|yes|yep|yeah|ok|okay|"
+                   r"sure|looks good|good|more|proceed|add (?:it|that|the next (?:part|step|one)))\W*$", re.I)
+_FINISH = re.compile(r"\b(finish|everything|the rest|all of it|whole thing|all (?:the )?(?:parts|steps)|complete it|"
+                     r"build it all|add all)\b", re.I)
+
+
+def stage_plan(vspec: dict[str, Any], expanded: dict[str, Any]) -> list[tuple[str, list[str]]]:
+    """The build steps of a vehicle as [(title, [part names])]. Every step has at least two parts, because a chat
+    assembly needs two. Empty when the vehicle is too small to split."""
+    names = [str(p["name"]) for p in expanded.get("parts") or []]
+    kind = kind_of(str(vspec.get("name") or "").replace("_", " "))
+    plan: list[tuple[str, list[str]]] = []
+    left = list(names)
+    for title, prefixes in _STAGES.get(kind or "", []):
+        hit = [n for n in left if n.startswith(prefixes)]
+        if hit:
+            plan.append((title, hit))
+            left = [n for n in left if n not in hit]
+    if plan and left:
+        plan[-1] = (plan[-1][0], plan[-1][1] + left)
+    if len(plan) < 2:                                          # no table for this kind: one step per group
+        plan, seen = [], set()
+        for g, members in (expanded.get("assemblies") or {}).items():
+            mem = [m for m in members if m in names and m not in seen]
+            seen.update(mem)
+            if mem:
+                plan.append((f"the {str(g).replace('_', ' ')}", mem))
+        rest = [n for n in names if n not in seen]
+        if rest and plan:
+            plan[-1] = (plan[-1][0], plan[-1][1] + rest)
+    merged: list[tuple[str, list[str]]] = []
+    for title, members in plan:
+        if merged and len(merged[-1][1]) < 2:                  # too small to stand alone: join it to the next
+            t0, m0 = merged[-1]
+            merged[-1] = (t0 + " and " + title.removeprefix("the "), m0 + members)
+        else:
+            merged.append((title, list(members)))
+    if len(merged) > 1 and len(merged[-1][1]) < 2:
+        t0, m0 = merged.pop()
+        merged[-1] = (merged[-1][0] + " and " + t0.removeprefix("the "), merged[-1][1] + m0)
+    return merged if len(merged) > 1 else []
+
+
+def describe_stage(vspec: dict[str, Any], expanded: dict[str, Any], splan: list[tuple[str, list[str]]], k: int, *,
+                   changes: list[str] | None = None, notes: list[str] | None = None, first: bool = False) -> str:
+    name = str(vspec.get("name") or "vehicle").replace("_", " ")
+    total = len(expanded.get("parts") or [])
+    shown = sum(len(m) for _, m in splan[:k])
+    if changes:
+        lead = f"Updated the {name}: " + "; ".join(changes[:3]) + f". Step {k} of {len(splan)} is showing, {shown} of {total} parts."
+    elif first:
+        lead = f"Step 1 of {len(splan)} for your {name}: {splan[0][0]}. {shown} of {total} parts so far."
+    else:
+        lead = f"Step {k} of {len(splan)}: added {splan[k - 1][0]}. {shown} of {total} parts so far."
+    bits = [lead]
+    p = _param_defaults(vspec)
+    if first and p:
+        bits.append("Main sizes: " + ", ".join(f"{' '.join(_words(n))} {_fmt(v)}" for n, v in list(p.items())[:6]) + ".")
+    for n in (notes or [])[:2]:
+        bits.append(n)
+    vn = str(vspec.get("notes") or "").strip()
+    if vn and first:
+        bits.append("Note: " + vn[:160] + ("..." if len(vn) > 160 else ""))
+    bits.append(f"Next is {splan[k][0]}. Say next to add it, say finish to add everything, or tell me what to change, "
+                "for example \"make the wheel 400 mm\".")
+    bits.append("This is a free preview and nothing is charged until you press Generate, which makes the parts shown.")
+    return " ".join(bits)
 
 
 # ------------------------------------------------------------------------------ talking about a plan
@@ -446,6 +545,131 @@ def apply_param_edit_rules(text: str, vspec: dict[str, Any]) -> tuple[dict[str, 
     return new, changes, problems
 
 
+# ------------------------------------------------------------------------------ asking before building
+# "I want to build a wheelbarrow" is the start of a conversation, not a full order. With little to go on, the chat
+# asks one short question at a time (tappable) and says where it would start. Once there is enough detail, or the
+# person says to just build it, the vehicle is planned. Asking is free: no AI is called and nothing is charged.
+_SCOPE_LEAD = "Before I build"
+_ENOUGH = 3                      # concrete details (sizes, a material, a count) that count as a full order
+_MAX_ROUNDS = 5                  # user messages in one scoping chat before it builds whatever it has
+_SKIP = re.compile(r"\b(just (?:build|make|do) it|go ahead|you (?:decide|choose|pick)|surprise me|use (?:the )?defaults?|"
+                   r"don'?t ask|no questions|skip (?:the |these |your )?questions|build it now|build it all|"
+                   r"whatever you (?:like|think))\b", re.I)
+_MATERIAL = re.compile(r"\b(steel|aluminium|aluminum|plastic|wood\w*|timber|titanium|carbon|fibre|fiber|abs|pla|nylon|"
+                       r"brass|copper|iron|stainless|glass|rubber)\b", re.I)
+_COUNT = re.compile(r"\b(single|one|two|twin|three|four|five|six|eight|dual|double|triple|\d+)[\s-]+"
+                    r"(?:wheel\w*|axle\w*|cylinder\w*|seat\w*|door\w*|rotor\w*|blade\w*|engine\w*|wing\w*|compartment\w*|"
+                    r"lid\w*|propeller\w*)\b", re.I)
+_DIGITS = re.compile(r"(?<![A-Za-z\d.])\d+(?:\.\d+)?")
+
+_INSIDE = ("Should the inside be modelled too?", ["Yes, engine and gearbox too", "Outer shape only"])
+_GENERIC = [("What will it be used for?", ["Carrying loads", "Carrying people", "A display model"]),
+            ("How big should it be?", ["Small, about 300 mm long", "Medium, about 1 m long", "Large, about 3 m long"])]
+_SCOPE: dict[str, dict[str, Any]] = {
+    "wheelbarrow": {"start": "the tray and handles first, then the legs, then the fork and wheel", "q": [
+        ("What size should it be?", ["Small, about 40 litre", "Garden, about 90 litre", "Builder's, about 120 litre"]),
+        ("What is it made of?", ["Steel tray and steel tube frame", "Plastic tray on a steel frame"]),
+        ("How many wheels?", ["One wheel", "Two wheels"])]},
+    "bicycle": {"start": "the frame first, then the wheels and fork, then the drivetrain", "q": [
+        ("What kind of bike?", ["Road bike", "Mountain bike", "City bike"]),
+        ("What is the frame made of?", ["Steel frame", "Aluminium frame"]),
+        ("What wheel size?", ["700c wheels", "26 inch wheels", "20 inch wheels"])]},
+    "helicopter": {"start": "the body and tail first, then the rotor, then the engine inside", "q": [
+        ("How big is it?", ["RC model, about 600 mm rotor", "Drone size, about 300 mm rotor", "Small cabin, about 7 m rotor"]),
+        ("How many rotors?", ["One main rotor", "Two main rotors"]), _INSIDE]},
+    "car": {"start": "the chassis and wheels first, then the body, then the engine and gearbox", "q": [
+        ("What kind of car?", ["Small city car", "Sedan", "Pickup"]),
+        ("How big is it?", ["Toy, about 300 mm long", "Model, about 450 mm long", "Full size, about 4 m long"]), _INSIDE]},
+    "truck": {"start": "the chassis and wheels first, then the cab, then the load bed and engine", "q": [
+        ("What kind of truck?", ["Pickup", "Box truck", "Tipper"]),
+        ("How big is it?", ["Toy, about 300 mm long", "Model, about 450 mm long", "Full size, about 6 m long"]), _INSIDE]},
+    "bin": {"start": "the body first, then the lid, then the handle and wheels", "q": [
+        ("What kind of bin?", ["Kitchen bin with a lid", "Wheelie bin", "Recycling bin with compartments"]),
+        ("What size is it?", ["About 30 litre", "About 120 litre", "About 240 litre"]),
+        ("What is it made of?", ["Plastic", "Steel"])]},
+    "airplane": {"start": "the fuselage first, then the wings and tail, then the engine inside", "q": [
+        ("What kind of aircraft?", ["Small prop plane", "RC model plane", "Jet airliner"]),
+        ("What wingspan?", ["About 1 m", "About 10 m", "About 35 m"]), _INSIDE]},
+    "engine": {"start": "the crankshaft first, then the rods and pistons, then the cylinders and head", "q": [
+        ("What kind of engine?", ["Single cylinder", "Two cylinder inline", "Four cylinder inline"]),
+        ("How big is it?", ["Tiny, bore about 20 mm", "Small, bore about 30 mm", "Car size, bore about 85 mm"]),
+        ("What is it made of?", ["Steel and aluminium", "All steel"])]},
+}
+_ALL_QUESTIONS = sorted({q for v in list(_SCOPE.values()) + [{"q": _GENERIC}] for q, _ in v["q"]}, key=len, reverse=True)
+
+
+def detail_score(text: str) -> int:
+    """How many concrete details a message holds: up to 3 numbers, a material, a count of parts."""
+    t = text or ""
+    return (min(len(set(_DIGITS.findall(t))), 3) + (1 if _MATERIAL.search(t) else 0) + (1 if _COUNT.search(t) else 0))
+
+
+def _scope_chain(history: list[dict[str, Any]]) -> list[str]:
+    """The user messages of the scoping chat that ends the history, oldest first. A scoping chat is a request followed
+    by our questions and the person's answers; any other assistant message ends it."""
+    msgs, i, chain = list(history or []), len(history or []) - 1, []
+    while i >= 0 and msgs[i].get("role") == "user":
+        chain.append(str(msgs[i].get("content") or ""))
+        if i >= 1 and msgs[i - 1].get("role") == "assistant" and str(msgs[i - 1].get("content") or "").startswith(_SCOPE_LEAD):
+            i -= 2
+        else:
+            break
+    chain.reverse()
+    return chain
+
+
+def scope_turn(history: list[dict[str, Any]], current_spec: dict[str, Any] | None):
+    """None when the normal vehicle flow should handle the message (not a vehicle request, an edit to a vehicle on the
+    bench, or a request detailed enough to build as it stands). Otherwise ("ask", Plan) with one tappable question, or
+    ("build", description, staged) once the chat has enough, where staged says the build should come in steps.
+    Never raises."""
+    try:
+        return _scope(history, current_spec)
+    except Exception:  # noqa: BLE001 - a scoping problem must never break the chat; build as before
+        import logging
+        logging.getLogger(__name__).exception("vehicle scoping failed")
+        return None
+
+
+def _scope(history, current_spec):
+    if vehicle_of(current_spec) is not None:
+        return None                                       # editing a vehicle that exists: no questions
+    chain = _scope_chain(history)
+    if not chain:
+        return None
+    forced = bool(_FORCED.match(chain[0]))
+    first = (_FORCED.match(chain[0]).group(1) if forced else chain[0]).strip()
+    if len(chain) == 1 and not (forced or is_vehicle_request(first)):
+        return None
+    kind = kind_of(first)
+    if kind is None:
+        return None                                       # an unnamed machine goes to the planner as it always did
+    raw = " ".join(chain)
+    desc = raw
+    for q in _ALL_QUESTIONS:
+        desc = desc.replace(q, " ")
+    desc = " ".join((_FORCED.match(desc).group(1) if _FORCED.match(desc) else desc).split())
+    if forced:
+        desc = "Vehicle: " + desc
+    skip = bool(_SKIP.search(desc))
+    if len(chain) == 1 and (skip or detail_score(desc) >= _ENOUGH):
+        return None                                       # the person gave the full order: build it as before
+    questions = (_SCOPE.get(kind) or {"q": _GENERIC})["q"]
+    remaining = [qa for qa in questions if qa[0] not in raw]
+    if skip or detail_score(desc) >= _ENOUGH or not remaining or len(chain) >= _MAX_ROUNDS:
+        return ("build", desc, not skip)
+    name = str(kind).replace("_", " ")
+    start = (_SCOPE.get(kind) or {}).get("start") or "the main body first, then the moving parts, then the details"
+    if len(chain) == 1:
+        reply = (f"{_SCOPE_LEAD} the {name}, I need a few choices so it comes out right. I would start with {start}. "
+                 "Tap an answer, type your own sizes, or say just build it to skip the questions.")
+    else:
+        reply = f"{_SCOPE_LEAD} the {name}, one more choice."
+    q, opts = remaining[0]
+    from conversation import Plan
+    return ("ask", Plan("answer", reply, None, "rules", choices=[{"question": q, "options": list(opts)}]))
+
+
 # ------------------------------------------------------------------------------ the turn
 def _plan_obj(intent: str, reply: str, spec: dict | None, source: str, changes: list[str] | None = None):
     from conversation import Plan
@@ -490,30 +714,38 @@ def _answer_question(text: str, vspec: dict[str, Any], llm: LLM | None):
 
 def _build_plan(vspec: dict[str, Any], expanded_hint: dict[str, Any] | None, *, intent: str, source: str,
                 changes: list[str] | None, previous: dict[str, Any] | None, unresolved: list[dict] | None,
-                from_example: bool = False, library_id: str | None = None):
-    built = to_chat_spec(vspec, library_id=library_id)
+                from_example: bool = False, library_id: str | None = None, stage: int | None = None):
+    built = to_chat_spec(vspec, library_id=library_id, stage=stage)
     if not built["ok"]:
         return _answer("I planned it but could not place the parts. " + " ".join(built["errors"])[:300]
                        + " Nothing was built and nothing was charged.", source)
     ex = built["expanded"]
     edited = intent == "edit"
-    reply = describe_plan(vspec, ex, edited=edited, changes=changes, unresolved=unresolved,
-                          notes=built["notes"], from_example=from_example)
+    if built.get("stage"):
+        k = built["stage"]["shown"]
+        reply = describe_stage(vspec, ex, built["stage_plan"], k, changes=changes if edited else None,
+                               notes=built["notes"], first=(k == 1 and not edited))
+        if from_example:
+            reply += " This is the built-in example. Pick an AI below to have it fitted to your description."
+    else:
+        reply = describe_plan(vspec, ex, edited=edited, changes=changes, unresolved=unresolved,
+                              notes=built["notes"], from_example=from_example)
     return _plan_obj(intent, reply, built["spec"], source, changes)
 
 
 def plan_vehicle_turn(last_user: str, current_spec: dict[str, Any] | None, *, llm: LLM | None = None,
-                      library: SL.SpecLibrary | None = None):
-    """A Plan for this message when it is about a vehicle, otherwise None. Never raises."""
+                      library: SL.SpecLibrary | None = None, staged: bool = False):
+    """A Plan for this message when it is about a vehicle, otherwise None. Never raises. `staged` builds a new vehicle
+    one step at a time (the chat sets it after asking its questions); without it a new vehicle is built whole."""
     try:
-        return _turn(last_user, current_spec, llm, library)
+        return _turn(last_user, current_spec, llm, library, staged)
     except Exception:  # noqa: BLE001 - a vehicle problem must never break the chat; the normal planner takes over
         import logging
         logging.getLogger(__name__).exception("vehicle turn failed")
         return None
 
 
-def _turn(text: str, current_spec: dict | None, llm: LLM | None, library: SL.SpecLibrary | None):
+def _turn(text: str, current_spec: dict | None, llm: LLM | None, library: SL.SpecLibrary | None, staged: bool = False):
     text = (text or "").strip()
     if not text:
         return None
@@ -529,46 +761,80 @@ def _turn(text: str, current_spec: dict | None, llm: LLM | None, library: SL.Spe
         return None                                      # not about a vehicle: no library, no model, nothing touched
     lib = library or get_library()
     if current is None:
-        return _start(text, llm, lib)
+        return _start(text, llm, lib, staged)
+    params = (current_spec or {}).get("parameters") or {}
+    lid = params.get("library_id") if forced is None else None
+    lid = lid if isinstance(lid, str) else None
+    st = params.get("stage")
+    shown = st.get("shown") if isinstance(st, dict) and isinstance(st.get("shown"), int) else None
+    if shown is not None and not new_request:                      # a build in steps is in progress
+        finish = len(text.split()) <= 6 and bool(_FINISH.search(text))
+        if finish or _NEXT.match(text):
+            return _advance(current, shown, finish, lid)
+    elif _NEXT.match(text):                                        # nothing left to add
+        return _answer("Every part is already showing. Tell me what to change, or press Generate to make the files.")
     if _QUESTION.search(text) and not _EDIT_VERB.search(text):
         return _answer_question(text, current, llm)
-    lid = ((current_spec or {}).get("parameters") or {}).get("library_id") if forced is None else None
-    return _edit(text, current, llm, lib, lid if isinstance(lid, str) else None)
+    return _edit(text, current, llm, lib, lid, shown)
 
 
-def _start(text: str, llm: LLM | None, lib: SL.SpecLibrary):
+def _advance(current: dict[str, Any], shown: int, to_end: bool, library_id: str | None):
+    """Add the next build step (or all that is left) to the vehicle on the bench. Free, no AI."""
+    ex = VS.expand_vehicle(current, None, None, _module_dir)
+    splan = stage_plan(current, ex) if ex["ok"] else []
+    if not splan or shown >= len(splan):
+        return _answer("Every part is already showing. Tell me what to change, or press Generate to make the files.")
+    k = len(splan) if to_end else shown + 1
+    added = [f"added {t}" for t, _ in splan[shown:k]]
+    return _build_plan(current, None, intent="edit", source="rules", changes=added, previous=current, unresolved=None,
+                       library_id=library_id, stage=k)
+
+
+def _start(text: str, llm: LLM | None, lib: SL.SpecLibrary, staged: bool = False):
+    first_stage = 1 if staged else None
     errors: list[str] = []
     timed_out = False
     if llm is not None:
         r = VP.plan_vehicle(text, llm, lib, time_budget_s=_plan_budget())
         if r["ok"]:
             return _build_plan(r["spec"], r["expanded"], intent="build", source="llm", changes=None, previous=None,
-                               unresolved=r.get("unresolved_checks"), library_id=r.get("candidate_id"))
+                               unresolved=r.get("unresolved_checks"), library_id=r.get("candidate_id"),
+                               stage=first_stage)
         errors = r.get("errors") or []
         timed_out = bool(r.get("timed_out"))
     # No AI (Engine plan) or the AI failed: the closest built-in example, said plainly.
     hits = lib.search(text, k=1)
+    want = kind_of(re.sub(r"^\s*(?:vehicle|machine)\s*:", "", text, flags=re.I))
+    if hits and want:                                     # never hand back an example of a different kind of vehicle
+        got = kind_of(str(hits[0]["spec"].get("name") or "").replace("_", " "))
+        if got not in (None, want):
+            hits = []
     if hits:
         plan = _build_plan(hits[0]["spec"], None, intent="build", source="rules", changes=None, previous=None,
-                           unresolved=None, from_example=True)
+                           unresolved=None, from_example=True, stage=first_stage)
         if errors and plan.spec:
             plan.reply = (("The AI took too long to plan that, so this is the closest built-in example. " if timed_out
                            else "The AI could not finish that plan, so this is the closest built-in example. ") + plan.reply)
         return plan
+    if llm is None and want:
+        return _answer(f"Without an AI I can only build the built-in examples: wheelbarrow, bicycle, two-axle cart, RC "
+                       f"helicopter and small locomotive. Pick an AI in the box below to plan a {want}. "
+                       "Nothing was built and nothing was charged.")
     why = (" " + errors[-1][:200] if timed_out else " " + errors[0][:200]) if errors else ""
     return _answer("I could not plan that vehicle." + why + " Nothing was built and nothing was charged. "
                    "Try one of: wheelbarrow, bicycle, two-axle cart, RC helicopter, small locomotive, "
                    "or describe the parts and sizes.", "llm" if llm is not None else "rules")
 
 
-def _edit(text: str, current: dict[str, Any], llm: LLM | None, lib: SL.SpecLibrary, library_id: str | None = None):
+def _edit(text: str, current: dict[str, Any], llm: LLM | None, lib: SL.SpecLibrary, library_id: str | None = None,
+          stage: int | None = None):
     # A message that is only size edits ("set tray_len to 900", "increase the wheel diameter by 10%") needs no AI:
     # it is answered by the rules, free and at once. Anything else goes to the model as before.
     new, changes, problems, unclear, understood = _edit_rules(text, current)
     if understood and not unclear:
         if changes:
             plan = _build_plan(new, None, intent="edit", source="rules", changes=changes, previous=current,
-                               unresolved=None, library_id=library_id)
+                               unresolved=None, library_id=library_id, stage=stage)
             if problems and plan.spec:
                 plan.reply += " Left as it was: " + "; ".join(problems[:2]) + "."
             return plan
@@ -583,7 +849,7 @@ def _edit(text: str, current: dict[str, Any], llm: LLM | None, lib: SL.SpecLibra
                 return _answer("That does not change the design. Tell me what to change, for example "
                                "\"make the wheel 400 mm\" or \"add a second axle\".", "llm")
             return _build_plan(r["spec"], r["expanded"], intent="edit", source="llm", changes=changes,
-                               previous=current, unresolved=r.get("unresolved_checks"), library_id=library_id)
+                               previous=current, unresolved=r.get("unresolved_checks"), library_id=library_id, stage=stage)
         err = (r.get("errors") or ["the change could not be planned"])[0][:200]
         if r.get("timed_out"):
             err = "that took too long to plan"
@@ -591,11 +857,11 @@ def _edit(text: str, current: dict[str, Any], llm: LLM | None, lib: SL.SpecLibra
         if not changes:
             return _answer(f"I could not make that change: {err}. Nothing was changed and nothing was charged.", "llm")
         return _build_plan(new, None, intent="edit", source="rules", changes=changes, previous=current, unresolved=None,
-                           library_id=library_id)
+                           library_id=library_id, stage=stage)
     new, changes, problems = apply_param_edit_rules(text, current)
     if changes:
         return _build_plan(new, None, intent="edit", source="rules", changes=changes, previous=current, unresolved=None,
-                           library_id=library_id)
+                           library_id=library_id, stage=stage)
     if problems:
         return _answer("I did not change it: " + "; ".join(problems[:2]) + ".")
     sizes = ", ".join(' '.join(_words(k)) for k in list(_param_defaults(current))[:6])

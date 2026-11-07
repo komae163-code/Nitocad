@@ -29,7 +29,7 @@ def placed(name):
 
 def test_summary_lists_sizes_groups_and_checks():
     s = VV.summary(example("wheelbarrow"))
-    assert s["ok"] and s["parts"] == 13 and set(s["groups"]) == {"tray", "frame", "wheel"}
+    assert s["ok"] and s["parts"] == 15 and set(s["groups"]) == {"tray", "frame", "wheel"}
     wd = next(x for x in s["sizes"] if x["name"] == "wheel_dia")
     assert wd["value"] == 400 and wd["min"] == 200 and wd["label"] == "wheel dia"
     assert all(c["status"] == "pass" for c in s["checks"]) and s["limits"]
@@ -42,9 +42,9 @@ def test_summary_reports_a_broken_spec_without_raising():
 def test_exploded_whole_vehicle_and_one_group():
     v = example("wheelbarrow")
     r = VV.exploded(v, placed("wheelbarrow"), box)
-    assert r["ok"] and len(r["viewer"]["parts"]) == 13 and r["groups"] == ["tray", "frame", "wheel"]
+    assert r["ok"] and len(r["viewer"]["parts"]) == 15 and r["groups"] == ["tray", "frame", "wheel"]
     g = VV.exploded(v, placed("wheelbarrow"), box, group="wheel")
-    assert g["ok"] and 2 <= len(g["viewer"]["parts"]) < 13
+    assert g["ok"] and 2 <= len(g["viewer"]["parts"]) < 15
 
 
 def test_exploded_unknown_group_and_too_few_parts_are_plain_errors():

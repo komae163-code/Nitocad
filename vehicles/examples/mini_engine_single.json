@@ -1,0 +1,262 @@
+{
+ "name": "mini_engine_single",
+ "notes": "Concept layout of a small single cylinder piston engine (motor, mini engine, one cylinder, internal combustion). Crank axis is Z, the cylinder axis is +X, the crank pin starts at top dead centre. One crankcase block with the bore cut, a flat head plate, a one-throw crankshaft with a flywheel, and a piston, gudgeon pin and connecting rod from the piston_slider module. No valves, camshaft, ports, rings, sump or crankcase halves. The block is one piece and the crank journals sit in plain bores. Dimensional layout only, not a running or rated engine.",
+ "params": {
+  "bore": {
+   "default": 28,
+   "min": 10,
+   "max": 150
+  },
+  "stroke": {
+   "default": 30,
+   "min": 8,
+   "max": 150
+  },
+  "rod_len": {
+   "default": 52,
+   "min": 20,
+   "max": 400
+  },
+  "pin_dia": {
+   "default": 7,
+   "min": 3,
+   "max": 30
+  },
+  "rod_t": {
+   "default": 9,
+   "min": 3,
+   "max": 30
+  },
+  "crank_pin": {
+   "default": 12,
+   "min": 5,
+   "max": 80
+  },
+  "main_dia": {
+   "default": 16,
+   "min": 6,
+   "max": 100
+  },
+  "web_t": {
+   "default": 6,
+   "min": 2,
+   "max": 30
+  },
+  "rod_jrn_len": {
+   "default": 10,
+   "min": 4,
+   "max": 60
+  },
+  "main_len": {
+   "default": 10,
+   "min": 4,
+   "max": 60
+  }
+ },
+ "derived": {
+  "cr": "=stroke/2",
+  "pitch": "=2*web_t + rod_jrn_len + main_len",
+  "total": "=main_len + 1*pitch",
+  "z0": "=main_len + web_t + rod_jrn_len/2",
+  "void_r": "=cr + crank_pin*0.75 + 4",
+  "block_w": "=2*(void_r + 5)",
+  "x_min": "=-(void_r + 5)",
+  "deck_x": "=cr + rod_len + bore*0.45 + 0.5"
+ },
+ "components": [
+  {
+   "id": "block",
+   "type": "feature_tree",
+   "assembly": "block",
+   "fixed": true,
+   "material": "aluminium",
+   "parameters": {
+    "features": [
+     {
+      "id": "casting",
+      "op": "extrude",
+      "plane": "XY",
+      "distance": "=total",
+      "profile": {
+       "type": "rect",
+       "width": "=deck_x - x_min",
+       "height": "=block_w",
+       "center": [
+        "=(deck_x + x_min)/2",
+        0
+       ]
+      }
+     },
+     {
+      "id": "main_bore",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": -1,
+      "distance": "=total + 2",
+      "mode": "cut",
+      "profile": {
+       "type": "circle",
+       "diameter": "=main_dia",
+       "center": [
+        0,
+        0
+       ]
+      }
+     },
+     {
+      "id": "crank_void",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=main_len",
+      "distance": "=2*web_t + rod_jrn_len",
+      "mode": "cut",
+      "profile": {
+       "type": "circle",
+       "diameter": "=2*void_r",
+       "center": [
+        0,
+        0
+       ]
+      }
+     },
+     {
+      "id": "cyl_bore",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": 0,
+      "distance": "=deck_x + 1",
+      "mode": "cut",
+      "profile": {
+       "type": "circle",
+       "diameter": "=bore",
+       "center": [
+        0,
+        "=z0"
+       ]
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "head",
+   "type": "simple_box",
+   "assembly": "block",
+   "material": "aluminium",
+   "parameters": {
+    "length_mm": 18,
+    "width_mm": "=block_w",
+    "height_mm": "=total",
+    "hollow": false
+   },
+   "position": [
+    "=deck_x + 9",
+    0,
+    "=total/2"
+   ]
+  },
+  {
+   "id": "crank",
+   "type": "crankshaft",
+   "assembly": "crank",
+   "material": "steel",
+   "parameters": {
+    "num_throws": 1,
+    "stroke_mm": "=stroke",
+    "main_journal_diameter_mm": "=main_dia",
+    "main_journal_length_mm": "=main_len",
+    "rod_journal_diameter_mm": "=crank_pin",
+    "rod_journal_length_mm": "=rod_jrn_len",
+    "web_thickness_mm": "=web_t",
+    "counterweight_radius_mm": "=main_dia/2 + 3",
+    "counterweight_offset_mm": "=stroke/3",
+    "nose_diameter_mm": "=main_dia*0.7",
+    "nose_length_mm": 15,
+    "flange_diameter_mm": "=main_dia*1.3",
+    "flange_length_mm": 10
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "flywheel",
+   "type": "spacer",
+   "assembly": "crank",
+   "material": "steel",
+   "parameters": {
+    "outer_diameter_mm": "=main_dia*4.4",
+    "inner_diameter_mm": "=main_dia*1.3",
+    "length_mm": 10
+   },
+   "position": [
+    0,
+    0,
+    "=total"
+   ]
+  },
+  {
+   "id": "cyl1",
+   "module": "piston_slider",
+   "assembly": "cylinder_1",
+   "params": {
+    "bore": "=bore",
+    "stroke": "=stroke",
+    "rod_len": "=rod_len",
+    "pin_dia": "=pin_dia",
+    "rod_t": "=rod_t",
+    "crank_pin_dia": "=crank_pin",
+    "crank_deg": 0
+   },
+   "position": [
+    0,
+    0,
+    "=z0"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "name": "bores_do_not_touch",
+   "expr": "=bore < pitch - 2",
+   "message": "cylinder bores would break into each other, lengthen the crank throw spacing"
+  },
+  {
+   "name": "rod_fits_journal",
+   "expr": "=rod_t <= rod_jrn_len - 0.5",
+   "message": "connecting rod is wider than the crank pin journal"
+  },
+  {
+   "name": "crankcase_clears_big_end",
+   "expr": "=cr + crank_pin*0.75 < void_r",
+   "message": "big end would hit the crankcase wall"
+  },
+  {
+   "name": "crankcase_clears_weights",
+   "expr": "=stroke/3 + main_dia/2 + 3 < void_r",
+   "message": "counterweights would hit the crankcase wall"
+  },
+  {
+   "name": "crank_pin_inside_web",
+   "expr": "=crank_pin <= main_dia + stroke",
+   "message": "crank pin journal is larger than the web can carry"
+  },
+  {
+   "name": "block_wider_than_bore",
+   "expr": "=block_w > bore + 6",
+   "message": "no wall left around the cylinder"
+  },
+  {
+   "name": "long_rod",
+   "expr": "=rod_len > 1.5*stroke*0.75",
+   "message": "rod is too short for this stroke"
+  }
+ ]
+}

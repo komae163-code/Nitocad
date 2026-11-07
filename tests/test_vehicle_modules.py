@@ -25,7 +25,7 @@ def test_every_shipped_module_expands_alone_and_passes_its_own_checks():
 
 
 def test_shipped_vehicles_expand_with_all_design_checks_passing():
-    expect = {"wheelbarrow": 13, "bicycle": 28, "rc_helicopter": 30}
+    expect = {"wheelbarrow": 15, "bicycle": 28, "rc_helicopter": 30}
     for name, n in expect.items():
         r = V.expand_vehicle(load(name))
         assert r["ok"], (name, r["errors"])
@@ -99,23 +99,28 @@ def test_between_computes_position_rotation_and_length():
     s = {"name": "t", "components": [
         {"id": "diag", "type": "tube", "between": [[0, 0, 0], [100, 0, 100]], "parameters": {"outer_diameter_mm": 25, "wall_thickness_mm": 2}},
         {"id": "lat", "type": "tube", "between": [[0, -50, 0], [0, 50, 0]], "parameters": {"outer_diameter_mm": 25, "wall_thickness_mm": 2}},
-        {"id": "base_o", "type": "tube", "origin": "base", "between": [[10, 0, 0], [10, 0, 80]], "parameters": {"outer_diameter_mm": 25, "wall_thickness_mm": 2}}]}
+        {"id": "base_o", "type": "tube", "origin": "base", "between": [[10, 0, 0], [10, 0, 80]], "parameters": {"outer_diameter_mm": 25, "wall_thickness_mm": 2}},
+        {"id": "mid_o", "type": "tube", "origin": "center", "between": [[0, 0, 0], [100, 0, 100]], "parameters": {"outer_diameter_mm": 25, "wall_thickness_mm": 2}}]}
     r = V.expand_vehicle(s)
     p = {x["name"]: x for x in r["parts"]}
     assert r["ok"], r["errors"]
-    assert list(p["diag"]["position"]) == [50.0, 0.0, 50.0] and list(p["diag"]["rotation"]) == [0.0, 45.0, 0.0]
+    # the tube and shaft templates extrude from the origin, so a tube is placed by its start point
+    assert list(p["diag"]["position"]) == [0.0, 0.0, 0.0] and list(p["diag"]["rotation"]) == [0.0, 45.0, 0.0]
+    assert list(p["mid_o"]["position"]) == [50.0, 0.0, 50.0]            # unless the part's origin is mid-length
     assert abs(p["diag"]["parameters"]["length_mm"] - 141.4214) < 1e-3
     assert list(p["lat"]["rotation"]) == [-90.0, 0.0, 0.0] and p["lat"]["parameters"]["length_mm"] == 100.0
+    assert list(p["lat"]["position"]) == [0.0, -50.0, 0.0]
     assert list(p["base_o"]["position"]) == [10.0, 0.0, 0.0]
 
 
 def test_between_rejects_unsupported_cases():
     base = {"type": "tube", "parameters": {"outer_diameter_mm": 25, "wall_thickness_mm": 2}}
-    cases = [{"between": [[0, 0, 0], [1, 1, 1]]},                       # 3D diagonal
-             {"between": [[0, 0, 0], [0, 0, 0]]},                       # zero length
+    cases = [{"between": [[0, 0, 0], [0, 0, 0]]},                       # zero length
              {"between": [[0, 0, 0], [5, 0, 5]], "position": [0, 0, 0]},
              {"between": [[0, 0, 0], [5, 0, 5]], "origin": "middle"},
              {"between": [[0, 0, 0], [5, 0, 5]], "parameters": {"outer_diameter_mm": 25, "wall_thickness_mm": 2, "length_mm": 9}}]
     for extra in cases:
         r = V.expand_vehicle({"name": "t", "components": [{"id": "x", **{**base, **extra}}]})
         assert not r["ok"], extra
+    diag = V.expand_vehicle({"name": "t", "components": [{"id": "x", **base, "between": [[0, 0, 0], [1, 1, 1]]}]})
+    assert diag["ok"]                                                    # a 3D diagonal is drawn now, in any direction

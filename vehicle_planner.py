@@ -55,9 +55,14 @@ A component is one of:
   with optional "repeat":{"n","step":[dx,dy,dz]} (ids get _1.._n; i and n usable in formulas)
   or "mirror":"y" (ids get _l/_r; only the y position flips, set rotation yourself)
   or "mate":{"type":"face"|"coaxial","to":"earlier_part",...} instead of position (quarter-turn rotations only)
-  or "between":[[x,y,z],[x,y,z]] for tubes/shafts drawn from end point to end point (X-Z plane or along Y only)
+  or "between":[[x,y,z],[x,y,z]] for tubes/shafts drawn from end point to end point (any direction, including slanted in plan view; with "mirror" the right side is a true mirror image)
   {"id","module","params":{...},"position":[x,y,z],"assembly"}  places a reusable module (translation only)
-  {"id","source":{"provider","query"},"position":[x,y,z]}  an external part fetched later
+  {"id","source":{"provider","query"},"position":[x,y,z]}  an external part fetched later. Providers:
+    "cq_warehouse"     fasteners, bearings, chains, sprockets as editable solids (query like "hex nut", "ball bearing")
+    "freecad_library"  community STEP parts, real solids (query by part name, like "bearing 608")
+    "nvidia_simready"  simulation props such as boxes, tools, food, safety gear. Visual reference only, with no mass,
+                       fit or STEP, so use it only for scene props (query like "cardboard box")
+  Use the first two for anything that carries load or must fit.
 ids are lowercase snake_case. A part needs `position` OR `mate` OR `between`, never two.
 Use ONLY the part types and modules listed below, with their exact parameter names. If something you need does not
 exist, approximate it with what does and say so in `notes`. Add `checks` that would catch an impossible layout."""

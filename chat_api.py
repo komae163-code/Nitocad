@@ -24,6 +24,7 @@ delete another's chat.
 description. The studio talks to POST /chats/{id}/messages instead.
 """
 
+import asyncio
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -110,6 +111,17 @@ def _with_checks(chat: dict, user_id: str) -> dict:
     return chat
 
 
+def _codegen_bridge(model, loop):
+    """Sync callables for chat_service.Deps over the code builder, or None when it is not mounted."""
+    try:
+        import codegen_api
+        import codegen_chat
+    except Exception:  # noqa: BLE001 - the chat works without the code builder
+        return None
+    service = codegen_api.get_service()
+    return codegen_chat.Bridge(service, getattr(model, "id", None), loop) if service else None
+
+
 def _part_mesh_from(generator):
     """(job_id) -> (vertices, triangles) read from the job's STL, or None. Rebuilds the STL if the
     instance no longer has it."""
@@ -123,7 +135,7 @@ def _part_mesh_from(generator):
 def build_router(*, generator, limiter) -> APIRouter:
     router = APIRouter(tags=["chats"])
 
-    def make_deps(model: ai_models.ModelSpec | None = None) -> chat_service.Deps:
+    def make_deps(model: ai_models.ModelSpec | None = None, loop: Any = None) -> chat_service.Deps:
         spec_model = model or ai_models.find(settings, None)
         tier = spec_model.tier
 
@@ -186,6 +198,7 @@ def build_router(*, generator, limiter) -> APIRouter:
         def build_files(job_id):
             generator.export_format_for_job(job_id, "step", anchor=False)
 
+        bridge = _codegen_bridge(spec_model, loop) if tier != "engine" else None
         return chat_service.Deps(
             plan=plan,
             generate=generate,
@@ -199,6 +212,9 @@ def build_router(*, generator, limiter) -> APIRouter:
             refund_job=db.refund_job_charge,
             build_files=build_files,
             part_mesh=_part_mesh_from(generator),
+            codegen_start=bridge.start if bridge else None,
+            codegen_revise=bridge.revise if bridge else None,
+            codegen_mesh=bridge.mesh if bridge else None,
             check_cost=int(settings.CHECK_CREDITS),
             charge_credits=lambda uid, amount: db.charge_credits(uid, amount, ai_tier=tier),
             refund_credits=lambda uid, pool, amount: db.refund_credits(uid, pool, amount),
@@ -344,7 +360,7 @@ def build_router(*, generator, limiter) -> APIRouter:
                        "Pick DeepSeek or upgrade to use it.",
             )
         try:
-            out = await run_in_threadpool(chat_service.run_turn, make_deps(model), uid, chat_id, text)
+            out = await run_in_threadpool(chat_service.run_turn, make_deps(model, asyncio.get_running_loop()), uid, chat_id, text)
         except chat_service.ChatNotFound:
             raise HTTPException(status_code=404, detail="Chat not found")
         except chat_service.ChatBusy:
@@ -353,7 +369,8 @@ def build_router(*, generator, limiter) -> APIRouter:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
         if out.get("part"):
             out["part"]["anchor_tx"] = None
-            out["part"]["paid"] = False  # every message builds a free preview
+            # A template message builds a free preview. A code part was paid for when it was written.
+            out["part"]["paid"] = out["part"].get("part_type") == "codegen"
             part_tier = ai_models.pricing_tier(model, "llm" if out.get("plan_source") == "llm" else "rules")
             out["part"]["ai_tier"] = part_tier
             out["part"]["generate_credits"] = ai_models.generate_credits(settings, part_tier)
@@ -416,7 +433,7 @@ def build_router(*, generator, limiter) -> APIRouter:
         then the saved report reopens free. Runs no AI."""
         uid = _uid(wallet)
         try:
-            return await run_in_threadpool(chat_service.run_check, make_deps(), uid, chat_id, part_id, body.process.strip())
+            return await run_in_threadpool(chat_service.run_check, make_deps(None, asyncio.get_running_loop()), uid, chat_id, part_id, body.process.strip())
         except (chat_service.ChatNotFound, chat_service.PartNotFound):
             raise HTTPException(status_code=404, detail="Part not found")
         except chat_service.CheckRefused as exc:

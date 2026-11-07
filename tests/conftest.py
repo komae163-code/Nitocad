@@ -139,3 +139,13 @@ def wallet_with_credits(wallet_session, tmp_db):
     test spends."""
     tmp_db.add_credits(wallet_session["wallet_address"], 1000)
     return wallet_session
+
+
+@pytest.fixture(autouse=True)
+def _isolated_asset_cache(tmp_path_factory, monkeypatch):
+    """Downloaded assets and the library listing go to a throwaway folder, never into the project's data/."""
+    import asset_providers
+    monkeypatch.setenv("NITOCAD_ASSET_CACHE", str(tmp_path_factory.mktemp("asset_cache")))
+    asset_providers.FreeCADLibrary._SHARED.clear()
+    yield
+    asset_providers.FreeCADLibrary._SHARED.clear()

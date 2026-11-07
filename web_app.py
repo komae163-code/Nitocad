@@ -27,6 +27,8 @@ import botchain_pay
 import admin_stats
 import chat_api
 import vehicle_api
+import codegen_api
+import codegen_store
 import civil_api
 import file_api
 import pcb_api
@@ -53,6 +55,8 @@ async def lifespan(app: FastAPI):
     db.init_db()
     chat_store.configure(db.get_conn)
     chat_store.init_tables()
+    codegen_store.configure(db.get_conn)
+    codegen_store.init_tables()
     logger.info(
         "starting nitocad api",
         extra={"environment": settings.ENVIRONMENT, "r2_configured": settings.r2_configured},
@@ -2767,6 +2771,8 @@ async def readyz():
 app.include_router(chat_api.build_router(generator=generator, limiter=limiter))
 # Vehicle parts: summary, exploded view, package. See vehicle_api.py.
 app.include_router(vehicle_api.build_router(limiter=limiter))
+# Code-first CAD: the AI writes CadQuery once, sliders re-run it free. Runs AI-written code in a sandbox, see CHANGES_codegen_spike.md.
+app.include_router(codegen_api.build_router(limiter=limiter))
 # Civil calculations (terrain, earthworks, hydraulics, walls). See civil_api.py.
 app.include_router(civil_api.build_router(limiter=limiter))
 # Owner-only usage metrics (signups, generations). Off until ADMIN_TOKEN is set. See admin_stats.py.

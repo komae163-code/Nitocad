@@ -54,6 +54,37 @@ def kernel_bbox_fn() -> BBoxFn | None:
     return fn
 
 
+def merge_externals(assy: Any, externals: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Add fetched STEP parts to the CadQuery assembly at their positions. One bad file never stops the export:
+    every part gets its own result, so the package can say exactly which ones are inside the STEP."""
+    report: list[dict[str, str]] = []
+    if not externals:
+        return report
+    try:
+        import cadquery as cq
+    except Exception as e:                                     # noqa: BLE001
+        return [{"name": str(x["name"]), "status": "fail", "detail": f"no CAD kernel: {e}"} for x in externals]
+    for x in externals:
+        try:
+            shape = cq.importers.importStep(str(x["file"]))
+            pos = ([float(v) for v in (x.get("position") or [])] + [0.0, 0.0, 0.0])[:3]
+            assy.add(shape, name=str(x["name"]), loc=cq.Location(cq.Vector(*pos)))
+            report.append({"name": str(x["name"]), "status": "pass", "detail": f"imported at {pos}"})
+        except Exception as e:                                 # noqa: BLE001
+            report.append({"name": str(x["name"]), "status": "fail", "detail": f"{type(e).__name__}: {str(e)[:160]}"})
+    return report
+
+
+def _call_export(fn: Any, parts: list[dict[str, Any]], work: Path, externals: list[dict[str, Any]]):
+    """Pass the STEP externals only to export functions that accept them, so a plain (parts, out) one still works."""
+    import inspect
+    try:
+        accepts = "externals" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        accepts = False
+    return fn(parts, work, externals=externals) if accepts and externals else fn(parts, work)
+
+
 def kernel_export_fn(formats: tuple[str, ...] = ("step", "stl")) -> ExportFn | None:
     """STEP and STL of the whole assembly via CadQuery, or None when it is not installed."""
     try:
@@ -62,8 +93,9 @@ def kernel_export_fn(formats: tuple[str, ...] = ("step", "stl")) -> ExportFn | N
     except Exception:                                          # noqa: BLE001
         return None
 
-    def fn(parts: list[dict[str, Any]], out: Path) -> list[tuple[str, Path]]:
+    def fn(parts: list[dict[str, Any]], out: Path, externals: list[dict[str, Any]] | None = None) -> list[tuple[str, Path]]:
         assy = assembly.generate_assembly(parts)
+        fn.merge_report = merge_externals(assy, externals or [])
         made: list[tuple[str, Path]] = []
         if "step" in formats:
             p = out / "assembly.step"
@@ -72,10 +104,22 @@ def kernel_export_fn(formats: tuple[str, ...] = ("step", "stl")) -> ExportFn | N
         if "stl" in formats:
             made.append(("Meshes", exporters.export_stl(assy, out / "assembly.stl")))
         return made
+    fn.merge_report = []                                       # set again on every call
     return fn
 
 
 # ------------------------------------------------------------------------------------------- externals
+def asset_cache_dir() -> Path:
+    """Where downloaded assets live between builds: NITOCAD_ASSET_CACHE, else data/asset_cache beside the code."""
+    import os
+    base = Path(os.environ.get("NITOCAD_ASSET_CACHE") or (Path(__file__).resolve().parent / "data" / "asset_cache"))
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+    except OSError:
+        return Path(tempfile.mkdtemp(prefix="nitocad_assets_"))
+
+
 def fetch_externals(externals: list[dict[str, Any]], registry: AP.Registry, cache_dir: Path
                     ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     """Fetch each external component. Returns (fetched results with a 'part_name', failure checks)."""
@@ -146,7 +190,7 @@ def build_vehicle(spec: Any, out_dir: str | Path, *, overrides: dict[str, Any] |
             stages.append(_stage("externals", "skipped", "fetch=False"))
             checks += [{"name": f"external:{e['name']}", "status": "not_run", "detail": "not fetched"} for e in ex["external"]]
         else:
-            fetched, ec = fetch_externals(ex["external"], registry or AP.default_registry(), work / "cache")
+            fetched, ec = fetch_externals(ex["external"], registry or AP.default_registry(), asset_cache_dir())
             checks += ec
             bad = sum(c["status"] == "fail" for c in ec)
             stages.append(_stage("externals", "failed" if bad else "ok", f"{len(fetched)} fetched, {bad} failed"))
@@ -223,8 +267,12 @@ def build_vehicle(spec: Any, out_dir: str | Path, *, overrides: dict[str, Any] |
         else:
             requested = ["assembly.step", "assembly.stl"]
             try:
-                made = fn(parts, work)
+                ext_step = [{"name": f["part_name"], "file": f["file"], "position": f.get("position") or [0, 0, 0]}
+                            for f in fetched if str(f.get("file", "")).lower().endswith((".step", ".stp"))]
+                made = _call_export(fn, parts, work, ext_step)
                 artifacts += made
+                for r in getattr(fn, "merge_report", None) or []:
+                    checks.append({"name": f"external_in_step:{r['name']}", "status": r["status"], "detail": r["detail"]})
                 stages.append(_stage("export", "ok", ", ".join(Path(p).name for _, p in made)))
             except Exception as e:                              # noqa: BLE001
                 stages.append(_stage("export", "failed", f"{type(e).__name__}: {str(e)[:200]}"))

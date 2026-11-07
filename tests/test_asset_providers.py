@@ -22,6 +22,10 @@ TREE = json.dumps([
 def fake_get(calls):
     def get(url):
         calls.append(url)
+        if "/api/datasets/" in url and "/tree/main/" in url:          # one asset's file list
+            aid = url.split("/tree/main/")[1].split("?")[0]
+            return json.dumps([{"type": "file", "size": 20, "path": f"{aid}/{p}"} for p in (
+                ".metadata/LICENSE.txt", f"simready_usd/sm_{aid}_01.usd", "simready_usd/payloads/geometries.usd")]).encode()
         return TREE if "/api/datasets/" in url else b"#usda 1.0\n(fake)"
     return get
 
