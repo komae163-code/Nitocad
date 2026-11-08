@@ -17,6 +17,15 @@ Unzip over the repo root, run `pytest`, push. Railway redeploys. vehicle_api.py 
 - Driveline: the gearbox countershaft is the output. It runs back at wheel-centre height under the flywheel to a hollow differential housing on the front axle, and a half shaft runs out to each wheel axle. To make the shafts straight I raised the engine crank to z = 430 and widened the gear spacing to 110 mm (module 5, 20/24 and 22/22 teeth).
 - Not modelled: the crown wheel, pinion and CV joints, suspension, steering, lights.
 
+## Handoff and code builder fixes (third patch)
+Problem seen in the studio: a pickup chat ended with "Yes write it as code" and the builder returned a planter pot, then the part page said "The code builder could not do that (HTTP 422)".
+- codegen_chat.start_prompt and chat_service.py: a bare "yes, write it as code" used to be the whole prompt. Now the person's earlier messages since the last saved part go with it (the request and the answers, not our questions). A message that names its own shape is sent as written.
+- conversation.py: when the vehicle path fails or returns nothing for a vehicle chat, the reply says so and nothing is built. It no longer falls through to the generic planner, which answered "custom" and sent the car to the code builder. The swallowed exception is now logged as "vehicle turn failed".
+- codegen_api.py: the rebuild and export requests drop any slider value that is not a finite number instead of failing with a 422. A failed rebuild always returns a readable reason and logs "codegen rebuild failed".
+- frontend/studio.js: the part page sends only finite numbers, and shows the server's field and reason when a request is refused, instead of "HTTP 422".
+- I could not confirm which of these caused your 422, because the response body was not visible. After deploying, if it still appears, the page now shows the real reason and the Railway log has the "codegen rebuild failed" line. Look for "vehicle turn failed" in the same log to see why the pickup left the vehicle path.
+- Tests added: tests/test_vehicle_handoff.py and six in tests/test_codegen_chat.py. One test in test_vehicle_handoff.py needs fastapi, so it skips or runs only where your dependencies are installed.
+
 ## Not verified here
 - No CAD kernel in this sandbox. The keyway cut, the scaled multi-part PDF and the exploded view on real solids have not been run. Generate a car once and open the PDF and the exploded view.
 - The panel positions in car.json follow feature_tree.py by reading it (XZ extrudes toward -Y, YZ toward +X). A wrong sign would put a panel on the wrong side. Open the car in the studio first. The repo's assembly_gate checked nothing on this spec, so it did not test collisions.

@@ -423,3 +423,46 @@ def test_the_material_survives_a_later_revision_of_the_code():
     out = svc.run_turn(w.deps(), U, cid, "make the slots wider")
     assert out["part"]["version"] == 3 and out["part"]["spec"]["material"] == "6061-T6"
     assert out["part"]["facts"]["mass_g"] == 64.8
+
+
+# ------------------------------------------------------------------ a bare yes carries the earlier request along
+
+CAR_CHAT = [("user", "I want to build a car"), ("assistant", "Before I build the car, I need a few choices"),
+            ("user", "What kind of car? Pickup"), ("assistant", "Before I build the car, one more choice."),
+            ("user", "How big is it? Full size, about 4 m long"), ("assistant", "Before I build the car, one more choice."),
+            ("user", "Should the inside be modelled too? Yes, engine and gearbox too"),
+            ("assistant", "That is beyond what the catalogue parts can form, so I will write it as code instead.")]
+
+
+def test_a_message_that_names_its_own_shape_is_sent_as_written():
+    assert cg.start_prompt("make a bracket shaped like a lightning bolt", [{"role": "user", "content": "I want a car"}]) \
+        == "make a bracket shaped like a lightning bolt"
+    assert cg.start_prompt("write code for a 40 mm spring", []) == "write code for a 40 mm spring"
+
+
+def test_a_bare_yes_takes_the_request_and_the_answers_but_not_our_questions():
+    hist = [{"role": r, "content": c} for r, c in CAR_CHAT] + [{"role": "user", "content": "Yes write it as code"}]
+    p = cg.start_prompt("Yes write it as code", hist)
+    assert "I want to build a car" in p and "Pickup" in p and "4 m long" in p and "engine and gearbox" in p
+    assert "What kind of car?" not in p and "Yes write it as code" not in p and len(p) <= cg.PROMPT_LIMIT
+
+
+def test_messages_before_a_saved_part_are_not_mixed_into_a_new_request():
+    hist = [{"role": "user", "content": "a 5 mm washer"}, {"role": "assistant", "content": "done", "part_id": "p1"},
+            {"role": "user", "content": "write it as code"}]
+    assert cg.start_prompt("write it as code", hist) == "write it as code"
+
+
+def test_a_very_long_chat_keeps_the_first_request_and_the_newest_answers_inside_the_limit():
+    hist = [{"role": "user", "content": "I want a gearbox"}] + [{"role": "user", "content": "x" * 400 + str(i)} for i in range(8)]
+    p = cg.start_prompt("yes", hist)
+    assert len(p) <= cg.PROMPT_LIMIT and "I want a gearbox" in p and p.rstrip().endswith("7")
+
+
+def test_agreeing_to_code_after_a_car_chat_sends_the_car_to_the_builder_not_just_the_yes():
+    cid, w = setup(), World(plans=[no_match()])
+    for role, content in CAR_CHAT:
+        cs.add_message(U, cid, role, content, max_messages=100)
+    svc.run_turn(w.deps(), U, cid, "Yes write it as code")
+    assert len(w.started) == 1
+    assert "Pickup" in w.started[0] and "4 m long" in w.started[0] and "engine and gearbox" in w.started[0]

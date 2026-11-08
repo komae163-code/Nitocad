@@ -140,6 +140,47 @@ def looks_like_build(text: str) -> bool:
     return bool(_BUILD.search(t) or _DIMENSION.search(t))
 
 
+_BARE_WORDS = frozenset("""yes yeah yep yup ok okay sure please do it go ahead write generate build make use as code script program
+codegen first from and then now just thanks thank you that this""".split())
+PROMPT_LIMIT = 2000             # GenerateBody.prompt allows 2000 characters
+CONTEXT_MESSAGES = 20
+
+
+def _answer_part(content: str) -> str:
+    """A tapped answer arrives as "Question? Answer". Only the answer is the person's own words."""
+    t = " ".join(str(content or "").split())
+    return t.rsplit("? ", 1)[1].strip() if "? " in t else t
+
+
+def start_prompt(text: str, history: list[dict] | None, limit: int = PROMPT_LIMIT) -> str:
+    """The prompt for a NEW code part. A message that names its own shape goes as written. A bare "yes, write it as
+    code" names nothing, and sent alone it made the builder invent an object, so the person's earlier messages since
+    the last saved part go with it, oldest first: the request and the answers to our questions."""
+    text = " ".join(str(text or "").split())
+    words = [w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in _BARE_WORDS]
+    if len(words) >= 3 or _DIMENSION.search(text):
+        return text[:limit]
+    earlier: list[str] = []
+    for m in reversed(list(history or [])):
+        if m.get("role") == "assistant" and m.get("part_id"):
+            break                                              # a part was saved here: older messages are about it
+        if m.get("role") == "user":
+            content = " ".join(str(m.get("content") or "").split())
+            if content and content != text:
+                earlier.append(_answer_part(content))
+        if len(earlier) >= CONTEXT_MESSAGES:
+            break
+    earlier.reverse()
+    if not earlier:
+        return text[:limit]
+    head = "Write this as code. What the person asked for, in their own words, oldest first: "
+    body = head + " | ".join(earlier)
+    while len(body) > limit and len(earlier) > 2:              # keep the first request and the newest answers
+        del earlier[1]
+        body = head + " | ".join(earlier)
+    return body[:limit]
+
+
 def pre_plan_mode(text: str, current_spec: dict | None) -> str | None:
     """Decided before the template planner runs (it would only waste an AI call): "material" for a message that only
     sets the material of a code part (free, no code is rewritten), "revise" for any other edit to a code part, "start"

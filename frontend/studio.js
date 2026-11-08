@@ -987,12 +987,20 @@ function renderCanvas() {
 function isCodegen(part) { return !!(part && part.partType === "codegen" && part.spec && part.spec.parameters && part.spec.parameters.codegen); }
 function codegenRef(part) {
   const g = part.spec.parameters.codegen;
-  return { id: g.id, values: Object.assign({}, g.values || {}, part.cgValues || {}) };
+  const all = Object.assign({}, g.values || {}, part.cgValues || {}), values = {};
+  for (const k of Object.keys(all)) {                 // only finite numbers go to the builder, a stray "" or null failed the request
+    const n = typeof all[k] === "boolean" ? (all[k] ? 1 : 0) : (all[k] === "" || all[k] === null ? NaN : Number(all[k]));
+    if (Number.isFinite(n)) values[k] = n;
+  }
+  return { id: g.id, values };
 }
 async function cgApi(path, body, wantBlob) {
   const r = await fetch(BASE + path, { method: "POST", headers: Object.assign({ "Content-Type": "application/json" }, Auth.authHeader()), body: JSON.stringify(body) });
   if (!r.ok) {
     let detail = null; try { detail = (await r.json()).detail; } catch (e) { /* not json */ }
+    if (Array.isArray(detail)) {                      // a request the server refused to read: say which field and why
+      detail = detail.map((d) => (d && d.msg ? ((Array.isArray(d.loc) ? d.loc.filter((x) => x !== "body").join(".") : "") + " " + d.msg).trim() : String(d))).join("; ");
+    }
     throw new Error(typeof detail === "string" && detail ? detail : "The code builder could not do that (HTTP " + r.status + ").");
   }
   return wantBlob ? r.blob() : r.json();
