@@ -16,6 +16,8 @@ def generate_gear(params: dict) -> cq.Workplane:
     - thickness_mm: Gear thickness
     - bore_diameter_mm: Center bore
     - pressure_angle: Pressure angle (default 20°)
+    - backlash_mm: Total play of a meshing pair; each gear loses half of it as tooth thickness (default 0)
+    - keyway_width_mm, keyway_depth_mm: Rectangular keyway cut into the bore (both needed; default none)
     """
     module = params.get('module', 2.0)
     teeth = params.get('teeth', 20)
@@ -27,13 +29,21 @@ def generate_gear(params: dict) -> cq.Workplane:
     # (See cad_templates/_gear_profile.py. The earlier version cut one notch per tooth and then rotated
     # it about the origin, which moved the notches to every second tooth angle and never opened them to
     # the tip circle.)
-    outline = involute_gear_outline(module, int(teeth), pressure_angle)
+    backlash = float(params.get('backlash_mm', 0.0) or 0.0)
+    outline = involute_gear_outline(module, int(teeth), pressure_angle, backlash=backlash)
     result = cq.Workplane("XY").polyline(outline).close().extrude(thickness)
 
     # Add center bore
     if bore > 0:
         result = result.faces(">Z").workplane().hole(bore)
-    
+        kw = float(params.get('keyway_width_mm', 0.0) or 0.0)
+        kd = float(params.get('keyway_depth_mm', 0.0) or 0.0)
+        if kw > 0 and kd > 0:
+            # The slot runs from the bore axis out to bore radius + depth, on the +X side, through the full thickness.
+            reach = bore / 2.0 + kd
+            key = cq.Workplane("XY").center(reach / 2.0, 0).rect(reach, kw).extrude(thickness)
+            result = result.cut(key)
+
     return result
 
 def generate_pulley(params: dict) -> cq.Workplane:

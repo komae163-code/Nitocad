@@ -1,6 +1,6 @@
 {
  "name": "hatchback_car",
- "notes": "Concept layout of a small car (automobile, hatchback, saloon, sedan). Front is +X, wheels on the ground at z = 0. The body is a solid shell shape: a side-profile lower body plus a narrower cabin on top, with the four wheel arches cut out. There is no interior, no glass, no doors and no engine bay. Wheels are tyre, hub stub and bearings from the wheel_on_axle module. Not a crash-rated or road-legal design.",
+ "notes": "Concept layout of a small front-wheel-drive hatchback (automobile, car, saloon, sedan), built from separate parts so it can be pulled apart, weighed and drawn. Front is +X, wheels on the ground at z = 0. Body: floor, side panels with wheel arches and door openings, end panels, hood, deck, roof, windscreen, rear window, side glasses, two doors, all sheet metal `wall` thick. Interior: seats and a fuel tank. Powertrain: an inline four engine and, ahead of it, a gearbox with two gear pairs on parallel shafts, keyways and backlash. Exhaust: pipe, muffler, tail pipe. Driveline: the countershaft runs back to a differential housing on the front axle, with a half shaft to each wheel. Not modelled: the crown wheel, pinion and CV joints, suspension, steering, pedals, lights, wiring. Not crash-rated or road-legal.",
  "params": {
   "wheelbase": {
    "default": 2600,
@@ -51,10 +51,16 @@
    "default": 430,
    "min": 250,
    "max": 650
+  },
+  "wall": {
+   "default": 3,
+   "min": 1.5,
+   "max": 6
   }
  },
  "derived": {
   "half_l": "=body_len/2",
+  "half_w": "=body_w/2",
   "wheel_r": "=wheel_dia/2",
   "arch_dia": "=wheel_dia + 90",
   "arch_w": "=tyre_w + 140",
@@ -62,29 +68,87 @@
   "front_x": "=wheelbase/2",
   "rear_x": "=-wheelbase/2",
   "cab_w": "=body_w - 220",
+  "half_cab": "=(body_w - 220)/2",
   "cab_base_front": "=body_len/2 - 1100",
   "cab_base_rear": "=-body_len/2 + 380",
   "roof_front": "=cab_base_front - 480",
   "roof_rear": "=cab_base_rear + 420",
   "stub_len": "=tyre_w + 60",
-  "ex_x0": "=-body_len/2 + 150",
-  "ex_len": "=body_len*0.75"
+  "door_x0": "=-300",
+  "door_x1": "=800",
+  "door_z0": "=ground_clr + 200",
+  "door_z1": "=belt_z - 20",
+  "seat_z": "=ground_clr + 180",
+  "crank_z": "=ground_clr + 280",
+  "eng_x0": "=1100",
+  "gb_x0": "=eng_x0 + 470",
+  "gm": "=5",
+  "zi1": "=20",
+  "zc1": "=24",
+  "zi2": "=22",
+  "zc2": "=22",
+  "cs_dist": "=110",
+  "gb_z": "=crank_z",
+  "cs_len": "=gb_x0 + 190 - front_x",
+  "dd_x0": "=front_x - 100",
+  "hs_y0": "=22",
+  "hs_len": "=wheel_y - stub_len/2 - hs_y0",
+  "ex_z": "=95",
+  "tank_z": "=ground_clr + 10"
  },
  "components": [
   {
-   "id": "body",
+   "id": "floor",
    "type": "feature_tree",
    "assembly": "body",
-   "fixed": true,
    "material": "steel",
    "parameters": {
     "features": [
      {
-      "id": "lower",
+      "id": "floor",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=ground_clr",
+      "distance": "=wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=-half_l + wall",
+         "=-half_w + wall"
+        ],
+        [
+         "=half_l - wall",
+         "=-half_w + wall"
+        ],
+        [
+         "=half_l - wall",
+         "=half_w - wall"
+        ],
+        [
+         "=-half_l + wall",
+         "=half_w - wall"
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   "fixed": true
+  },
+  {
+   "id": "side_r",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "skin",
       "op": "extrude",
       "plane": "XZ",
-      "symmetric": true,
-      "distance": "=body_w",
+      "offset": "=-half_w",
+      "distance": "=wall",
       "profile": {
        "type": "polygon",
        "points": [
@@ -116,22 +180,547 @@
       }
      },
      {
-      "id": "cabin",
+      "id": "arch_f_r",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-half_w",
+      "symmetric": true,
+      "distance": "=4*wall",
+      "mode": "cut",
+      "profile": {
+       "type": "circle",
+       "diameter": "=arch_dia",
+       "center": [
+        "=front_x",
+        "=wheel_r"
+       ]
+      }
+     },
+     {
+      "id": "arch_r_r",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-half_w",
+      "symmetric": true,
+      "distance": "=4*wall",
+      "mode": "cut",
+      "profile": {
+       "type": "circle",
+       "diameter": "=arch_dia",
+       "center": [
+        "=rear_x",
+        "=wheel_r"
+       ]
+      }
+     },
+     {
+      "id": "door_opening_r",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-half_w",
+      "symmetric": true,
+      "distance": "=4*wall",
+      "mode": "cut",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=door_x0",
+         "=door_z0"
+        ],
+        [
+         "=door_x1",
+         "=door_z0"
+        ],
+        [
+         "=door_x1",
+         "=door_z1"
+        ],
+        [
+         "=door_x0",
+         "=door_z1"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "side_l",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "skin",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=half_w - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=-half_l",
+         "=ground_clr"
+        ],
+        [
+         "=half_l",
+         "=ground_clr"
+        ],
+        [
+         "=half_l",
+         "=belt_z - 110"
+        ],
+        [
+         "=half_l - 380",
+         "=belt_z"
+        ],
+        [
+         "=-half_l + 260",
+         "=belt_z"
+        ],
+        [
+         "=-half_l",
+         "=belt_z - 70"
+        ]
+       ]
+      }
+     },
+     {
+      "id": "arch_f_l",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=half_w - wall",
+      "symmetric": true,
+      "distance": "=4*wall",
+      "mode": "cut",
+      "profile": {
+       "type": "circle",
+       "diameter": "=arch_dia",
+       "center": [
+        "=front_x",
+        "=wheel_r"
+       ]
+      }
+     },
+     {
+      "id": "arch_r_l",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=half_w - wall",
+      "symmetric": true,
+      "distance": "=4*wall",
+      "mode": "cut",
+      "profile": {
+       "type": "circle",
+       "diameter": "=arch_dia",
+       "center": [
+        "=rear_x",
+        "=wheel_r"
+       ]
+      }
+     },
+     {
+      "id": "door_opening_l",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=half_w - wall",
+      "symmetric": true,
+      "distance": "=4*wall",
+      "mode": "cut",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=door_x0",
+         "=door_z0"
+        ],
+        [
+         "=door_x1",
+         "=door_z0"
+        ],
+        [
+         "=door_x1",
+         "=door_z1"
+        ],
+        [
+         "=door_x0",
+         "=door_z1"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "front_panel",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "front_panel",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": "=half_l - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=-half_w + wall",
+         "=ground_clr"
+        ],
+        [
+         "=half_w - wall",
+         "=ground_clr"
+        ],
+        [
+         "=half_w - wall",
+         "=belt_z - 110"
+        ],
+        [
+         "=-half_w + wall",
+         "=belt_z - 110"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "rear_panel",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "rear_panel",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": "=-half_l",
+      "distance": "=wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=-half_w + wall",
+         "=ground_clr"
+        ],
+        [
+         "=half_w - wall",
+         "=ground_clr"
+        ],
+        [
+         "=half_w - wall",
+         "=belt_z - 70"
+        ],
+        [
+         "=-half_w + wall",
+         "=belt_z - 70"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "nose_panel",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "nose_panel",
       "op": "extrude",
       "plane": "XZ",
       "symmetric": true,
-      "distance": "=cab_w",
-      "mode": "add",
+      "distance": "=body_w - 2*wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=half_l - 380",
+         "=belt_z"
+        ],
+        [
+         "=half_l",
+         "=belt_z - 110"
+        ],
+        [
+         "=half_l",
+         "=belt_z - 110 - wall"
+        ],
+        [
+         "=half_l - 380",
+         "=belt_z - wall"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "tail_panel",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "tail_panel",
+      "op": "extrude",
+      "plane": "XZ",
+      "symmetric": true,
+      "distance": "=body_w - 2*wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=-half_l + 260",
+         "=belt_z"
+        ],
+        [
+         "=-half_l",
+         "=belt_z - 70"
+        ],
+        [
+         "=-half_l",
+         "=belt_z - 70 - wall"
+        ],
+        [
+         "=-half_l + 260",
+         "=belt_z - wall"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "hood",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "hood",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=belt_z - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=cab_base_front",
+         "=-half_w + wall"
+        ],
+        [
+         "=half_l - 380",
+         "=-half_w + wall"
+        ],
+        [
+         "=half_l - 380",
+         "=half_w - wall"
+        ],
+        [
+         "=cab_base_front",
+         "=half_w - wall"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "deck",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "deck",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=belt_z - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=-half_l + 260",
+         "=-half_w + wall"
+        ],
+        [
+         "=cab_base_rear",
+         "=-half_w + wall"
+        ],
+        [
+         "=cab_base_rear",
+         "=half_w - wall"
+        ],
+        [
+         "=-half_l + 260",
+         "=half_w - wall"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "roof",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "roof",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=body_h - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=roof_rear",
+         "=-half_cab + 6"
+        ],
+        [
+         "=roof_front",
+         "=-half_cab + 6"
+        ],
+        [
+         "=roof_front",
+         "=half_cab - 6"
+        ],
+        [
+         "=roof_rear",
+         "=half_cab - 6"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "windscreen",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "glass",
+   "parameters": {
+    "features": [
+     {
+      "id": "glass",
+      "op": "extrude",
+      "plane": "XZ",
+      "symmetric": true,
+      "distance": "=cab_w - 12",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=cab_base_front",
+         "=belt_z"
+        ],
+        [
+         "=roof_front",
+         "=body_h"
+        ],
+        [
+         "=roof_front - 8",
+         "=body_h"
+        ],
+        [
+         "=cab_base_front - 8",
+         "=belt_z"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "rear_window",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "glass",
+   "parameters": {
+    "features": [
+     {
+      "id": "glass",
+      "op": "extrude",
+      "plane": "XZ",
+      "symmetric": true,
+      "distance": "=cab_w - 12",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=roof_rear",
+         "=body_h"
+        ],
+        [
+         "=cab_base_rear",
+         "=belt_z"
+        ],
+        [
+         "=cab_base_rear + 8",
+         "=belt_z"
+        ],
+        [
+         "=roof_rear + 8",
+         "=body_h"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "glass_r",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "glass",
+   "parameters": {
+    "features": [
+     {
+      "id": "glass",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-half_cab",
+      "distance": 6,
       "profile": {
        "type": "polygon",
        "points": [
         [
          "=cab_base_rear",
-         "=belt_z - 1"
+         "=belt_z"
         ],
         [
          "=cab_base_front",
-         "=belt_z - 1"
+         "=belt_z"
         ],
         [
          "=roof_front",
@@ -143,82 +732,418 @@
         ]
        ]
       }
-     },
+     }
+    ]
+   }
+  },
+  {
+   "id": "glass_l",
+   "type": "feature_tree",
+   "assembly": "body",
+   "material": "glass",
+   "parameters": {
+    "features": [
      {
-      "id": "arch_fr",
+      "id": "glass",
       "op": "extrude",
       "plane": "XZ",
-      "offset": "=-wheel_y",
-      "symmetric": true,
-      "distance": "=arch_w",
-      "mode": "cut",
+      "offset": "=half_cab - 6",
+      "distance": 6,
       "profile": {
-       "type": "circle",
-       "diameter": "=arch_dia",
-       "center": [
-        "=front_x",
-        "=wheel_r"
-       ]
-      }
-     },
-     {
-      "id": "arch_rr",
-      "op": "extrude",
-      "plane": "XZ",
-      "offset": "=-wheel_y",
-      "symmetric": true,
-      "distance": "=arch_w",
-      "mode": "cut",
-      "profile": {
-       "type": "circle",
-       "diameter": "=arch_dia",
-       "center": [
-        "=rear_x",
-        "=wheel_r"
-       ]
-      }
-     },
-     {
-      "id": "arch_fl",
-      "op": "extrude",
-      "plane": "XZ",
-      "offset": "=wheel_y",
-      "symmetric": true,
-      "distance": "=arch_w",
-      "mode": "cut",
-      "profile": {
-       "type": "circle",
-       "diameter": "=arch_dia",
-       "center": [
-        "=front_x",
-        "=wheel_r"
-       ]
-      }
-     },
-     {
-      "id": "arch_rl",
-      "op": "extrude",
-      "plane": "XZ",
-      "offset": "=wheel_y",
-      "symmetric": true,
-      "distance": "=arch_w",
-      "mode": "cut",
-      "profile": {
-       "type": "circle",
-       "diameter": "=arch_dia",
-       "center": [
-        "=rear_x",
-        "=wheel_r"
+       "type": "polygon",
+       "points": [
+        [
+         "=cab_base_rear",
+         "=belt_z"
+        ],
+        [
+         "=cab_base_front",
+         "=belt_z"
+        ],
+        [
+         "=roof_front",
+         "=body_h"
+        ],
+        [
+         "=roof_rear",
+         "=body_h"
+        ]
        ]
       }
      }
     ]
-   },
-   "position": [
-    0,
-    0,
-    0
-   ]
+   }
+  },
+  {
+   "id": "door_r",
+   "type": "feature_tree",
+   "assembly": "doors",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "skin",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-half_w",
+      "distance": "=wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=door_x0",
+         "=door_z0"
+        ],
+        [
+         "=door_x1",
+         "=door_z0"
+        ],
+        [
+         "=door_x1",
+         "=door_z1"
+        ],
+        [
+         "=door_x0",
+         "=door_z1"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "door_l",
+   "type": "feature_tree",
+   "assembly": "doors",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "skin",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=half_w - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=door_x0",
+         "=door_z0"
+        ],
+        [
+         "=door_x1",
+         "=door_z0"
+        ],
+        [
+         "=door_x1",
+         "=door_z1"
+        ],
+        [
+         "=door_x0",
+         "=door_z1"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "seat_fr_cushion",
+   "type": "feature_tree",
+   "assembly": "interior",
+   "material": "foam",
+   "parameters": {
+    "features": [
+     {
+      "id": "seat_fr_cushion",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=seat_z",
+      "distance": 120,
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         100,
+         150
+        ],
+        [
+         600,
+         150
+        ],
+        [
+         600,
+         630
+        ],
+        [
+         100,
+         630
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "seat_fr_back",
+   "type": "feature_tree",
+   "assembly": "interior",
+   "material": "foam",
+   "parameters": {
+    "features": [
+     {
+      "id": "seat_fr_back",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=seat_z + 120",
+      "distance": 400,
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         40,
+         150
+        ],
+        [
+         100,
+         150
+        ],
+        [
+         100,
+         630
+        ],
+        [
+         40,
+         630
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "seat_fl_cushion",
+   "type": "feature_tree",
+   "assembly": "interior",
+   "material": "foam",
+   "parameters": {
+    "features": [
+     {
+      "id": "seat_fl_cushion",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=seat_z",
+      "distance": 120,
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         100,
+         -630
+        ],
+        [
+         600,
+         -630
+        ],
+        [
+         600,
+         -150
+        ],
+        [
+         100,
+         -150
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "seat_fl_back",
+   "type": "feature_tree",
+   "assembly": "interior",
+   "material": "foam",
+   "parameters": {
+    "features": [
+     {
+      "id": "seat_fl_back",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=seat_z + 120",
+      "distance": 400,
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         40,
+         -630
+        ],
+        [
+         100,
+         -630
+        ],
+        [
+         100,
+         -150
+        ],
+        [
+         40,
+         -150
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "bench_cushion",
+   "type": "feature_tree",
+   "assembly": "interior",
+   "material": "foam",
+   "parameters": {
+    "features": [
+     {
+      "id": "bench_cushion",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=seat_z",
+      "distance": 120,
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         -700,
+         -640
+        ],
+        [
+         -200,
+         -640
+        ],
+        [
+         -200,
+         640
+        ],
+        [
+         -700,
+         640
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "bench_back",
+   "type": "feature_tree",
+   "assembly": "interior",
+   "material": "foam",
+   "parameters": {
+    "features": [
+     {
+      "id": "bench_back",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=seat_z + 120",
+      "distance": 400,
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         -760,
+         -640
+        ],
+        [
+         -700,
+         -640
+        ],
+        [
+         -700,
+         640
+        ],
+        [
+         -760,
+         640
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "fuel_tank",
+   "type": "feature_tree",
+   "assembly": "interior",
+   "material": "plastic",
+   "parameters": {
+    "features": [
+     {
+      "id": "outer",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=tank_z",
+      "distance": 140,
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         -850,
+         -400
+        ],
+        [
+         -450,
+         -400
+        ],
+        [
+         -450,
+         400
+        ],
+        [
+         -850,
+         400
+        ]
+       ]
+      }
+     },
+     {
+      "id": "interior",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=tank_z + wall",
+      "distance": "=(140) - 2*wall",
+      "mode": "cut",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=(-850) + wall",
+         "=(-400) + wall"
+        ],
+        [
+         "=(-450) - wall",
+         "=(-400) + wall"
+        ],
+        [
+         "=(-450) - wall",
+         "=(400) - wall"
+        ],
+        [
+         "=(-850) + wall",
+         "=(400) - wall"
+        ]
+       ]
+      }
+     }
+    ]
+   }
   },
   {
    "id": "wheel_fr",
@@ -289,19 +1214,485 @@
    ]
   },
   {
-   "id": "exhaust",
+   "id": "engine",
+   "module": "piston_engine_4",
+   "assembly": "powertrain",
+   "params": {
+    "bore": 80,
+    "stroke": 86,
+    "rod_cd": 160,
+    "main_dia": 50,
+    "rodj_dia": 45,
+    "web": 15,
+    "main_len": 40,
+    "rodj_len": 28,
+    "piston_h": 80,
+    "liner_wall": 4
+   },
+   "position": [
+    "=eng_x0",
+    0,
+    "=crank_z"
+   ]
+  },
+  {
+   "id": "input_shaft",
+   "type": "shaft",
+   "assembly": "gearbox",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 30,
+    "length_mm": 190,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3.3
+   },
+   "position": [
+    "=gb_x0",
+    0,
+    "=gb_z"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "counter_shaft",
+   "type": "shaft",
+   "assembly": "gearbox",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 30,
+    "length_mm": "=cs_len",
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3.3
+   },
+   "position": [
+    "=front_x",
+    0,
+    "=gb_z - cs_dist"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "gear_in_1",
+   "type": "gear",
+   "assembly": "gearbox",
+   "material": "steel",
+   "parameters": {
+    "module": "=gm",
+    "teeth": "=zi1",
+    "thickness_mm": 25,
+    "bore_diameter_mm": 30,
+    "backlash_mm": "=0.05*gm",
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3.3
+   },
+   "position": [
+    "=gb_x0 + 40",
+    0,
+    "=gb_z"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "gear_ct_1",
+   "type": "gear",
+   "assembly": "gearbox",
+   "material": "steel",
+   "parameters": {
+    "module": "=gm",
+    "teeth": "=zc1",
+    "thickness_mm": 25,
+    "bore_diameter_mm": 30,
+    "backlash_mm": "=0.05*gm",
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3.3
+   },
+   "position": [
+    "=gb_x0 + 40",
+    0,
+    "=gb_z + -cs_dist"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "gear_in_2",
+   "type": "gear",
+   "assembly": "gearbox",
+   "material": "steel",
+   "parameters": {
+    "module": "=gm",
+    "teeth": "=zi2",
+    "thickness_mm": 25,
+    "bore_diameter_mm": 30,
+    "backlash_mm": "=0.05*gm",
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3.3
+   },
+   "position": [
+    "=gb_x0 + 100",
+    0,
+    "=gb_z"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "gear_ct_2",
+   "type": "gear",
+   "assembly": "gearbox",
+   "material": "steel",
+   "parameters": {
+    "module": "=gm",
+    "teeth": "=zc2",
+    "thickness_mm": 25,
+    "bore_diameter_mm": 30,
+    "backlash_mm": "=0.05*gm",
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3.3
+   },
+   "position": [
+    "=gb_x0 + 100",
+    0,
+    "=gb_z + -cs_dist"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "brg_in_front",
+   "type": "bearing",
+   "assembly": "gearbox",
+   "material": "steel",
+   "parameters": {
+    "inner_diameter_mm": 30,
+    "outer_diameter_mm": 55,
+    "width_mm": 13
+   },
+   "position": [
+    "=gb_x0 + 10",
+    0,
+    "=gb_z"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "brg_in_rear",
+   "type": "bearing",
+   "assembly": "gearbox",
+   "material": "steel",
+   "parameters": {
+    "inner_diameter_mm": 30,
+    "outer_diameter_mm": 55,
+    "width_mm": 13
+   },
+   "position": [
+    "=gb_x0 + 165",
+    0,
+    "=gb_z"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "brg_ct_front",
+   "type": "bearing",
+   "assembly": "gearbox",
+   "material": "steel",
+   "parameters": {
+    "inner_diameter_mm": 30,
+    "outer_diameter_mm": 55,
+    "width_mm": 13
+   },
+   "position": [
+    "=gb_x0 + 10",
+    0,
+    "=gb_z + -cs_dist"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "brg_ct_rear",
+   "type": "bearing",
+   "assembly": "gearbox",
+   "material": "steel",
+   "parameters": {
+    "inner_diameter_mm": 30,
+    "outer_diameter_mm": 55,
+    "width_mm": 13
+   },
+   "position": [
+    "=gb_x0 + 165",
+    0,
+    "=gb_z + -cs_dist"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "gearbox_case",
+   "type": "feature_tree",
+   "assembly": "gearbox",
+   "material": "aluminium",
+   "parameters": {
+    "features": [
+     {
+      "id": "outer",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": "=gb_x0 - 5",
+      "distance": 200,
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         -70,
+         "=gb_z - cs_dist - 72"
+        ],
+        [
+         70,
+         "=gb_z - cs_dist - 72"
+        ],
+        [
+         70,
+         "=gb_z + 66"
+        ],
+        [
+         -70,
+         "=gb_z + 66"
+        ]
+       ]
+      }
+     },
+     {
+      "id": "interior",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": "=gb_x0 - 5 + (6)",
+      "distance": "=(200) - 2*(6)",
+      "mode": "cut",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=(-70) + (6)",
+         "=gb_z - cs_dist - 72 + (6)"
+        ],
+        [
+         "=(70) - (6)",
+         "=gb_z - cs_dist - 72 + (6)"
+        ],
+        [
+         "=(70) - (6)",
+         "=gb_z + 66 - (6)"
+        ],
+        [
+         "=(-70) + (6)",
+         "=gb_z + 66 - (6)"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "diff_housing",
+   "type": "feature_tree",
+   "assembly": "driveline",
+   "material": "aluminium",
+   "parameters": {
+    "features": [
+     {
+      "id": "outer",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": "=dd_x0",
+      "distance": 200,
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         -120,
+         "=wheel_r - 60"
+        ],
+        [
+         120,
+         "=wheel_r - 60"
+        ],
+        [
+         120,
+         "=wheel_r + 38"
+        ],
+        [
+         -120,
+         "=wheel_r + 38"
+        ]
+       ]
+      }
+     },
+     {
+      "id": "interior",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": "=dd_x0 + (6)",
+      "distance": "=(200) - 2*(6)",
+      "mode": "cut",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=(-120) + (6)",
+         "=wheel_r - 60 + (6)"
+        ],
+        [
+         "=(120) - (6)",
+         "=wheel_r - 60 + (6)"
+        ],
+        [
+         "=(120) - (6)",
+         "=wheel_r + 38 - (6)"
+        ],
+        [
+         "=(-120) + (6)",
+         "=wheel_r + 38 - (6)"
+        ]
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "halfshaft_r",
+   "type": "shaft",
+   "assembly": "driveline",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 30,
+    "length_mm": "=hs_len"
+   },
+   "position": [
+    "=front_x",
+    "=1*hs_y0",
+    "=wheel_r"
+   ],
+   "rotation": [
+    -90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "halfshaft_l",
+   "type": "shaft",
+   "assembly": "driveline",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 30,
+    "length_mm": "=hs_len"
+   },
+   "position": [
+    "=front_x",
+    "=-1*hs_y0",
+    "=wheel_r"
+   ],
+   "rotation": [
+    90,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "exhaust_pipe",
    "type": "tube",
-   "assembly": "body",
+   "assembly": "exhaust",
    "material": "steel",
    "parameters": {
     "outer_diameter_mm": 50,
     "wall_thickness_mm": 2,
-    "length_mm": "=ex_len"
+    "length_mm": 2650
    },
    "position": [
-    "=ex_x0",
+    -1450,
     300,
-    "=ground_clr - 50"
+    "=ex_z"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "muffler",
+   "type": "tube",
+   "assembly": "exhaust",
+   "material": "steel",
+   "parameters": {
+    "outer_diameter_mm": 100,
+    "wall_thickness_mm": 2,
+    "length_mm": 450
+   },
+   "position": [
+    -1900,
+    300,
+    "=ex_z"
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "tail_pipe",
+   "type": "tube",
+   "assembly": "exhaust",
+   "material": "steel",
+   "parameters": {
+    "outer_diameter_mm": 50,
+    "wall_thickness_mm": 2,
+    "length_mm": 100
+   },
+   "position": [
+    -2000,
+    300,
+    "=ex_z"
    ],
    "rotation": [
     0,
@@ -345,6 +1736,46 @@
    "name": "wheel_in_arch_width",
    "expr": "=tyre_w < arch_w",
    "message": "arch is narrower than the tyre"
+  },
+  {
+   "name": "door_clears_arches",
+   "expr": "=door_x1 < front_x - arch_dia/2 and door_x0 > rear_x + arch_dia/2",
+   "message": "the door opening runs into a wheel arch"
+  },
+  {
+   "name": "gear_pairs_mesh_on_one_spacing",
+   "expr": "=approx(gm*(zi1 + zc1)/2, cs_dist, 0.01) and approx(gm*(zi2 + zc2)/2, cs_dist, 0.01)",
+   "message": "both gear pairs must have centre distance equal to the shaft spacing"
+  },
+  {
+   "name": "engine_and_gearbox_ahead_of_cabin",
+   "expr": "=eng_x0 - 40 > cab_base_front and gb_x0 + 200 < half_l - 50",
+   "message": "the engine and gearbox must sit between the windscreen and the front panel"
+  },
+  {
+   "name": "output_shaft_on_axle_line",
+   "expr": "=approx(gb_z - cs_dist, wheel_r, 0.01)",
+   "message": "the gearbox output shaft must sit at wheel-centre height so the half shafts run straight"
+  },
+  {
+   "name": "output_shaft_clears_flywheel",
+   "expr": "=crank_z - 86 > wheel_r + 15 + 5",
+   "message": "the output shaft would hit the engine flywheel"
+  },
+  {
+   "name": "differential_clears_crank",
+   "expr": "=wheel_r + 38 < crank_z - 65",
+   "message": "the differential housing would hit the crankshaft"
+  },
+  {
+   "name": "half_shaft_reaches_the_wheel",
+   "expr": "=hs_len > 100",
+   "message": "the half shafts are too short to reach the wheels"
+  },
+  {
+   "name": "gearbox_clears_floor",
+   "expr": "=gb_z - cs_dist - 72 > ground_clr + wall",
+   "message": "the gearbox case would cut through the floor"
   }
  ]
 }
