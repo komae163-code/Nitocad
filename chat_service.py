@@ -70,6 +70,28 @@ class NeedCredits(Exception):
         self.cost = cost
 
 
+class StepsRemaining(Exception):
+    """The part on the bench is one step of a staged vehicle or assembly. Generate would deliver a part of it."""
+
+    def __init__(self, shown: int, of: int, parts_shown: int | None = None):
+        super().__init__(f"step {shown} of {of}")
+        self.shown, self.of, self.parts_shown = shown, of, parts_shown
+
+
+def steps_remaining(spec: dict | None) -> tuple[int, int] | None:
+    """(shown, of) while a vehicle or assembly is still being built in steps, else None."""
+    params = (spec or {}).get("parameters") or {}
+    if (spec or {}).get("part_type") != "assembly" or not isinstance(params, dict):
+        return None
+    st = params.get("stage")                                   # a vehicle: {"shown": k, "of": n}
+    if isinstance(st, dict) and isinstance(st.get("shown"), int) and isinstance(st.get("of"), int) and st["shown"] < st["of"]:
+        return st["shown"], st["of"]
+    st = (spec or {}).get("stage")                             # any other assembly: {"k", "of", "target"}
+    if isinstance(st, dict) and isinstance(st.get("k"), int) and isinstance(st.get("of"), int) and st["k"] < st["of"]:
+        return st["k"], st["of"]
+    return None
+
+
 class FilesFailed(Exception):
     """Paying worked but the files could not be built. The charge has been refunded."""
 
@@ -271,7 +293,8 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
             return _codegen_material_turn(user_id, chat_id, text, current, finish, evaluate)
         if cg_mode:
             plan = Plan("edit" if cg_mode == "revise" else "build", "", None, "rules")
-            return _codegen_turn(deps, user_id, chat_id, text, cg_mode, current, finish, evaluate, count_ai=True)
+            return _codegen_turn(deps, user_id, chat_id, text, cg_mode, current, finish, evaluate, count_ai=True,
+                                 prompt=codegen_chat.start_prompt(text, history) if cg_mode == "start" else None)
 
         # The planner sees what the current version measured, so it knows what an edit would disturb. A code part has no
         # template spec for it to edit, so a question about one is planned as if no part were open.
@@ -289,7 +312,8 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
         if (deps.codegen_start and plan.intent == "answer" and plan.spec is None and plan.no_match and not added
                 and codegen_chat.looks_like_build(text)):
             plan = Plan("build", "", None, plan.source)
-            return _codegen_turn(deps, user_id, chat_id, text, "start", current, finish, evaluate, count_ai=plan.source != "llm")
+            return _codegen_turn(deps, user_id, chat_id, text, "start", current, finish, evaluate, count_ai=plan.source != "llm",
+                                 prompt=codegen_chat.start_prompt(text, history))
 
         if plan.intent == "answer" or plan.spec is None:
             reply = plan.reply or "Tell me a bit more about the part you want."
@@ -379,7 +403,8 @@ def _codegen_material_turn(user_id: str, chat_id: str, text: str, current: dict,
 
 
 def _codegen_turn(deps: Deps, user_id: str, chat_id: str, text: str, mode: str, current: dict | None,
-                  finish: Callable[..., dict], evaluate: Callable[[dict], list], *, count_ai: bool) -> dict[str, Any]:
+                  finish: Callable[..., dict], evaluate: Callable[[dict], list], *, count_ai: bool,
+                  prompt: str | None = None) -> dict[str, Any]:
     """Write or revise a part as code, save it as a chat part, and answer. The code builder charges for itself and
     refunds itself unless it saved a model, so a failure here costs nothing."""
     import logging
@@ -389,11 +414,16 @@ def _codegen_turn(deps: Deps, user_id: str, chat_id: str, text: str, mode: str, 
             deps.ai_used(user_id)
         except Exception:  # noqa: BLE001 - a counting problem must never lose the person's answer
             log.exception("ai usage log failed")
+    if mode != "revise" and prompt is not None and not prompt.strip():
+        # "yes, write it as code" with no request behind it. Sent alone, the builder used to make up an object
+        # (a planter pot for a car chat). Ask instead. Nothing was started, so nothing is charged.
+        return finish("What should I write as code? Describe the part, for example: a bracket 100 mm wide with four "
+                      "6 mm holes. You were not charged.")
     try:
         if mode == "revise":
             out = deps.codegen_revise(user_id, codegen_chat.ref(current["spec"])["id"], text)
         else:
-            out = deps.codegen_start(user_id, text)
+            out = deps.codegen_start(user_id, prompt or text)
     except Exception:  # noqa: BLE001 - the chat must survive a code builder problem
         log.exception("code builder failed in chat")
         return finish("The code builder hit a problem, so nothing was added to this chat. You are only charged when a part is saved. Try again in a moment.",
@@ -420,9 +450,12 @@ def _codegen_turn(deps: Deps, user_id: str, chat_id: str, text: str, mode: str, 
     return finish(answer, part=part, requirements=results, charged=int(out.get("charged") or 0))
 
 
-def unlock_part(deps: Deps, user_id: str, chat_id: str, part_id: str) -> dict[str, Any]:
+def unlock_part(deps: Deps, user_id: str, chat_id: str, part_id: str, allow_partial: bool = False) -> dict[str, Any]:
     """Pay for one preview and unlock its full files. Spends at most one generation, once
-    per version: calling it again for a version that is already paid returns charged=0."""
+    per version: calling it again for a version that is already paid returns charged=0.
+
+    A vehicle or assembly that is still being built in steps is refused (nothing charged) unless allow_partial is
+    set: its files would hold only the parts shown so far, which looks like the finished design but is not."""
     if chat_store.get_chat(user_id, chat_id) is None:
         raise ChatNotFound()
     chat = chat_store.get_chat(user_id, chat_id)
@@ -430,6 +463,9 @@ def unlock_part(deps: Deps, user_id: str, chat_id: str, part_id: str) -> dict[st
     if part is None or not part.get("job_id"):
         raise PartNotFound()
     job_id = part["job_id"]
+    left = None if allow_partial else steps_remaining(part["spec"])
+    if left is not None:
+        raise StepsRemaining(left[0], left[1])
     if (part["spec"].get("parameters") or {}).get("kind") in import_ops.MESH_KINDS:
         # A mesh can only be exported as STL, and the STL is already free, so there is nothing to buy.
         return {"paid": True, "charged": 0, "balance": deps.balance(user_id), "job_id": job_id, "part_id": part_id,

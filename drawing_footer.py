@@ -145,9 +145,10 @@ def build_footer(bom: dict | None = None, tol_class: str = "m", scale: str = "1:
         footer.table_title = "PARTS LIST"
         footer.table_header = ["ITEM", "QTY", "PART", "MATERIAL", "MASS g"]
         for r in bom["rows"]:
-            name = r["names"][0] if len(r["names"]) == 1 else f"{r['names'][0]} +{len(r['names']) - 1}"
+            names = r["names"]
+            name = names[0] if len(names) == 1 else ", ".join(names) if len(names) <= 3 else ", ".join(names[:2]) + f" +{len(names) - 2} more"
             mass = fmt_number(r["total_mass_g"]) if r.get("total_mass_g") is not None else "-"
-            footer.table_rows.append([str(r["item"]), str(r["quantity"]), f"{name} ({r['part_type']})"[:46], (r.get("material") or "-")[:22], mass])
+            footer.table_rows.append([str(r["item"]), str(r["quantity"]), f"{name} ({r['part_type']})"[:70], (r.get("material") or "-")[:22], mass])
         total = fmt_number(bom["total_mass_g"]) + (" g" if bom.get("mass_is_complete") else " g (PARTIAL)")
         footer.table_footer = f"TOTAL {bom['part_count']} PARTS, {total}"
     return footer

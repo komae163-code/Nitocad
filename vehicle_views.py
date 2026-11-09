@@ -11,6 +11,8 @@ part whose files are unlocked.
 """
 from __future__ import annotations
 
+import math
+import re
 import zipfile
 from pathlib import Path
 from typing import Any, Callable
@@ -43,6 +45,52 @@ def summary(vspec: dict[str, Any], module_dir: Path | None = None) -> dict[str, 
             "external": [e["name"] for e in ex["external"]], "limits": ex["limits"]}
 
 
+_UP = re.compile(r"roof|hood|bonnet|canopy|lid|cover|windscreen|windshield|head|spinner|rotor|prop", re.I)
+_DOWN = re.compile(r"floor|tank|battery|exhaust|muffler|sump|skid|undertray|pan$|_pan", re.I)
+_FRONT = re.compile(r"bumper_f|front_bumper|radiator|grille|nose|headlight|engine", re.I)
+_REAR = re.compile(r"bumper_r|rear_bumper|tailgate|trunk|boot|tail_light|exhaust|muffler", re.I)
+_SIDE = re.compile(r"door|wheel|tyre|tire|hub|axle|bearing|mirror|panel_[lr]|side|brake|disc|caliper|_[lr]$|_[lr]_", re.I)
+
+
+def default_direction(name: str, centre: tuple[float, float, float], ref: tuple[float, float, float]) -> tuple[float, float, float] | None:
+    """A sensible pull-apart direction for a part that has none: wheels, doors and mirrors go out sideways, the roof
+    and hood go up, the floor, tank and exhaust go down, bumpers and the tail go along the length. None when the name
+    says nothing and the part sits on the centre (the caller then falls back to radial)."""
+    y = centre[1] - ref[1]
+    side = (0.0, 1.0 if y >= 0 else -1.0, 0.0)
+    if _SIDE.search(name) and abs(y) > 1.0:
+        return side
+    if _REAR.search(name) and not _DOWN.search(name):
+        return (-1.0, 0.0, 0.0)
+    if _FRONT.search(name):
+        return (1.0, 0.0, 0.0)
+    if _UP.search(name):
+        return (0.0, 0.0, 1.0)
+    if _DOWN.search(name):
+        return (0.0, 0.0, -1.0)
+    return None
+
+
+NEST_SCALE_CAP = 3.0
+
+
+def nest_scales(boxes: dict[str, AE.BBox], dirs: dict[str, tuple[float, float, float]]) -> dict[str, float]:
+    """Distance multipliers for parts that overlap another part going the same way. The smaller part of such a pair is
+    pulled further than the larger one (a door further than its side panel, an axle further than its tyre), so
+    they come apart instead of travelling together. Nests of any depth are handled, largest first."""
+    vol = {n: math.prod(b["max"][i] - b["min"][i] for i in range(3)) for n, b in boxes.items()}
+    scale = {n: 1.0 for n in dirs}
+    order = sorted(dirs, key=lambda n: -vol[n])
+    for i, big in enumerate(order):
+        for small in order[i + 1:]:
+            same = sum(a * b for a, b in zip(AE._unit(dirs[big]) or (0, 0, 0), AE._unit(dirs[small]) or (0, 0, 0))) > 0.99
+            a, b = boxes[big], boxes[small]
+            touching = all(a["min"][k] < b["max"][k] + 1.0 and b["min"][k] < a["max"][k] + 1.0 for k in range(3))
+            if same and touching:                       # overlapping, nested or just touching: all travel together
+                scale[small] = min(NEST_SCALE_CAP, max(scale[small], scale[big] + 0.5))
+    return scale
+
+
 def exploded(vspec: dict[str, Any], parts: list[dict[str, Any]], bbox_fn: BBoxFn, *, group: str | None = None,
              module_dir: Path | None = None) -> dict[str, Any]:
     """Viewer JSON for the placed `parts` (the chat part's parts list: name, part_type, parameters, position,
@@ -64,8 +112,16 @@ def exploded(vspec: dict[str, Any], parts: list[dict[str, Any]], bbox_fn: BBoxFn
         return {"ok": False, "errors": ["an exploded view needs at least two parts"], "groups": list(ex["assemblies"])}
     settings = ex.get("explode") or {}
     dirs = {k: v for k, v in (settings.get("directions") or {}).items() if k in boxes}
+    lo = [min(b["min"][i] for b in boxes.values()) for i in range(3)]
+    hi = [max(b["max"][i] for b in boxes.values()) for i in range(3)]
+    ref = tuple((lo[i] + hi[i]) / 2 for i in range(3))
+    for n, b in boxes.items():                       # parts without a set direction get one from their name and side
+        if n not in dirs:
+            d = default_direction(n, tuple((b["min"][i] + b["max"][i]) / 2 for i in range(3)), ref)
+            if d is not None:
+                dirs[n] = d
     fixed = ex["fixed"].get(group) if group else None
-    res = AE.explode(boxes, fixed=fixed if fixed in boxes else None, directions=dirs,
+    res = AE.explode(boxes, fixed=fixed if fixed in boxes else None, directions=dirs, scales=nest_scales(boxes, dirs),
                      intended_contact=[tuple(x) for x in settings.get("intended_contact", []) if len(x) == 2])
     if not res["ok"]:
         return {"ok": False, "errors": res["errors"], "groups": list(ex["assemblies"])}

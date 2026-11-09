@@ -59,7 +59,7 @@ _FALLBACK_DEFAULTS: dict[str, dict[str, float]] = {
 # default size. tests/test_assembly_gate.py fails if this table and the templates ever disagree.
 _KNOWN_PARAMS: dict[str, frozenset[str]] = {
     "shaft": frozenset({"diameter_mm", "length_mm", "chamfer_mm", "keyway_width_mm", "keyway_depth_mm"}),
-    "gear": frozenset({"module", "teeth", "thickness_mm", "bore_diameter_mm", "pressure_angle"}),
+    "gear": frozenset({"module", "teeth", "thickness_mm", "bore_diameter_mm", "pressure_angle", "backlash_mm", "keyway_width_mm", "keyway_depth_mm"}),
     "pulley": frozenset({"outer_diameter_mm", "belt_width_mm", "bore_diameter_mm", "thickness_mm", "groove_depth_mm"}),
     "sprocket": frozenset({"teeth", "chain_pitch_mm", "thickness_mm", "bore_diameter_mm"}),
     "bearing": frozenset({"inner_diameter_mm", "outer_diameter_mm", "width_mm"}),

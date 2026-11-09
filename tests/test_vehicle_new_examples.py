@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 import spec_library as SL
 import vehicle_spec as V
 
-NEW = {"car": 18, "wheelie_bin": 15, "light_airplane": 15, "mini_engine_single": 7, "mini_engine_twin": 10}
+NEW = {"car": 97, "wheelie_bin": 15, "light_airplane": 15, "mini_engine_single": 7, "mini_engine_twin": 10}
 
 
 def load(name):

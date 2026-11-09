@@ -83,7 +83,7 @@ def test_footer_without_a_bom_has_notes_and_tolerances_only():
 def test_footer_with_a_bom_lists_every_row_and_flags_partial_mass():
     prims, w, h = df.layout_footer(df.build_footer(BOM, "c"))
     t = texts(prims)
-    assert "PARTS LIST" in t and "plate (flat_plate)" in t and "post_1 +1 (spacer)" in t
+    assert "PARTS LIST" in t and "plate (flat_plate)" in t and "post_1, post_2 (spacer)" in t
     assert "108" in t and "-" in t
     assert any(x.startswith("TOTAL 3 PARTS, 108 g (PARTIAL)") for x in t)
     assert "GENERAL TOLERANCES ISO 2768-c" in t

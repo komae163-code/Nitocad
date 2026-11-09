@@ -902,6 +902,19 @@ def _plan_core(
     return plan
 
 
+def _is_vehicle_chat(last_user: str, current_spec: dict | None, history: list[dict]) -> bool:
+    """True when this turn belongs to the vehicle builder: a vehicle is on the bench, the vehicle scoping chat is
+    running or has finished its questions, or the message itself asks for a whole vehicle. Never raises."""
+    try:
+        import vehicle_chat
+        if vehicle_chat.vehicle_of(current_spec) is not None:
+            return True
+        scoped = vehicle_chat.scope_turn(history, current_spec) if history else None
+        return scoped is not None or vehicle_chat.is_vehicle_request(last_user)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _plan_body(
     history: list[dict],
     current_spec: dict | None,
@@ -914,12 +927,20 @@ def _plan_body(
     staged_out: list[bool],
 ) -> Plan:
     last_user = next((m["content"] for m in reversed(history) if m.get("role") == "user"), "")
+    vehicle_failed = False
     try:
         vehicle_plan = _vehicle_turn(last_user, current_spec, llm, history)
-    except Exception:  # noqa: BLE001 - a vehicle problem must never break the chat; fall through
-        vehicle_plan = None
+    except Exception:  # noqa: BLE001 - a vehicle problem must never break the chat
+        import logging
+        logging.getLogger(__name__).exception("vehicle turn failed")       # was swallowed with no trace
+        vehicle_plan, vehicle_failed = None, True
     if vehicle_plan is not None:
         return vehicle_plan
+    if _is_vehicle_chat(last_user, current_spec, history):
+        # The person is building a vehicle, so the vehicle path owns this turn. Falling through gave the generic planner a
+        # chat it cannot read, it answered "custom", and a pickup was sent to the code builder as a planter pot.
+        return Plan("answer", "I could not plan that vehicle just now. Nothing was built and nothing was charged. "
+                              "Tap the last answer again, or say just build it.", None, "rules")
     # Everything else the chat builds gets the same questions-first conversation the vehicles have (build_scope.py).
     try:
         import build_scope

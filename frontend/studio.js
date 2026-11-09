@@ -500,8 +500,38 @@ function explodeSetup() {
 function explodeApply(t) {
   const e = V.islands; if (!e) return;
   e.root.children.forEach((ch) => { ch.visible = ch === e.group ? t > 0 : t === 0; });
-  for (const { part, d } of e.parts) part.position.set(d[0] * t * e.diag * 0.7, d[1] * t * e.diag * 0.7, d[2] * t * e.diag * 0.7);
+  const k = e.abs ? 1 : e.diag * 0.7;           // real parts carry their own pull distance in mm; cut islands scale with the size
+  for (const { part, d } of e.parts) part.position.set(d[0] * t * k, d[1] * t * k, d[2] * t * k);
   applyWire();
+}
+/* Explode from the REAL parts. The server tessellates each part of the assembly on its own and says how far each one has
+   to move to clear the others, so the pieces are exactly the parts list (not whatever triangles happen to touch).
+   Returns the same shape as explodeSetup, or null when the server cannot (not an assembly, no CAD kernel, offline). */
+async function explodeSetupReal() {
+  if (V.islands) return V.islands;
+  const c = chat(), part = c && S.activePartId ? partOf(c, S.activePartId) : null;
+  if (!c || !c.remote || !part || part.partType !== "assembly") return null;
+  const tok = V.token;
+  const r = await api("GET", `/chats/${c.id}/parts/${part.id}/explode-mesh`, null, 90000);
+  if (tok !== V.token || !V.mesh) return null;      // another part was opened while this loaded
+  if (!r.ok || !r.data || !r.data.ok || !(r.data.parts || []).length) return null;
+  let base = null; V.mesh.traverse((o) => { if (o.isMesh && !base) base = o; });
+  if (!base) return null;
+  const group = new THREE.Group(), parts = [];
+  for (const p of r.data.parts) {
+    const bin = atob(p.pos), buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buf.buffer), 3));
+    g.computeVertexNormals(); g.rotateX(-Math.PI / 2);                         // the same turn the STL preview gets (CAD Z is up)
+    const node = new THREE.Group(), m = new THREE.Mesh(g, base.material); m.castShadow = true; node.add(m);
+    node.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 30), new THREE.LineBasicMaterial({ color: 0x1f2630, transparent: true, opacity: 0.5 })));
+    group.add(node);
+    const [ox, oy, oz] = p.off;
+    parts.push({ part: node, d: [ox, oz, -oy], name: p.name });                // CAD (x, y, z) -> viewer (x, z, -y)
+  }
+  base.parent.add(group);
+  V.islands = { group, parts, diag: r.data.diag, root: base.parent, abs: true, warnings: r.data.warnings || [] };
+  return V.islands;
 }
 function sheetSync() {
   const sheet = $("cvSheet"); sheet.hidden = !(SEC.on || V.exp);
@@ -590,11 +620,18 @@ function thumbSvg(kind) {
     shaft: '<rect x="8" y="27" width="68" height="14" rx="2" fill="#fff"/><path d="M14 27v14M70 27v14"/>',
     box: '<path d="M14 26l28-12 28 12v22L42 60 14 48z" fill="#fff"/><path d="M14 26l28 12 28-12M42 38v22"/>',
     assembly: '<rect x="10" y="46" width="64" height="10" rx="1" fill="#fff"/><path d="M24 46V24h12v12h22v10" fill="#fff"/><circle cx="30" cy="31" r="2"/><path d="M58 36v-8l8 4z"/>',
+    code: '<rect x="12" y="14" width="60" height="40" rx="4" fill="#fff"/><path d="M32 26l-9 8 9 8M52 26l9 8-9 8M45 22l-6 24"/>',
     bracket: '<path d="M18 18h14v28h34v10H18z" fill="#fff"/><circle cx="25" cy="27" r="2"/><circle cx="25" cy="42" r="2"/><circle cx="48" cy="51" r="2"/><circle cx="60" cy="51" r="2"/>'
   };
-  return s + (shapes[kind] || shapes.bracket) + "</svg>";
+  return s + (shapes[kind] || shapes.box) + "</svg>";      // an unknown kind gets a neutral solid, not a bracket
 }
-function kindOf(part) { return part.partType === "assembly" ? "assembly" : part.demoKind || (/gear/.test(part.partType) ? "gear" : /shaft/.test(part.partType) ? "shaft" : /box|enclosure/.test(part.partType) ? "box" : "bracket"); }
+function kindOf(part) {
+  if (part.partType === "assembly") return "assembly";
+  if (part.partType === "codegen") return "code";           // written as code: the shape is not known to the card
+  if (part.demoKind) return part.demoKind;
+  const t = String(part.partType || "");
+  return /gear/.test(t) ? "gear" : /shaft/.test(t) ? "shaft" : /box|enclosure/.test(t) ? "box" : /bracket|plate|flange|mount|angle/.test(t) ? "bracket" : "box";
+}
 function para(text) { return String(text).split(/\n\n+/).map((t) => "<p>" + esc(t).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\n/g, "<br>") + "</p>").join(""); }
 const ASSIST_AVA = '<div class="ava"><img src="logo-mark.png" alt=""></div>';
 
@@ -987,12 +1024,20 @@ function renderCanvas() {
 function isCodegen(part) { return !!(part && part.partType === "codegen" && part.spec && part.spec.parameters && part.spec.parameters.codegen); }
 function codegenRef(part) {
   const g = part.spec.parameters.codegen;
-  return { id: g.id, values: Object.assign({}, g.values || {}, part.cgValues || {}) };
+  const all = Object.assign({}, g.values || {}, part.cgValues || {}), values = {};
+  for (const k of Object.keys(all)) {                 // only finite numbers go to the builder, a stray "" or null failed the request
+    const n = typeof all[k] === "boolean" ? (all[k] ? 1 : 0) : (all[k] === "" || all[k] === null ? NaN : Number(all[k]));
+    if (Number.isFinite(n)) values[k] = n;
+  }
+  return { id: g.id, values };
 }
 async function cgApi(path, body, wantBlob) {
   const r = await fetch(BASE + path, { method: "POST", headers: Object.assign({ "Content-Type": "application/json" }, Auth.authHeader()), body: JSON.stringify(body) });
   if (!r.ok) {
     let detail = null; try { detail = (await r.json()).detail; } catch (e) { /* not json */ }
+    if (Array.isArray(detail)) {                      // a request the server refused to read: say which field and why
+      detail = detail.map((d) => (d && d.msg ? ((Array.isArray(d.loc) ? d.loc.filter((x) => x !== "body").join(".") : "") + " " + d.msg).trim() : String(d))).join("; ");
+    }
     throw new Error(typeof detail === "string" && detail ? detail : "The code builder could not do that (HTTP " + r.status + ").");
   }
   return wantBlob ? r.blob() : r.json();
@@ -1142,6 +1187,14 @@ function assemblyChips(part) {
 }
 /* A vehicle is an assembly whose saved parameters carry the vehicle spec it was planned from. */
 function isVehicle(part) { return part.partType === "assembly" && !!(part.spec && part.spec.parameters && part.spec.parameters.vehicle); }
+/* "32 parts." for a finished vehicle. While it is built in steps: which step is showing and how much of it, so a partial
+   model is never mistaken for the whole. */
+function stepNoteHtml(part, s) {
+  const prm = (part.spec && part.spec.parameters) || {}, st = prm.stage, shown = Array.isArray(prm.parts) ? prm.parts.length : null;
+  if (st && Number.isInteger(st.shown) && Number.isInteger(st.of) && st.shown < st.of)
+    return `<b>Step ${esc(st.shown)} of ${esc(st.of)}</b>: showing ${shown === null ? "part" : esc(shown)} of ${esc(s.parts)} parts. Say <i>finish</i> to add the rest. `;
+  return `${esc(s.parts)} parts. `;
+}
 function vehicleBoxHtml(part) {
   const s = part.vehicleSummary;
   if (s === undefined) return `<div class="note" id="vehBox" data-veh-part="${esc(part.id)}"><b>Vehicle plan</b><p>Loading the plan...</p></div>`;
@@ -1150,7 +1203,7 @@ function vehicleBoxHtml(part) {
   const groups = Object.keys(s.groups || {}).map((g) => `<span class="spec-chip">${esc(g)} ${esc(s.groups[g])}</span>`).join("");
   const checks = (s.checks || []).map((c) => `<li class="${c.status === "pass" ? "ok" : "bad"}"><b>${esc(c.name.replace(/_/g, " "))}</b>${c.detail ? ": " + esc(c.detail) : ""}</li>`).join("");
   return `<div class="note" id="vehBox"><b>Vehicle plan: ${esc(String(s.name || "").replace(/_/g, " "))}</b>` +
-    `<p>${esc(s.parts)} parts. Tap a size to change it, or just tell me what to change.</p><div class="part-specs">${sizes}</div><div class="part-specs">${groups}</div>` +
+    `<p>${stepNoteHtml(part, s)}Tap a size to change it, or just tell me what to change.</p><div class="part-specs">${sizes}</div><div class="part-specs">${groups}</div>` +
     (checks ? `<ul class="asm-find">${checks}</ul>` : "") +
     (s.external && s.external.length ? `<p>Downloaded parts added at Generate: ${s.external.map(esc).join(", ")}.</p>` : "") +
     `<p class="fine">Concept layout. Parts that share a bore are meant to touch, so the overlap list below is expected for shafts and wheels. Not load-rated or checked for safety.${s.notes ? " " + esc(String(s.notes).slice(0, 240)) : ""}</p></div>`;
@@ -1679,13 +1732,20 @@ $("tOrtho").addEventListener("click", (e) => { const on = V.camera !== V.ortho; 
 $("tSection").addEventListener("click", (e) => {
   if (!V.mesh) return; SEC.on = !SEC.on; e.currentTarget.setAttribute("aria-pressed", String(SEC.on)); applySection(); sheetSync();
 });
-$("tExplode").addEventListener("click", (e) => {
-  if (!V.mesh) return;
+$("tExplode").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  if (!V.mesh || btn.disabled) return;
   if (!V.exp) {
-    if (!explodeSetup()) { toast("This part is one solid, so there is nothing to pull apart."); return; }
+    btn.disabled = true;
+    let real = null;
+    try { viewerStatus("Pulling the parts apart", true); real = await explodeSetupReal(); } catch (_) { real = null; }
+    viewerStatus(""); btn.disabled = false;
+    if (!V.mesh) return;
+    if (!real && !explodeSetup()) { toast("This part is one solid, so there is nothing to pull apart."); return; }
     V.exp = true; explodeApply($("expT").value / 100);
+    const w = V.islands && V.islands.warnings && V.islands.warnings[0]; if (w) toast(w);
   } else { V.exp = false; explodeApply(0); }
-  e.currentTarget.setAttribute("aria-pressed", String(V.exp)); sheetSync();
+  btn.setAttribute("aria-pressed", String(V.exp)); sheetSync();
 });
 document.querySelectorAll("#cvSheet [data-axis]").forEach((b) => b.addEventListener("click", () => {
   SEC.axis = b.dataset.axis; document.querySelectorAll("#cvSheet [data-axis]").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); applySection();

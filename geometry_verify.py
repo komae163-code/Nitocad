@@ -148,7 +148,13 @@ def _cq_solid_checks(solid: Any, expected: dict[str, Any] | None) -> tuple[dict[
     return checks, errors, measured
 
 
-def _stl_watertight_check(stl_path: str | Path) -> tuple[dict[str, bool], list[str], dict[str, Any]]:
+def _stl_watertight_check(
+    stl_path: str | Path, *, require_watertight: bool = True
+) -> tuple[dict[str, bool], list[str], dict[str, Any]]:
+    """Checks on the exported STL. With require_watertight=False (vehicles and other multi-part assemblies) the merged
+    mesh is NOT tested for being watertight: parts that touch or overlap share edges once merged, so the whole can never
+    be one closed shell even when every part is. Those builds are checked solid by solid (verify_solids) instead; the
+    merged result is only recorded in `measured` for information."""
     checks: dict[str, bool] = {}
     errors: list[str] = []
     measured: dict[str, Any] = {}
@@ -180,9 +186,13 @@ def _stl_watertight_check(stl_path: str | Path) -> tuple[dict[str, bool], list[s
         measured["face_count"] = int(len(mesh.faces))
         measured["vertex_count"] = int(len(mesh.vertices))
         is_wt = bool(mesh.is_watertight)
-        checks["watertight"] = is_wt
-        if not is_wt:
-            errors.append("STL mesh is not watertight")
+        if require_watertight:
+            checks["watertight"] = is_wt
+            if not is_wt:
+                errors.append("STL mesh is not watertight")
+        else:
+            measured["merged_mesh_watertight"] = is_wt          # information only, never a failure
+            checks["merged_mesh_check_skipped"] = True
 
         # Degenerate faces (zero area)
         try:
@@ -216,8 +226,12 @@ def verify_geometry(
     *,
     stl_path: str | Path | None = None,
     expected: dict[str, Any] | None = None,
+    multi_part: bool = False,
 ) -> VerificationReport:
     """Run all available post-build checks and return a VerificationReport.
+
+    multi_part=True is for vehicles and every other assembly of separate parts: the merged STL is not tested for being
+    watertight (it cannot be, once touching parts are merged). Each part is verified on its own by verify_solids().
 
     expected may contain:
       - volume: float (mm³)
@@ -237,7 +251,7 @@ def verify_geometry(
         all_warnings.append("No solid provided; CQ checks skipped")
 
     if stl_path is not None:
-        c, e, m = _stl_watertight_check(stl_path)
+        c, e, m = _stl_watertight_check(stl_path, require_watertight=not multi_part)
         all_checks.update(c)
         all_errors.extend(e)
         measured.update(m)
@@ -245,6 +259,8 @@ def verify_geometry(
             logger.warning("trimesh not installed; watertight check skipped (add it to requirements.txt)")
     else:
         all_warnings.append("No STL path provided; mesh checks skipped")
+    if multi_part:
+        all_warnings.append("Multi-part build: each part is checked on its own, not the merged mesh")
 
     # Hard failures only: explicit False on critical checks, or any error
     critical_keys = (
@@ -274,3 +290,85 @@ def verify_geometry(
         warnings=all_warnings,
         measured=measured,
     )
+
+
+# ----------------------------------------------------------------------------------------------- per-solid checks
+WELD_MM = 1e-3          # vertices closer than this are one vertex (tessellated faces of one solid meet on shared edges)
+MAX_PART_ERRORS = 6     # list this many failing parts, then say how many more
+
+
+def mesh_is_closed(vertices: Any, faces: Any, weld: float = WELD_MM) -> tuple[bool, dict[str, int]]:
+    """True when every edge of the triangle mesh is shared by exactly two triangles (a closed surface).
+    Pure numpy, so it is testable without a CAD kernel. Zero-area triangles are ignored."""
+    import numpy as np
+
+    v = np.asarray(vertices, dtype=float).reshape(-1, 3)
+    f = np.asarray(faces, dtype=np.int64).reshape(-1, 3)
+    if len(f) == 0 or len(v) == 0:
+        return False, {"triangles": 0, "open_edges": 0, "overshared_edges": 0}
+    key = np.round(v / weld).astype(np.int64)
+    _, inv = np.unique(key, axis=0, return_inverse=True)
+    inv = np.asarray(inv).reshape(-1)
+    tri = inv[f]
+    keep = (tri[:, 0] != tri[:, 1]) & (tri[:, 1] != tri[:, 2]) & (tri[:, 0] != tri[:, 2])
+    tri = tri[keep]
+    if len(tri) == 0:
+        return False, {"triangles": 0, "open_edges": 0, "overshared_edges": 0}
+    e = np.concatenate([tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]])
+    e.sort(axis=1)
+    n = int(inv.max()) + 1
+    code = e[:, 0] * n + e[:, 1]
+    _, counts = np.unique(code, return_counts=True)
+    open_edges = int((counts == 1).sum())
+    over = int((counts > 2).sum())
+    return (open_edges == 0 and over == 0), {"triangles": int(len(tri)), "open_edges": open_edges, "overshared_edges": over}
+
+
+def _kernel_mesher(shape: Any, tolerance: float = 0.1, angular: float = 0.2) -> tuple[Any, Any]:
+    verts, tris = shape.tessellate(tolerance, angular)
+    return [(float(p.x), float(p.y), float(p.z)) for p in verts], [tuple(t) for t in tris]
+
+
+def _solids_of(shape: Any) -> list[Any]:
+    try:
+        sols = list(shape.Solids())
+    except Exception:  # noqa: BLE001
+        sols = []
+    return sols or [shape]
+
+
+def verify_solids(parts: list[tuple[str, Any]], mesher: Any = None) -> tuple[dict[str, bool], list[str], dict[str, Any]]:
+    """Verify an assembly part by part. `parts` is [(name, shape)] (assembly.get_assembly_parts). Every solid of every
+    part must be a valid B-rep and tessellate to a closed surface on its own. Returns (checks, errors, measured).
+    This replaces the merged-mesh watertight test for vehicles and other multi-part builds."""
+    mesher = mesher or _kernel_mesher
+    checks: dict[str, bool] = {}
+    errors: list[str] = []
+    measured: dict[str, Any] = {"parts_checked": 0, "solids_checked": 0}
+    bad = 0
+    for name, shape in parts:
+        measured["parts_checked"] += 1
+        for i, solid in enumerate(_solids_of(shape), start=1):
+            measured["solids_checked"] += 1
+            label = f"part '{name}'" + (f" (solid {i})" if len(_solids_of(shape)) > 1 else "")
+            problem = None
+            try:
+                if hasattr(solid, "isValid") and not solid.isValid():
+                    problem = "is not a valid solid"
+                else:
+                    verts, tris = mesher(solid)
+                    ok, info = mesh_is_closed(verts, tris)
+                    if not ok:
+                        problem = (f"is not a closed solid ({info['open_edges']} open edges, "
+                                   f"{info['overshared_edges']} over-shared edges)")
+            except Exception as exc:  # noqa: BLE001
+                problem = f"could not be checked: {str(exc)[:80]}"
+            if problem:
+                bad += 1
+                if len(errors) < MAX_PART_ERRORS:
+                    errors.append(f"{label} {problem}")
+    checks["every_part_is_closed_solid"] = bad == 0
+    measured["parts_failed"] = bad
+    if bad > MAX_PART_ERRORS:
+        errors.append(f"and {bad - MAX_PART_ERRORS} more")
+    return checks, errors, measured

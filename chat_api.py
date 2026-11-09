@@ -451,12 +451,13 @@ def build_router(*, generator, limiter) -> APIRouter:
 
     @router.post("/chats/{chat_id}/parts/{part_id}/generate")
     @limiter.limit(settings.RATE_LIMIT_GENERATE)
-    async def generate_part_files(request: Request, chat_id: str, part_id: str, wallet: Wallet):
+    async def generate_part_files(request: Request, chat_id: str, part_id: str, wallet: Wallet,
+                                  allow_partial: bool = False):
         """The one place a studio chat spends credits. Pays for this version once and unlocks
         its STEP, IGES, DXF and PDF files. Pressing it again for a paid version is free."""
         uid = _uid(wallet)
         try:
-            out = await run_in_threadpool(chat_service.unlock_part, make_deps(), uid, chat_id, part_id)
+            out = await run_in_threadpool(chat_service.unlock_part, make_deps(), uid, chat_id, part_id, allow_partial)
             # Generating is the clearest sign someone liked a vehicle version: let the library learn from it.
             saved = await run_in_threadpool(chat_store.get_part, uid, chat_id, part_id)
             if saved:
@@ -464,6 +465,12 @@ def build_router(*, generator, limiter) -> APIRouter:
             return out
         except (chat_service.ChatNotFound, chat_service.PartNotFound):
             raise HTTPException(status_code=404, detail="Part not found")
+        except chat_service.StepsRemaining as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=(f"This is step {exc.shown} of {exc.of}, so the files would hold only part of the design. "
+                        "Say finish in the chat to add everything, then press Generate. You were not charged."),
+            ) from exc
         except chat_service.ChatBusy:
             raise HTTPException(status_code=409, detail="This part is already being generated.")
         except chat_service.NeedCredits as exc:

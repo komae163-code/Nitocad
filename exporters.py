@@ -1202,11 +1202,15 @@ def pdf_scale_denominator(obj: "ShapeLike") -> int:
     """1 for anything up to _PDF_FULL_SIZE_LIMIT_MM, else the first standard
     scale denominator that brings the part's X+Y+Z extent under the target."""
     bb = _as_workplane(obj).val().BoundingBox()
-    extent = bb.xlen + bb.ylen + bb.zlen
-    if extent <= _PDF_FULL_SIZE_LIMIT_MM:
+    return scale_for_extent(bb.xlen + bb.ylen + bb.zlen)
+
+
+def scale_for_extent(extent_mm: float) -> int:
+    """The standard denominator for a part whose X+Y+Z extent is `extent_mm` (1 when it fits full size)."""
+    if extent_mm <= _PDF_FULL_SIZE_LIMIT_MM:
         return 1
     for n in _PDF_STANDARD_SCALES:
-        if extent / n <= _PDF_TARGET_EXTENT_MM:
+        if extent_mm / n <= _PDF_TARGET_EXTENT_MM:
             return n
     return _PDF_STANDARD_SCALES[-1]
 
@@ -1294,6 +1298,13 @@ def export_pdf(
     from reportlab.pdfgen import canvas
 
     if parts:
+        # Each part gets the smallest standard scale that fits it on the sheet, and its label says which. A 4 m body
+        # is drawn at 1:20 while a 40 mm bolt stays 1:1, so nothing disappears and the sheet stays printable.
+        part_dens = [scale_for_extent(sum((lambda b: (b.xlen, b.ylen, b.zlen))(_as_workplane(sh).val().BoundingBox())))
+                     for _, sh in parts]
+        parts = [(n, cq.Workplane(obj=_scale_shape(_as_workplane(sh).val(), 1.0 / d)) if d > 1 else sh)
+                 for (n, sh), d in zip(parts, part_dens)]
+        scale_den = max(part_dens) if part_dens else 1
         blocks = _stack_part_blocks(parts)
         all_offsets = [
             {name: (o[0], o[1] + y_shift) for name, o in offsets.items()}
@@ -1339,7 +1350,8 @@ def export_pdf(
         size_text = "SIZE: n/a (multi-part sheet)"
     name_text = f"PART: {_clip(part_name.upper())}"
     type_text = f"TYPE: {_clip((part_type or 'n/a').upper())}"
-    scale_text = f"SCALE: 1:{scale_den}"
+    mixed = bool(parts) and len(set(part_dens)) > 1
+    scale_text = "SCALE: AS NOTED" if mixed else f"SCALE: 1:{scale_den}"
     material_text = f"MATERIAL: {_clip(material or 'n/a')}"
     date_text = f"DATE: {_dt.date.today().isoformat()}"
 
@@ -1352,7 +1364,7 @@ def export_pdf(
         max(stringWidth(material_text, "Helvetica", 8), stringWidth(date_text, "Helvetica", 8)) + pad,
     ]
     footer_prims, footer_w_mm, footer_h_mm = drawing_footer.layout_footer(
-        drawing_footer.build_footer(bom, tolerance_class, scale=f"1:{scale_den}"))
+        drawing_footer.build_footer(bom, tolerance_class, scale="AS NOTED ON EACH VIEW" if mixed else f"1:{scale_den}"))
     footer_h = (footer_h_mm + 6.0) * mm            # notes, tolerance table and parts list sit under the title block
     page_w = max(drawing_w_mm * mm + 2 * margin, 150 * mm, sum(tb_needs) + 2 * margin, footer_w_mm * mm + 2 * margin)
     page_h = drawing_h_mm * mm + 2 * margin + title_block_h + footer_h
@@ -1373,16 +1385,26 @@ def export_pdf(
     c.setLineWidth(_VISIBLE_LINE_WIDTH_MM * mm)
     c.setStrokeColorRGB(0, 0, 0)
 
-    for (label, block_views, _, y_shift), offsets in zip(blocks, all_offsets):
+    for bi, ((label, block_views, _, y_shift), offsets) in enumerate(zip(blocks, all_offsets)):
+        block_den = part_dens[bi] if parts else scale_den
         if parts:
             top = next(v for v in block_views if v.name == "top")
+            front = next(v for v in block_views if v.name == "front")
             fx, _ = offsets["front"]
-            label_pt = to_page((fx, offsets["top"][1] + top.v_max + 8))
-            c.setFont("Helvetica-Bold", 10)
-            c.drawString(label_pt[0], label_pt[1], label.upper())
+            # Start at the LEFT EDGE of the front view (not its origin) and keep the whole title on the sheet. A narrow
+            # part's title used to start left of the page, so only its tail ("ALE 1:5") was printed.
+            label_pt = to_page((fx + front.u_min, offsets["top"][1] + top.v_max + 8))
+            text = label.upper() + (f"   SCALE 1:{block_den}" if mixed or block_den > 1 else "")
+            size = 10
+            room = page_w - 2 * (margin * 0.5)
+            while size > 6 and stringWidth(text, "Helvetica-Bold", size) > room:
+                size -= 1
+            c.setFont("Helvetica-Bold", size)
+            x = max(margin * 0.5, min(label_pt[0], page_w - margin * 0.5 - stringWidth(text, "Helvetica-Bold", size)))
+            c.drawString(x, label_pt[1], text)
         for view in block_views:
             _draw_view_pdf(c, view, offsets[view.name], to_page)
-            _add_dimensions_pdf(c, view, offsets[view.name], to_page, dim_mult=scale_den)
+            _add_dimensions_pdf(c, view, offsets[view.name], to_page, dim_mult=block_den)
 
     # Title block
     tb_x0, tb_y0 = margin, margin + footer_h

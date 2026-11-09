@@ -4,6 +4,8 @@ HTTP routes for a vehicle part in the studio. See vehicle_chat.py (planning) and
   GET /chats/{chat_id}/parts/{part_id}/vehicle            sizes, groups, design checks   (free)
   GET /chats/{chat_id}/parts/{part_id}/vehicle/exploded   viewer JSON for exploded.html   (free, needs the CAD kernel)
   GET /chats/{chat_id}/parts/{part_id}/vehicle/package    the zipped package             (only after Generate)
+  GET /chats/{chat_id}/parts/{part_id}/explode-mesh       the real parts, each with its own triangles and pull
+                                                          distance, for the studio's Explode slider (any assembly)
 
 Same sign-in as the chat routes. Nothing here spends credits: the package is served only for a part whose files
 Generate has already unlocked. A built package is kept for a few minutes (package_cache.py), so pressing download
@@ -22,6 +24,7 @@ from fastapi.responses import Response
 
 import chat_store
 import db
+import explode_mesh
 import package_cache
 import vehicle_build as VB
 import vehicle_chat
@@ -44,6 +47,46 @@ def package_cache_instance() -> package_cache.PackageCache:
         _package_cache = package_cache.PackageCache(settings.VEHICLE_PACKAGE_CACHE_TTL_S,
                                                     settings.VEHICLE_PACKAGE_CACHE_MAX_ITEMS)
     return _package_cache
+
+
+_explode_cache: dict[Any, dict[str, Any]] = {}
+
+
+def _explode_mesh(spec: dict[str, Any], parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Tessellate each part, then work out the pull. A vehicle brings its own directions and fixed part."""
+    import vehicle_spec as VS
+    try:
+        meshes, notes = explode_mesh.kernel_part_meshes(parts)
+    except ImportError:
+        return {"ok": False, "errors": ["The exploded view needs the CAD kernel, which is not available on this server."]}
+    dirs: dict[str, Any] = {}
+    fixed = None
+    contact: list[Any] = []
+    v = vehicle_chat.vehicle_of(spec)
+    boxes = explode_mesh._boxes(meshes) if meshes else {}
+    if v is not None and boxes:
+        try:
+            ex = VS.expand_vehicle(v, None, None, None)
+        except Exception:  # noqa: BLE001 - the plan can no longer be read: fall back to name-based directions
+            ex = {"ok": False}
+        if ex.get("ok"):
+            settings_ = ex.get("explode") or {}
+            dirs = {k: d for k, d in (settings_.get("directions") or {}).items() if k in boxes}
+            contact = list(settings_.get("intended_contact", []))
+            fixed = next((f for f in (ex.get("fixed") or {}).values() if f in boxes), None)
+    if boxes:
+        lo = [min(b["min"][i] for b in boxes.values()) for i in range(3)]
+        hi = [max(b["max"][i] for b in boxes.values()) for i in range(3)]
+        ref = tuple((lo[i] + hi[i]) / 2 for i in range(3))
+        for n, b in boxes.items():            # a part with no set direction gets one from its name and side
+            if n not in dirs:
+                d = VV.default_direction(n, tuple((b["min"][i] + b["max"][i]) / 2 for i in range(3)), ref)
+                if d is not None:
+                    dirs[n] = d
+    out = explode_mesh.build(meshes, directions=dirs, fixed=fixed, intended_contact=contact)
+    if out.get("ok") and notes:
+        out["warnings"] = list(out.get("warnings") or []) + notes
+    return out
 
 
 def _uid(wallet: dict) -> str:
@@ -81,6 +124,29 @@ def build_router(*, limiter: Any = None) -> APIRouter:
         out = await run_in_threadpool(VV.exploded, v, parts, bbox, group=group)
         if not out["ok"]:
             raise HTTPException(status_code=422, detail="; ".join(out["errors"][:2]))
+        return out
+
+    @router.get("/chats/{chat_id}/parts/{part_id}/explode-mesh")
+    async def explode_mesh_route(chat_id: str, part_id: str, wallet: Wallet):
+        """Per-part geometry for the Explode slider. 422 when the part is not a placed list of parts (the studio then
+        falls back to cutting the preview mesh). Free."""
+        part = await run_in_threadpool(chat_store.get_part, _uid(wallet), chat_id, part_id)
+        if part is None:
+            raise HTTPException(status_code=404, detail="Part not found")
+        spec = part["spec"] or {}
+        parts = (spec.get("parameters") or {}).get("parts") if spec.get("part_type") == "assembly" else None
+        if not isinstance(parts, list) or len(parts) < 2 or not all(isinstance(p, dict) and p.get("position") is not None for p in parts):
+            raise HTTPException(status_code=422, detail="This part is not a placed list of parts.")
+        key = (part_id, hash(repr(parts)))
+        hit = _explode_cache.get(key)
+        if hit is not None:
+            return hit
+        out = await run_in_threadpool(_explode_mesh, spec, parts)
+        if not out.get("ok"):
+            raise HTTPException(status_code=422, detail="; ".join(out.get("errors") or ["could not build the exploded view"]))
+        if len(_explode_cache) >= 8:
+            _explode_cache.pop(next(iter(_explode_cache)))
+        _explode_cache[key] = out
         return out
 
     def _package(v: dict[str, Any]) -> tuple[Path, Path]:

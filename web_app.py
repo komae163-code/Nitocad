@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Natural Language to CAD",
-    version="2.0.0",
+    version="2.0.0+vehicle-shells-multipart",   # shown by /healthz: confirms which build is live
     lifespan=lifespan,
     # Hide interactive docs in production by default - flip DOCS_ENABLED
     # (via ENVIRONMENT) if you want them public; they leak the full

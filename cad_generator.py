@@ -308,6 +308,12 @@ class CADGenerator:
                     solid=workplane_for_verify,
                     stl_path=stl_path,
                     expected=None,  # expected volume/bbox filled when compiler provides them
+                    # A vehicle or any assembly is many solids: its parts were verified one by one while it was
+                    # exported, and the merged mesh is never tested for being watertight.
+                    multi_part=params.part_type == "assembly" or (
+                        isinstance(params.parameters, dict)
+                        and (bool(params.parameters.get("vehicle")) or len(params.parameters.get("parts") or []) > 1)
+                    ),
                 )
             if not vreport.passed:
                 raise GeometryValidationError(
@@ -467,7 +473,7 @@ class CADGenerator:
         except Exception as exc:  # noqa: BLE001
             raise AssemblyError(f"Assembly construction failed: {exc}") from exc
         paths = self._export_assembly(assembly, f"assembly_{uuid.uuid4().hex}", formats,
-                                      bom=(checks or {}).get("bom"))
+                                      bom=(checks or {}).get("bom"), verify_parts=True)
         return paths, checks
 
     @staticmethod
@@ -543,14 +549,18 @@ class CADGenerator:
                   for p in resolved.resolved_spec()["parts"]]
         checks = self._assembly_checks(assembly, placed, check_floating=True)
         export_paths = self._export_assembly(assembly, f"assembly_{uuid.uuid4().hex}", formats,
-                                             bom=(checks or {}).get("bom"))
+                                             bom=(checks or {}).get("bom"), verify_parts=True)
         return export_paths, report, resolved.resolved_spec(), checks
 
     def _export_assembly(
-        self, assembly: "cq.Assembly", base_name: str, formats: list[str], bom: dict | None = None
+        self, assembly: "cq.Assembly", base_name: str, formats: list[str], bom: dict | None = None,
+        verify_parts: bool = False,
     ) -> dict[str, Path]:
         """Write `formats` for a built assembly as `<base_name>.<ext>`. Shared by
-        first-time generation and by on-demand re-export of a stored job."""
+        first-time generation and by on-demand re-export of a stored job.
+
+        verify_parts=True checks every part on its own (valid solid, closed surface) before anything is written.
+        Vehicles and other multi-part builds are verified this way, never as one merged mesh."""
         compound = assembly.toCompound()
         # Per-part shapes (name, world-located shape) for the multi-part
         # DXF/PDF drawing path - see assembly.get_assembly_parts and the
@@ -562,6 +572,19 @@ class CADGenerator:
                 parts = get_assembly_parts(assembly)
         except Exception as exc:  # noqa: BLE001
             raise AssemblyError(f"Failed to enumerate assembly parts: {exc}") from exc
+
+        if verify_parts:
+            from geometry_verify import verify_solids
+            with log_duration(logger, "assembly_part_verify", parts=len(parts)):
+                pchecks, perrors, pmeasured = verify_solids(parts)
+            if perrors:
+                logger.warning("assembly part verification failed",
+                               extra={"errors": perrors, "checks": pchecks, "measured": pmeasured})
+                raise GeometryValidationError(
+                    "Post-build geometry verification failed: " + "; ".join(perrors),
+                    details={"verification": {"passed": False, "checks": pchecks, "errors": perrors,
+                                              "measured": pmeasured}},
+                )
 
         try:
             with log_duration(logger, "assembly_export", formats=",".join(formats)):

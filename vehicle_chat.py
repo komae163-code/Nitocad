@@ -216,8 +216,11 @@ def to_chat_spec(vspec: dict[str, Any], overrides: dict[str, Any] | None = None,
         if pos is None:
             return {"ok": False, "notes": [], "spec": None, "expanded": ex,
                     "errors": [f"Part {p.get('name')} has no position."]}
-        out.append({"name": p["name"], "part_type": p["part_type"], "parameters": p.get("parameters") or {},
-                    "position": [float(v) for v in pos], "rotation": [float(v) for v in (p.get("rotation") or (0, 0, 0))]})
+        item = {"name": p["name"], "part_type": p["part_type"], "parameters": p.get("parameters") or {},
+                "position": [float(v) for v in pos], "rotation": [float(v) for v in (p.get("rotation") or (0, 0, 0))]}
+        if isinstance(p.get("material"), str) and p["material"]:
+            item["material"] = p["material"]          # the parts list and mass on the drawing read this
+        out.append(item)
     if len(out) < 2:
         return {"ok": False, "notes": [], "spec": None, "expanded": ex,
                 "errors": ["A vehicle needs at least two parts."]}
@@ -285,6 +288,22 @@ _FINISH = re.compile(r"\b(finish|everything|the rest|all of it|whole thing|all (
                      r"build it all|add all)\b", re.I)
 
 
+# Build order for the groups of a vehicle with no stage table of its own: the running gear a beginner starts with,
+# then the body, then what goes inside it, then the finishing. A group that matches nothing keeps its place after these.
+_GROUP_ORDER = (r"chassis|frame|ladder|subframe", r"wheel|axle|tyre|tire|suspension|steer|brake", r"body|hull|shell|cabin|fuselage|bodywork|door|hood|panel",
+                r"powertrain|engine|motor|gearbox|transmission|driveline|drive", r"exhaust|fuel|tank|cooling",
+                r"interior|seat|cockpit", r"trim|glazing|glass|lights?|details?|finish")
+
+
+def _group_rank(name: str, motor: bool = True) -> float:
+    """Position of a group in the build order. Wheels go first only on a vehicle with a motor (a car, a truck): a
+    wheelie bin or a cart is built tub first, wheels after."""
+    for i, pat in enumerate(_GROUP_ORDER):
+        if re.search(pat, str(name), re.I):
+            return 2.5 if (i == 1 and not motor) else i
+    return 2.2                  # an unknown group is built with the body, before the inside and the finishing
+
+
 def stage_plan(vspec: dict[str, Any], expanded: dict[str, Any]) -> list[tuple[str, list[str]]]:
     """The build steps of a vehicle as [(title, [part names])]. Every step has at least two parts, because a chat
     assembly needs two. Empty when the vehicle is too small to split."""
@@ -301,7 +320,10 @@ def stage_plan(vspec: dict[str, Any], expanded: dict[str, Any]) -> list[tuple[st
         plan[-1] = (plan[-1][0], plan[-1][1] + left)
     if len(plan) < 2:                                          # no table for this kind: one step per group
         plan, seen = [], set()
-        for g, members in (expanded.get("assemblies") or {}).items():
+        asm = expanded.get("assemblies") or {}
+        motor = any(re.search(r"powertrain|engine|gearbox|motor", g, re.I) for g in asm)
+        groups = sorted(asm.items(), key=lambda kv: _group_rank(kv[0], motor))                           # stable
+        for g, members in groups:
             mem = [m for m in members if m in names and m not in seen]
             seen.update(mem)
             if mem:
