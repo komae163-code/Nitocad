@@ -31,7 +31,7 @@ from typing import Annotated, Any, Callable, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 import ai_models
 import codegen_check as CC
@@ -89,40 +89,13 @@ class ReviseBody(BaseModel):
     model_id: str | None = Field(default=None, max_length=40)
 
 
-def clean_params(v: Any) -> Any:
-    """Slider values as numbers. A slider that sent "", null, a word or a toggle used to fail the whole request with a
-    422 whose reason the page could not show. Anything that is not a finite number is dropped, so the builder uses the
-    model's own default for it, and a boolean becomes 1 or 0."""
-    if not isinstance(v, dict):
-        return v
-    out: dict[str, float] = {}
-    for k, x in v.items():
-        try:
-            f = float(x)
-        except (TypeError, ValueError):
-            continue
-        if f == f and abs(f) <= 1e7:
-            out[str(k)] = f
-    return out
-
-
 class RebuildBody(BaseModel):
     params: dict[str, float] = Field(default_factory=dict, max_length=CC.MAX_PARAMS)
-
-    @field_validator("params", mode="before")
-    @classmethod
-    def _numbers(cls, v: Any) -> Any:
-        return clean_params(v)
 
 
 class ExportBody(BaseModel):
     fmt: Literal["step", "stl", "brep", "package"] = "step"
     params: dict[str, float] = Field(default_factory=dict, max_length=CC.MAX_PARAMS)
-
-    @field_validator("params", mode="before")
-    @classmethod
-    def _numbers(cls, v: Any) -> Any:
-        return clean_params(v)
 
 
 def _uid(wallet: dict) -> str:
@@ -287,9 +260,7 @@ def build_router(*, limiter: Any = None, charge: Callable | None = None, refund:
                                                         "exported yet. Try again in a few minutes.")
         res = await runner(entry["code"], params, exports, parts)
         if not res["ok"]:
-            reason = str(res.get("error") or "").strip() or "The code ran but built no shape. Ask for a change in the chat to rewrite it."
-            logger.warning("codegen rebuild failed for %s: %s", cid, reason[:300])    # the page used to show only "HTTP 422"
-            raise HTTPException(status_code=422, detail=reason[:600])
+            raise HTTPException(status_code=422, detail=res["error"])
         return entry, res, library
 
     # ------------------------------------------------------------------ routes

@@ -16,5 +16,3 @@ data/spec_library/
 
 # Downloaded external assets (asset_providers.py)
 data/asset_cache/
-__pycache__/
-*.py[cod]

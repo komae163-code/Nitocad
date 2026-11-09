@@ -418,12 +418,8 @@ def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
                 errors.append(f"{label}: position, rotation and repeat.step must each be [x, y, z]")
                 break
             off = comp.get("_offset", [0.0, 0.0, 0.0])
-            own = [float(pos[k]) + i * float(step[k]) for k in range(3)]
-            # mirror the part's OWN y, then add the module instance offset: mirroring after the offset sent the
-            # left wheel's second bearing to the right wheel (right place by symmetry, wrong name and group)
-            moved = lambda v: [v[k] + off[k] for k in range(3)]
-            base_pos = moved(own)
-            sides = [("", base_pos)] if mirror is None else [("_l", base_pos), ("_r", moved([own[0], -own[1], own[2]]))]
+            base_pos = [float(pos[k]) + i * float(step[k]) + off[k] for k in range(3)]
+            sides = [("", base_pos)] if mirror is None else [("_l", base_pos), ("_r", [base_pos[0], -base_pos[1], base_pos[2]])]
             for side_suffix, p3 in sides:
                 mate = None
                 if "mate" in comp:
@@ -463,14 +459,6 @@ def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
         if "source" not in comp and comp.get("type") not in cat_types:
             errors.append(f"{label}: type {comp.get('type')!r} is not in the part catalog")
 
-    # --- hollow solid bodies, so a body is a sheet-metal skin whatever the model wrote ---------------------
-    shelled: list[str] = []
-    shell_problems: list[str] = []
-    if parts and not errors:
-        import vehicle_shell
-        shelled, shell_problems = vehicle_shell.auto_shell(parts, env.get("body_wall_mm"))
-        warnings += [f"auto shell: {m}" for m in shell_problems]
-
     # --- hand the parts to the existing validator ------------------------------------------------------
     if parts and not errors:
         from assembly_planner import validate_spec
@@ -508,7 +496,6 @@ def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
     return {"ok": not errors, "errors": errors, "warnings": warnings,
             "params": {**{k: env[k] for k in env}}, "parts": parts, "external": external,
             "assemblies": assemblies, "fixed": fixed, "checks": checks,
-            "auto_shelled": shelled, "shell_problems": shell_problems,
             "explode": spec.get("explode") if isinstance(spec.get("explode"), dict) else {},
             "limits": ["Arithmetic checks only: no geometry has been built or measured.",
                        "Mirror flips position only; rotation is yours to set."]}

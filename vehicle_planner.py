@@ -31,12 +31,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 import spec_library as SL
-import vehicle_decompose as VD
 import vehicle_spec as VS
 
 LLM = Callable[[list[dict[str, str]]], str]
 MAX_DESCRIPTION = 2000
-MAX_EXAMPLE_CHARS = 12000      # the shipped car is about 9.3k; an example longer than this is left out of the prompt
+MAX_EXAMPLE_CHARS = 9000
 # Overall wall-clock budget for one plan (all attempts). The browser gives up at 170 s, so stay well under it.
 DEFAULT_TIME_BUDGET_S = 120.0
 # A retry is only started if at least this many seconds are left, since one model call can take that long.
@@ -65,17 +64,6 @@ A component is one of:
                        fit or STEP, so use it only for scene props (query like "cardboard box")
   Use the first two for anything that carries load or must fit.
 ids are lowercase snake_case. A part needs `position` OR `mate` OR `between`, never two.
-BUILD IN PARTS, NEVER IN ONE GO. The person will pull the vehicle apart, weigh it and draw it, so every system is its own set of parts:
-  * body: separate thin panels (floor, side panels, roof, hood, doors, bumpers), never one solid block. For a car, van
-    or small truck place the "car_body" module once (it makes 23 panels, set wheelbase, wheel_dia, track and tyre_w to
-    match the wheels). Any other body written as a convex polygon or rectangle extrude is hollowed automatically to a
-    2 to 3 mm wall, but it is still one part, so split what must come apart (doors, hatches, covers) into their own parts.
-  * wheels: tyre + hub + axle + bearings, one axle per axis. Exhaust, fuel tank, battery and seats are separate parts.
-  * give every system its own "assembly" name (body, wheels, powertrain, exhaust ...) and list an explode direction for
-    each moving part. At least 12 parts for a whole vehicle.
-  * when gears, a gearbox or a transmission are asked for, build real parts of type "gear" (two or more that mesh, on
-    shafts), each with keyway_width_mm, keyway_depth_mm and backlash_mm (about 0.05 x module). Do not replace them by a box.
-  * when an engine is asked for, use the piston_engine module or crankshaft + connecting_rod + piston parts.
 Use ONLY the part types and modules listed below, with their exact parameter names. If something you need does not
 exist, approximate it with what does and say so in `notes`. Add `checks` that would catch an impossible layout."""
 
@@ -145,7 +133,7 @@ def _feedback_message(errors: list[str]) -> str:
 
 def _run_loop(messages: list[dict[str, str]], llm: LLM, cat: dict[str, dict[str, Any]], module_dir: Path | None,
               max_attempts: int, time_budget_s: float | None = DEFAULT_TIME_BUDGET_S,
-              clock: Callable[[], float] | None = None, request: str | None = None) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[str], bool]:
+              clock: Callable[[], float] | None = None) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[str], bool]:
     """Ask, parse, validate, and send the exact errors back until a spec is valid, attempts run out, or the time
     budget leaves too little for another try. The last value is True when the budget ended the loop.
     One model call is still bounded only by the model's own timeout (AI_TIMEOUT_SECONDS)."""
@@ -183,9 +171,6 @@ def _run_loop(messages: list[dict[str, str]], llm: LLM, cat: dict[str, dict[str,
             messages.append({"role": "user", "content": _feedback_message(last_errors)})
             continue
         bad_checks = [c for c in ex["checks"] if c["status"] != "pass"]
-        if request is not None:            # a brand-new plan must be split into parts (vehicle_decompose); edits are not
-            bad_checks += [{"name": "split into parts", "status": "fail", "detail": d}
-                           for d in VD.coarse_issues(spec, ex, request)]
         best = {"spec": spec, "expanded": ex, "bad_checks": bad_checks}
         history.append({"attempt": attempt, "errors": [], "failed_checks": [c["name"] for c in bad_checks]})
         if not bad_checks:
@@ -207,8 +192,7 @@ def plan_vehicle(description: str, llm: LLM, library: SL.SpecLibrary, *, max_att
     max_attempts = max(1, min(int(max_attempts), 6))
     cat = catalog if catalog is not None else VS._default_catalog()
     messages, used = build_messages(description.strip(), library, cat, module_dir, k_examples)
-    best, history, last_errors, timed_out = _run_loop(messages, llm, cat, module_dir, max_attempts, time_budget_s, clock,
-                                                      request=description.strip())
+    best, history, last_errors, timed_out = _run_loop(messages, llm, cat, module_dir, max_attempts, time_budget_s, clock)
 
     if best is None:
         library.record_failure(description, last_errors)

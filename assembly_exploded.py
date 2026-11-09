@@ -55,7 +55,6 @@ def explode(
     max_factor: float = 8.0,
     min_gap: float = MIN_GAP_MM,
     intended_contact: Iterable[tuple[str, str]] = (),
-    scales: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Compute exploded offsets.
 
@@ -66,9 +65,6 @@ def explode(
     base_distance     the distance a part moves at factor 1.0 when it has an explicit direction
                       (default: 40% of the assembly's largest dimension)
     intended_contact  pairs allowed to stay overlapping (not reported as unseparated)
-    scales            {name: k} multiplies an explicit-direction part's distance (default 1). Parts that share a
-                      direction and sit inside one another (a door in its side panel) need different distances,
-                      or they move together and never separate.
     """
     if not boxes:
         return {"ok": False, "errors": ["no parts"], "offsets": {}, "boxes": {}}
@@ -93,7 +89,7 @@ def explode(
             continue
         explicit = _unit((directions or {}).get(n, ())) if (directions or {}).get(n) is not None else None
         if explicit is not None:
-            dirs[n], mag[n] = explicit, base * float((scales or {}).get(n, 1.0))
+            dirs[n], mag[n] = explicit, base
             continue
         c = _center(boxes[n])
         rad = tuple(c[i] - ref[i] for i in range(3))

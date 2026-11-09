@@ -116,20 +116,3 @@ def test_too_few_teeth_or_a_bad_module_are_refused():
 def test_no_duplicate_consecutive_points_and_it_closes_without_repeating_the_first():
     poly = gp.involute_gear_outline(2, 20)
     assert all(math.hypot(a[0] - b[0], a[1] - b[1]) > 1e-9 for a, b in zip(poly, poly[1:] + poly[:1]))
-
-
-def _pitch_arc(poly, rp, half_deg=6.0, n=100000):
-    ang = [math.radians(-half_deg) + i * math.radians(2 * half_deg) / n for i in range(n)]
-    return sum(1 for a in ang if inside((rp * math.cos(a), rp * math.sin(a)), poly)) * (math.radians(2 * half_deg) / n) * rp
-
-
-@pytest.mark.parametrize("b", [0.1, 0.2])
-def test_backlash_thins_each_tooth_by_half_of_it_at_the_pitch_circle(b):
-    base = _pitch_arc(gp.involute_gear_outline(2, 20), 20.0)
-    thin = _pitch_arc(gp.involute_gear_outline(2, 20, backlash=b), 20.0)
-    assert base - thin == pytest.approx(b / 2, abs=0.002)
-
-
-def test_backlash_that_is_too_large_is_refused():
-    with pytest.raises(ValueError):
-        gp.involute_gear_outline(2, 20, backlash=4.0)

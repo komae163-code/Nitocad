@@ -297,26 +297,6 @@ def validate_gear(params: dict[str, Any]) -> ValidationResult:
         elif bore > max_bore:
             result.add_warning(f"Bore {bore:g}mm would cut into the tooth roots, reducing to {max_bore:.1f}mm")
             result.corrections['bore_diameter_mm'] = {'old': params.get('bore_diameter_mm', 5.0), 'new': max_bore}
-            bore = max_bore
-
-    # Backlash: the play of a pair. Zero is allowed (the old behaviour). Over about a third of the circular pitch
-    # the teeth are too thin to carry load.
-    backlash = params.get('backlash_mm', 0.0) or 0.0
-    if backlash < 0:
-        result.add_error(f"Backlash cannot be negative, got {backlash:g}mm")
-    elif module > 0 and backlash > 0.33 * 3.14159 * module:
-        result.add_error(f"Backlash {backlash:g}mm is too large for module {module:g}; keep it under {0.33 * 3.14159 * module:.2f}mm")
-
-    # Keyway: both numbers or neither. It must be narrower than the bore and stop short of the tooth roots.
-    kw = params.get('keyway_width_mm', 0.0) or 0.0
-    kd = params.get('keyway_depth_mm', 0.0) or 0.0
-    if (kw > 0) != (kd > 0):
-        result.add_error("A keyway needs both keyway_width_mm and keyway_depth_mm")
-    elif kw > 0:
-        if kw >= bore:
-            result.add_error(f"Keyway width {kw:g}mm must be smaller than the bore {bore:g}mm")
-        if module > 0 and teeth >= 3 and bore / 2.0 + kd > (module * teeth - 2.5 * module) / 2.0 - 1.0:
-            result.add_error(f"Keyway of depth {kd:g}mm would reach the tooth roots. Use a smaller depth or a larger gear")
 
     return result
 

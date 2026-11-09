@@ -37,14 +37,14 @@ def _flank_angle(r: float, half_pitch_angle: float, inv_alpha: float, rb: float)
     return half_pitch_angle + inv_alpha - _inv(phi)
 
 
-def gear_radii(module: float, teeth: int, pressure_angle_deg: float = 20.0, backlash: float = 0.0) -> dict[str, float]:
+def gear_radii(module: float, teeth: int, pressure_angle_deg: float = 20.0) -> dict[str, float]:
     """Pitch, base, tip and root radii. The tip is cut back if the tooth would come to a point first."""
     rp = module * teeth / 2.0
     alpha = math.radians(pressure_angle_deg)
     rb = rp * math.cos(alpha)
     ra = rp + module
     rf = rp - 1.25 * module
-    half = math.pi / (2.0 * teeth) - backlash / (4.0 * rp)
+    half = math.pi / (2.0 * teeth)
     inv_a = _inv(alpha)
     if _flank_angle(ra, half, inv_a, rb) <= 0.0:       # a pointed tooth: stop where the flanks meet
         lo, hi = rp, ra
@@ -59,17 +59,14 @@ def gear_radii(module: float, teeth: int, pressure_angle_deg: float = 20.0, back
 
 
 def involute_gear_outline(module: float, teeth: int, pressure_angle_deg: float = 20.0,
-                          flank_points: int = TOOTH_FLANK_POINTS, backlash: float = 0.0) -> list[tuple[float, float]]:
+                          flank_points: int = TOOTH_FLANK_POINTS) -> list[tuple[float, float]]:
     """Closed counter-clockwise outline of the gear. The first point is not repeated at the end."""
     if teeth < 3 or module <= 0:
         raise ValueError("a gear needs at least 3 teeth and a positive module")
-    if not 0.0 <= backlash < 0.5 * math.pi * module:
-        raise ValueError("backlash must be between 0 and about 1.5 x the module")
-    radii = gear_radii(module, teeth, pressure_angle_deg, backlash)
+    radii = gear_radii(module, teeth, pressure_angle_deg)
     rp, rb, ra, rf = radii["pitch"], radii["base"], radii["tip"], radii["root"]
     alpha = math.radians(pressure_angle_deg)
-    # Backlash is the total play of a pair, so each gear gives up half of it as tooth thickness at the pitch circle.
-    half, inv_a = math.pi / (2.0 * teeth) - backlash / (4.0 * rp), _inv(alpha)
+    half, inv_a = math.pi / (2.0 * teeth), _inv(alpha)
     pitch_angle = 2.0 * math.pi / teeth
 
     r_start = max(rb, rf)                                  # the involute begins at the base circle, or the root if that is higher

@@ -271,8 +271,7 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
             return _codegen_material_turn(user_id, chat_id, text, current, finish, evaluate)
         if cg_mode:
             plan = Plan("edit" if cg_mode == "revise" else "build", "", None, "rules")
-            return _codegen_turn(deps, user_id, chat_id, text, cg_mode, current, finish, evaluate, count_ai=True,
-                                 prompt=codegen_chat.start_prompt(text, history) if cg_mode == "start" else None)
+            return _codegen_turn(deps, user_id, chat_id, text, cg_mode, current, finish, evaluate, count_ai=True)
 
         # The planner sees what the current version measured, so it knows what an edit would disturb. A code part has no
         # template spec for it to edit, so a question about one is planned as if no part were open.
@@ -290,8 +289,7 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
         if (deps.codegen_start and plan.intent == "answer" and plan.spec is None and plan.no_match and not added
                 and codegen_chat.looks_like_build(text)):
             plan = Plan("build", "", None, plan.source)
-            return _codegen_turn(deps, user_id, chat_id, text, "start", current, finish, evaluate, count_ai=plan.source != "llm",
-                                 prompt=codegen_chat.start_prompt(text, history))
+            return _codegen_turn(deps, user_id, chat_id, text, "start", current, finish, evaluate, count_ai=plan.source != "llm")
 
         if plan.intent == "answer" or plan.spec is None:
             reply = plan.reply or "Tell me a bit more about the part you want."
@@ -381,8 +379,7 @@ def _codegen_material_turn(user_id: str, chat_id: str, text: str, current: dict,
 
 
 def _codegen_turn(deps: Deps, user_id: str, chat_id: str, text: str, mode: str, current: dict | None,
-                  finish: Callable[..., dict], evaluate: Callable[[dict], list], *, count_ai: bool,
-                  prompt: str | None = None) -> dict[str, Any]:
+                  finish: Callable[..., dict], evaluate: Callable[[dict], list], *, count_ai: bool) -> dict[str, Any]:
     """Write or revise a part as code, save it as a chat part, and answer. The code builder charges for itself and
     refunds itself unless it saved a model, so a failure here costs nothing."""
     import logging
@@ -396,7 +393,7 @@ def _codegen_turn(deps: Deps, user_id: str, chat_id: str, text: str, mode: str, 
         if mode == "revise":
             out = deps.codegen_revise(user_id, codegen_chat.ref(current["spec"])["id"], text)
         else:
-            out = deps.codegen_start(user_id, prompt or text)
+            out = deps.codegen_start(user_id, text)
     except Exception:  # noqa: BLE001 - the chat must survive a code builder problem
         log.exception("code builder failed in chat")
         return finish("The code builder hit a problem, so nothing was added to this chat. You are only charged when a part is saved. Try again in a moment.",
