@@ -11,6 +11,7 @@ part whose files are unlocked.
 """
 from __future__ import annotations
 
+import math
 import re
 import zipfile
 from pathlib import Path
@@ -70,6 +71,26 @@ def default_direction(name: str, centre: tuple[float, float, float], ref: tuple[
     return None
 
 
+NEST_SCALE_CAP = 3.0
+
+
+def nest_scales(boxes: dict[str, AE.BBox], dirs: dict[str, tuple[float, float, float]]) -> dict[str, float]:
+    """Distance multipliers for parts that overlap another part going the same way. The smaller part of such a pair is
+    pulled further than the larger one (a door further than its side panel, an axle further than its tyre), so
+    they come apart instead of travelling together. Nests of any depth are handled, largest first."""
+    vol = {n: math.prod(b["max"][i] - b["min"][i] for i in range(3)) for n, b in boxes.items()}
+    scale = {n: 1.0 for n in dirs}
+    order = sorted(dirs, key=lambda n: -vol[n])
+    for i, big in enumerate(order):
+        for small in order[i + 1:]:
+            same = sum(a * b for a, b in zip(AE._unit(dirs[big]) or (0, 0, 0), AE._unit(dirs[small]) or (0, 0, 0))) > 0.99
+            a, b = boxes[big], boxes[small]
+            touching = all(a["min"][k] < b["max"][k] + 1.0 and b["min"][k] < a["max"][k] + 1.0 for k in range(3))
+            if same and touching:                       # overlapping, nested or just touching: all travel together
+                scale[small] = min(NEST_SCALE_CAP, max(scale[small], scale[big] + 0.5))
+    return scale
+
+
 def exploded(vspec: dict[str, Any], parts: list[dict[str, Any]], bbox_fn: BBoxFn, *, group: str | None = None,
              module_dir: Path | None = None) -> dict[str, Any]:
     """Viewer JSON for the placed `parts` (the chat part's parts list: name, part_type, parameters, position,
@@ -100,7 +121,7 @@ def exploded(vspec: dict[str, Any], parts: list[dict[str, Any]], bbox_fn: BBoxFn
             if d is not None:
                 dirs[n] = d
     fixed = ex["fixed"].get(group) if group else None
-    res = AE.explode(boxes, fixed=fixed if fixed in boxes else None, directions=dirs,
+    res = AE.explode(boxes, fixed=fixed if fixed in boxes else None, directions=dirs, scales=nest_scales(boxes, dirs),
                      intended_contact=[tuple(x) for x in settings.get("intended_contact", []) if len(x) == 2])
     if not res["ok"]:
         return {"ok": False, "errors": res["errors"], "groups": list(ex["assemblies"])}

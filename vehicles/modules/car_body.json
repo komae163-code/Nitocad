@@ -1,0 +1,1148 @@
+{
+ "description": "Car, van or small truck body as 23 separate thin sheet panels, so it can be pulled apart, weighed and drawn: floor, firewall (with a tunnel hole), two side panels with wheel arches and door openings, four doors, two shoulder decks, roof, windscreen, rear window, two side windows, hood, nose, trunk lid, tail, front and rear fascia and two bumpers. Origin at the centre of the footprint on the ground, front is +X, left is +Y. Give wheelbase, wheel_dia, track and tyre_w the same values as the wheels; the floor gets wheel wells and the firewall stops short of the front tyres. Panels are 2.5 mm steel by default and glass is 4 mm acrylic. Place it once, as an instance named for the body, and add the wheels, engine and interior as separate components.",
+ "params": {
+  "body_len": {
+   "default": 4200,
+   "min": 3000,
+   "max": 6000
+  },
+  "body_w": {
+   "default": 1780,
+   "min": 1300,
+   "max": 2300
+  },
+  "body_h": {
+   "default": 1450,
+   "min": 1100,
+   "max": 2200
+  },
+  "ground_clr": {
+   "default": 150,
+   "min": 80,
+   "max": 400
+  },
+  "belt_z": {
+   "default": 780,
+   "min": 500,
+   "max": 1100
+  },
+  "wheelbase": {
+   "default": 2600,
+   "min": 1800,
+   "max": 4000
+  },
+  "wheel_dia": {
+   "default": 640,
+   "min": 400,
+   "max": 900
+  },
+  "rear_bay": {
+   "default": 380,
+   "min": 300,
+   "max": 1200
+  },
+  "wall": {
+   "default": 2.5,
+   "min": 1.5,
+   "max": 4
+  },
+  "glass_t": {
+   "default": 4,
+   "min": 3,
+   "max": 8
+  },
+  "track": {
+   "default": 1550,
+   "min": 1100,
+   "max": 2200
+  },
+  "tyre_w": {
+   "default": 205,
+   "min": 125,
+   "max": 355
+  },
+  "tunnel_z": {
+   "default": 400,
+   "min": 200,
+   "max": 900
+  },
+  "tunnel_d": {
+   "default": 80,
+   "min": 20,
+   "max": 300
+  }
+ },
+ "derived": {
+  "hl": "=body_len/2",
+  "hw": "=body_w/2",
+  "cbf": "=hl - 1100",
+  "cbr": "=-hl + rear_bay",
+  "rf": "=cbf - 480",
+  "rr": "=cbr + 420",
+  "cab_hw": "=hw - 110",
+  "roof_hw": "=cab_hw - glass_t",
+  "fx": "=wheelbase/2",
+  "wheel_r": "=wheel_dia/2",
+  "arch_dia": "=wheel_dia + 90",
+  "nose_x": "=hl - 380",
+  "tail_x": "=-hl + 260",
+  "nose_drop": "=110",
+  "tail_drop": "=70",
+  "side_off": "=hw - wall/2",
+  "win_off": "=cab_hw - glass_t/2",
+  "door_x0": "=20",
+  "door_x1": "=fx - arch_dia/2 - 12",
+  "door_z0": "=ground_clr + 120",
+  "door_z1": "=belt_z - 30",
+  "dgap": "=3",
+  "wy_in": "=track/2 - tyre_w/2 - 20",
+  "pocket_w": "=hw - wall - wy_in",
+  "dcx": "=(door_x0 + door_x1)/2",
+  "dcz": "=(door_z0 + door_z1)/2",
+  "dw": "=door_x1 - door_x0",
+  "dh": "=door_z1 - door_z0",
+  "inner_w": "=body_w - 2*wall"
+ },
+ "components": [
+  {
+   "id": "floor",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "slab",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=ground_clr",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=(cbf - hl)/2",
+        0
+       ],
+       "width": "=cbf + hl - 2*wall",
+       "height": "=inner_w"
+      }
+     },
+     {
+      "id": "well_rear_l",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=ground_clr + wall/2",
+      "distance": "=wall*3",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=-fx",
+        "=1*(wy_in + pocket_w/2)"
+       ],
+       "width": "=arch_dia",
+       "height": "=pocket_w"
+      },
+      "symmetric": true,
+      "mode": "cut"
+     },
+     {
+      "id": "well_rear_r",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=ground_clr + wall/2",
+      "distance": "=wall*3",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=-fx",
+        "=-1*(wy_in + pocket_w/2)"
+       ],
+       "width": "=arch_dia",
+       "height": "=pocket_w"
+      },
+      "symmetric": true,
+      "mode": "cut"
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "firewall",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "plate",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": "=cbf - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        0,
+        "=(ground_clr + belt_z - wall)/2"
+       ],
+       "width": "=2*wy_in",
+       "height": "=belt_z - wall - ground_clr"
+      }
+     },
+     {
+      "id": "tunnel",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": "=cbf - wall/2",
+      "distance": "=wall*3",
+      "profile": {
+       "type": "rect",
+       "center": [
+        0,
+        "=tunnel_z"
+       ],
+       "width": "=tunnel_d",
+       "height": "=tunnel_d"
+      },
+      "symmetric": true,
+      "mode": "cut"
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "side_panel_l",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "panel",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-side_off",
+      "distance": "=wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=-hl",
+         "=ground_clr"
+        ],
+        [
+         "=hl",
+         "=ground_clr"
+        ],
+        [
+         "=hl",
+         "=belt_z - nose_drop"
+        ],
+        [
+         "=nose_x",
+         "=belt_z"
+        ],
+        [
+         "=tail_x",
+         "=belt_z"
+        ],
+        [
+         "=-hl",
+         "=belt_z - tail_drop"
+        ]
+       ]
+      },
+      "symmetric": true
+     },
+     {
+      "id": "arch_front",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-side_off",
+      "distance": "=wall*3",
+      "profile": {
+       "type": "circle",
+       "center": [
+        "=fx",
+        "=wheel_r"
+       ],
+       "diameter": "=arch_dia"
+      },
+      "symmetric": true,
+      "mode": "cut"
+     },
+     {
+      "id": "arch_rear",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-side_off",
+      "distance": "=wall*3",
+      "profile": {
+       "type": "circle",
+       "center": [
+        "=-fx",
+        "=wheel_r"
+       ],
+       "diameter": "=arch_dia"
+      },
+      "symmetric": true,
+      "mode": "cut"
+     },
+     {
+      "id": "door_front",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-side_off",
+      "distance": "=wall*3",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=dcx",
+        "=dcz"
+       ],
+       "width": "=dw",
+       "height": "=dh"
+      },
+      "symmetric": true,
+      "mode": "cut"
+     },
+     {
+      "id": "door_rear",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-side_off",
+      "distance": "=wall*3",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=-dcx",
+        "=dcz"
+       ],
+       "width": "=dw",
+       "height": "=dh"
+      },
+      "symmetric": true,
+      "mode": "cut"
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "side_panel_r",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "panel",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=side_off",
+      "distance": "=wall",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=-hl",
+         "=ground_clr"
+        ],
+        [
+         "=hl",
+         "=ground_clr"
+        ],
+        [
+         "=hl",
+         "=belt_z - nose_drop"
+        ],
+        [
+         "=nose_x",
+         "=belt_z"
+        ],
+        [
+         "=tail_x",
+         "=belt_z"
+        ],
+        [
+         "=-hl",
+         "=belt_z - tail_drop"
+        ]
+       ]
+      },
+      "symmetric": true
+     },
+     {
+      "id": "arch_front",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=side_off",
+      "distance": "=wall*3",
+      "profile": {
+       "type": "circle",
+       "center": [
+        "=fx",
+        "=wheel_r"
+       ],
+       "diameter": "=arch_dia"
+      },
+      "symmetric": true,
+      "mode": "cut"
+     },
+     {
+      "id": "arch_rear",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=side_off",
+      "distance": "=wall*3",
+      "profile": {
+       "type": "circle",
+       "center": [
+        "=-fx",
+        "=wheel_r"
+       ],
+       "diameter": "=arch_dia"
+      },
+      "symmetric": true,
+      "mode": "cut"
+     },
+     {
+      "id": "door_front",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=side_off",
+      "distance": "=wall*3",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=dcx",
+        "=dcz"
+       ],
+       "width": "=dw",
+       "height": "=dh"
+      },
+      "symmetric": true,
+      "mode": "cut"
+     },
+     {
+      "id": "door_rear",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=side_off",
+      "distance": "=wall*3",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=-dcx",
+        "=dcz"
+       ],
+       "width": "=dw",
+       "height": "=dh"
+      },
+      "symmetric": true,
+      "mode": "cut"
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "door_fl",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "skin",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-side_off",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=dcx",
+        "=dcz"
+       ],
+       "width": "=dw - 2*dgap",
+       "height": "=dh - 2*dgap"
+      },
+      "symmetric": true
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "door_fr",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "skin",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=side_off",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=dcx",
+        "=dcz"
+       ],
+       "width": "=dw - 2*dgap",
+       "height": "=dh - 2*dgap"
+      },
+      "symmetric": true
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "door_rl",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "skin",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-side_off",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=-dcx",
+        "=dcz"
+       ],
+       "width": "=dw - 2*dgap",
+       "height": "=dh - 2*dgap"
+      },
+      "symmetric": true
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "door_rr",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "skin",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=side_off",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=-dcx",
+        "=dcz"
+       ],
+       "width": "=dw - 2*dgap",
+       "height": "=dh - 2*dgap"
+      },
+      "symmetric": true
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "shoulder_l",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "deck",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=belt_z - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=(cbr + cbf)/2",
+        "=1*(cab_hw + hw - wall)/2"
+       ],
+       "width": "=cbf - cbr",
+       "height": "=hw - wall - cab_hw"
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "shoulder_r",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "deck",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=belt_z - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=(cbr + cbf)/2",
+        "=-1*(cab_hw + hw - wall)/2"
+       ],
+       "width": "=cbf - cbr",
+       "height": "=hw - wall - cab_hw"
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "roof",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "sheet",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=body_h - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=(rr + rf)/2",
+        0
+       ],
+       "width": "=rf - rr - 2*glass_t",
+       "height": "=2*roof_hw"
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "windscreen",
+   "type": "feature_tree",
+   "material": "acrylic",
+   "parameters": {
+    "features": [
+     {
+      "id": "glass",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": 0,
+      "distance": "=2*roof_hw",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=cbf",
+         "=belt_z"
+        ],
+        [
+         "=rf",
+         "=body_h"
+        ],
+        [
+         "=rf - glass_t",
+         "=body_h"
+        ],
+        [
+         "=cbf - glass_t",
+         "=belt_z"
+        ]
+       ]
+      },
+      "symmetric": true
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "rear_window",
+   "type": "feature_tree",
+   "material": "acrylic",
+   "parameters": {
+    "features": [
+     {
+      "id": "glass",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": 0,
+      "distance": "=2*roof_hw",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=cbr",
+         "=belt_z"
+        ],
+        [
+         "=rr",
+         "=body_h"
+        ],
+        [
+         "=rr + glass_t",
+         "=body_h"
+        ],
+        [
+         "=cbr + glass_t",
+         "=belt_z"
+        ]
+       ]
+      },
+      "symmetric": true
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "side_window_l",
+   "type": "feature_tree",
+   "material": "acrylic",
+   "parameters": {
+    "features": [
+     {
+      "id": "glass",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=-win_off",
+      "distance": "=glass_t",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=cbr",
+         "=belt_z"
+        ],
+        [
+         "=cbf",
+         "=belt_z"
+        ],
+        [
+         "=rf",
+         "=body_h"
+        ],
+        [
+         "=rr",
+         "=body_h"
+        ]
+       ]
+      },
+      "symmetric": true
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "side_window_r",
+   "type": "feature_tree",
+   "material": "acrylic",
+   "parameters": {
+    "features": [
+     {
+      "id": "glass",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": "=win_off",
+      "distance": "=glass_t",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=cbr",
+         "=belt_z"
+        ],
+        [
+         "=cbf",
+         "=belt_z"
+        ],
+        [
+         "=rf",
+         "=body_h"
+        ],
+        [
+         "=rr",
+         "=body_h"
+        ]
+       ]
+      },
+      "symmetric": true
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "hood",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "sheet",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=belt_z - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=(cbf + nose_x)/2",
+        0
+       ],
+       "width": "=nose_x - cbf",
+       "height": "=inner_w"
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "nose_panel",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "sheet",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": 0,
+      "distance": "=inner_w",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=nose_x",
+         "=belt_z"
+        ],
+        [
+         "=hl",
+         "=belt_z - nose_drop"
+        ],
+        [
+         "=hl",
+         "=belt_z - nose_drop - wall"
+        ],
+        [
+         "=nose_x",
+         "=belt_z - wall"
+        ]
+       ]
+      },
+      "symmetric": true
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "trunk_lid",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "sheet",
+      "op": "extrude",
+      "plane": "XY",
+      "offset": "=belt_z - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        "=(tail_x + cbr)/2",
+        0
+       ],
+       "width": "=cbr - tail_x",
+       "height": "=inner_w"
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "tail_panel",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "sheet",
+      "op": "extrude",
+      "plane": "XZ",
+      "offset": 0,
+      "distance": "=inner_w",
+      "profile": {
+       "type": "polygon",
+       "points": [
+        [
+         "=tail_x",
+         "=belt_z"
+        ],
+        [
+         "=-hl",
+         "=belt_z - tail_drop"
+        ],
+        [
+         "=-hl",
+         "=belt_z - tail_drop - wall"
+        ],
+        [
+         "=tail_x",
+         "=belt_z - wall"
+        ]
+       ]
+      },
+      "symmetric": true
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "front_fascia",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "sheet",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": "=hl - wall",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        0,
+        "=(ground_clr + belt_z - nose_drop - wall)/2"
+       ],
+       "width": "=inner_w",
+       "height": "=belt_z - nose_drop - wall - ground_clr"
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "rear_fascia",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "sheet",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": "=-hl",
+      "distance": "=wall",
+      "profile": {
+       "type": "rect",
+       "center": [
+        0,
+        "=(ground_clr + belt_z - tail_drop - wall)/2"
+       ],
+       "width": "=inner_w",
+       "height": "=belt_z - tail_drop - wall - ground_clr"
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "front_bumper",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "bar",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": "=hl",
+      "distance": 70,
+      "profile": {
+       "type": "rect",
+       "center": [
+        0,
+        "=ground_clr + 150"
+       ],
+       "width": "=body_w - 120",
+       "height": 200
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "rear_bumper",
+   "type": "feature_tree",
+   "material": "steel",
+   "parameters": {
+    "features": [
+     {
+      "id": "bar",
+      "op": "extrude",
+      "plane": "YZ",
+      "offset": "=-hl - 70",
+      "distance": 70,
+      "profile": {
+       "type": "rect",
+       "center": [
+        0,
+        "=ground_clr + 150"
+       ],
+       "width": "=body_w - 120",
+       "height": 200
+      }
+     }
+    ]
+   },
+   "position": [
+    0,
+    0,
+    0
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "name": "doors_clear_of_arches",
+   "expr": "=door_x1 > door_x0 + 300",
+   "message": "the wheel arch leaves no room for the doors; widen the wheelbase or shrink the wheel"
+  },
+  {
+   "name": "arch_inside_side_panel",
+   "expr": "=wheel_dia + 90 < belt_z - ground_clr + 400",
+   "message": "the wheel arch is taller than the body side"
+  },
+  {
+   "name": "trunk_lid_has_length",
+   "expr": "=rear_bay > 260 + 20",
+   "message": "rear_bay must be longer than the sloping tail (260 mm) so the trunk lid has some length"
+  },
+  {
+   "name": "nose_above_ground",
+   "expr": "=belt_z - nose_drop - wall > ground_clr + 50",
+   "message": "the nose would hang below the floor"
+  },
+  {
+   "name": "tyre_clear_of_doors_side",
+   "expr": "=wy_in > 200",
+   "message": "the track is too narrow for the tyre width"
+  },
+  {
+   "name": "roof_above_belt",
+   "expr": "=body_h > belt_z + 300",
+   "message": "the roof is too close to the belt line to fit a cabin"
+  }
+ ]
+}

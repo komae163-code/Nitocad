@@ -15,14 +15,15 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import vehicle_shell as VSH
+
 MIN_PARTS = 12                    # fewest parts in a whole vehicle
 MIN_GROUPS = 3                    # fewest assemblies (body, wheels, powertrain ...)
 MIN_PANELS = 3                    # separate body pieces when there is a body part
 
-_BODY_NAME = re.compile(r"(^|_)(body|hull|shell|cabin|fuselage|bodywork|chassis)(_|$)", re.I)
+_BODY_NAME = VSH.BODY_NAME
 _PANEL_NAME = re.compile(r"door|hood|bonnet|boot|trunk|tailgate|roof|floor|panel|bumper|fender|wing|sill|pillar|"
                          r"windscreen|windshield|window|glass|seat|dash|firewall|bulkhead|skin|frame|rail|cross", re.I)
-_HOLLOW_ID = re.compile(r"cavity|interior|hollow|shell|inner|inside|pocket", re.I)
 _GEAR_WORDS = re.compile(r"\b(gears?|gearbox|gear box|transmission|differential|speed|geared)\b", re.I)
 _ENGINE_WORDS = re.compile(r"\b(engine|motor|piston|cylinder|crank\w*)\b", re.I)
 _WHEEL_NAME = re.compile(r"(?<!fly)wheel|tyre|tire", re.I)
@@ -45,11 +46,8 @@ def _features(p: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _has_hollow(p: dict[str, Any]) -> bool:
-    """A body counts as a shell when one of its features cuts away its inside. Wheel arches do not count."""
-    for f in _features(p):
-        if f.get("op") == "shell" or (f.get("mode") == "cut" and _HOLLOW_ID.search(str(f.get("id", "")))):
-            return True
-    return False
+    """A body counts as a shell when a cut feature removes its inside (expand_vehicle adds one automatically)."""
+    return VSH.has_hollow(_features(p))
 
 
 def coarse_issues(vspec: dict[str, Any], expanded: dict[str, Any], request: str = "") -> list[str]:
@@ -59,7 +57,7 @@ def coarse_issues(vspec: dict[str, Any], expanded: dict[str, Any], request: str 
         return []
     out: list[str] = []
     names = [str(p.get("name", "")) for p in parts]
-    text = f"{request} {vspec.get('name', '')}"
+    text = f"{request} {vspec.get('name', '')}".replace("_", " ")      # "hatchback_car" has no \\b before "car"
     wants_gears = bool(_GEAR_WORDS.search(request))
     wants_engine = bool(_ENGINE_WORDS.search(request))
 
@@ -76,16 +74,19 @@ def coarse_issues(vspec: dict[str, Any], expanded: dict[str, Any], request: str 
 
     for p in parts:
         n = str(p.get("name", ""))
-        if whole and _ptype(p) in _MONOLITH_TYPES and _BODY_NAME.search(n):
+        if whole and _ptype(p) in _MONOLITH_TYPES and _BODY_NAME.search(n) and not _PANEL_NAME.search(n) \
+                and not VSH.is_sheet(_features(p), VSH.default_wall(VSH._extent(_features(p)))):
             panels = [m for m in names if m != n and _PANEL_NAME.search(m)]
             if len(panels) < MIN_PANELS:
                 out.append(f"'{n}' is one {_ptype(p)} that holds the whole body. Split it into at least "
-                           f"{MIN_PANELS} separate parts, such as floor, side panels, roof, hood and doors, and keep "
-                           f"only a thin shell frame in '{n}'")
+                           f"{MIN_PANELS} separate parts, such as floor, side panels, roof, hood and doors. For a car, "
+                           "van or truck body, place the 'car_body' module instead; it makes all of those panels")
             elif _ptype(p) == "feature_tree" and not _has_hollow(p):
-                out.append(f"'{n}' is a solid block, so its mass and volume are far too large. Add a feature with "
-                           "mode 'cut' and an id like 'interior' that removes the inside, leaving a wall of 2 to 3 mm "
-                           "for sheet metal")
+                why = next((m for m in (expanded.get("shell_problems") or []) if f"'{n}'" in m), "")
+                out.append(f"'{n}' is a solid block, so its mass and volume are far too large"
+                           + (f" ({why})" if why else "")
+                           + ". Build the body from convex polygon or rectangle extrudes, or add a feature with mode "
+                             "'cut' and an id like 'interior' that removes the inside, leaving a 2 to 3 mm wall")
 
     if wants_gears:
         gears = [p for p in parts if _ptype(p) == "gear"]
@@ -101,7 +102,8 @@ def coarse_issues(vspec: dict[str, Any], expanded: dict[str, Any], request: str 
                 out.append(f"gear '{p.get('name')}' has no keyway. Add keyway_width_mm and keyway_depth_mm "
                            "(and backlash_mm, around 0.05 x module, so the pair can turn)")
                 break
-    if wants_engine and not any(_ptype(p) in ("crankshaft", "connecting_rod") for p in parts):
+    if wants_engine and not any(_ptype(p) in ("crankshaft", "connecting_rod")
+                                or re.search(r"crank|con_?rod|connecting", str(p.get("name", "")), re.I) for p in parts):
         out.append("an engine was requested but there is no crankshaft or connecting rod. Add the piston_engine "
                    "module or build crankshaft, rods, pistons and liners as separate parts")
 

@@ -1,0 +1,305 @@
+{
+ "description": "Five-speed manual gearbox: an input shaft and a countershaft 84 mm apart, five pairs of spur gears (14/42, 20/36, 26/30, 32/24, 36/20 teeth, module 3, 18 mm wide), every shaft and gear with a keyway and 0.15 mm backlash, in an open-top aluminium case. Origin on the input shaft axis at the front-to-back start of the case; the shafts run along +X, the input end at x = 190. The case is 190 long, 150 wide, 210 tall and reaches 157 mm below the axis.",
+ "params": {},
+ "components": [
+  {
+   "id": "case",
+   "type": "simple_box",
+   "material": "aluminium",
+   "parameters": {
+    "length_mm": 190,
+    "width_mm": 150,
+    "height_mm": 210,
+    "wall_thickness_mm": 4,
+    "hollow": true
+   },
+   "position": [
+    95,
+    0,
+    -52
+   ]
+  },
+  {
+   "id": "input_shaft",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 24,
+    "length_mm": 182,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3
+   },
+   "position": [
+    4,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "counter_shaft",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 24,
+    "length_mm": 182,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3
+   },
+   "position": [
+    4,
+    0,
+    -84
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "input_gear_1",
+   "type": "gear",
+   "material": "steel",
+   "parameters": {
+    "module": 3,
+    "teeth": 14,
+    "thickness_mm": 18,
+    "bore_diameter_mm": 24,
+    "backlash_mm": 0.15,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3
+   },
+   "position": [
+    10,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "counter_gear_1",
+   "type": "gear",
+   "material": "steel",
+   "parameters": {
+    "module": 3,
+    "teeth": 42,
+    "thickness_mm": 18,
+    "bore_diameter_mm": 24,
+    "backlash_mm": 0.15,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3
+   },
+   "position": [
+    10,
+    0,
+    -84
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "input_gear_2",
+   "type": "gear",
+   "material": "steel",
+   "parameters": {
+    "module": 3,
+    "teeth": 20,
+    "thickness_mm": 18,
+    "bore_diameter_mm": 24,
+    "backlash_mm": 0.15,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3
+   },
+   "position": [
+    40,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "counter_gear_2",
+   "type": "gear",
+   "material": "steel",
+   "parameters": {
+    "module": 3,
+    "teeth": 36,
+    "thickness_mm": 18,
+    "bore_diameter_mm": 24,
+    "backlash_mm": 0.15,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3
+   },
+   "position": [
+    40,
+    0,
+    -84
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "input_gear_3",
+   "type": "gear",
+   "material": "steel",
+   "parameters": {
+    "module": 3,
+    "teeth": 26,
+    "thickness_mm": 18,
+    "bore_diameter_mm": 24,
+    "backlash_mm": 0.15,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3
+   },
+   "position": [
+    70,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "counter_gear_3",
+   "type": "gear",
+   "material": "steel",
+   "parameters": {
+    "module": 3,
+    "teeth": 30,
+    "thickness_mm": 18,
+    "bore_diameter_mm": 24,
+    "backlash_mm": 0.15,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3
+   },
+   "position": [
+    70,
+    0,
+    -84
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "input_gear_4",
+   "type": "gear",
+   "material": "steel",
+   "parameters": {
+    "module": 3,
+    "teeth": 32,
+    "thickness_mm": 18,
+    "bore_diameter_mm": 24,
+    "backlash_mm": 0.15,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3
+   },
+   "position": [
+    100,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "counter_gear_4",
+   "type": "gear",
+   "material": "steel",
+   "parameters": {
+    "module": 3,
+    "teeth": 24,
+    "thickness_mm": 18,
+    "bore_diameter_mm": 24,
+    "backlash_mm": 0.15,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3
+   },
+   "position": [
+    100,
+    0,
+    -84
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "input_gear_5",
+   "type": "gear",
+   "material": "steel",
+   "parameters": {
+    "module": 3,
+    "teeth": 36,
+    "thickness_mm": 18,
+    "bore_diameter_mm": 24,
+    "backlash_mm": 0.15,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3
+   },
+   "position": [
+    130,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "counter_gear_5",
+   "type": "gear",
+   "material": "steel",
+   "parameters": {
+    "module": 3,
+    "teeth": 20,
+    "thickness_mm": 18,
+    "bore_diameter_mm": 24,
+    "backlash_mm": 0.15,
+    "keyway_width_mm": 8,
+    "keyway_depth_mm": 3
+   },
+   "position": [
+    130,
+    0,
+    -84
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  }
+ ]
+}

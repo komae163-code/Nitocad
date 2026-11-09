@@ -36,7 +36,7 @@ import vehicle_spec as VS
 
 LLM = Callable[[list[dict[str, str]]], str]
 MAX_DESCRIPTION = 2000
-MAX_EXAMPLE_CHARS = 9000
+MAX_EXAMPLE_CHARS = 12000      # the shipped car is about 9.3k; an example longer than this is left out of the prompt
 # Overall wall-clock budget for one plan (all attempts). The browser gives up at 170 s, so stay well under it.
 DEFAULT_TIME_BUDGET_S = 120.0
 # A retry is only started if at least this many seconds are left, since one model call can take that long.
@@ -66,8 +66,10 @@ A component is one of:
   Use the first two for anything that carries load or must fit.
 ids are lowercase snake_case. A part needs `position` OR `mate` OR `between`, never two.
 BUILD IN PARTS, NEVER IN ONE GO. The person will pull the vehicle apart, weigh it and draw it, so every system is its own set of parts:
-  * body: separate thin panels (floor, side panels, roof, hood, doors, bumpers) or a thin shell, never one solid block.
-    A feature_tree body needs a cut feature with an id like "interior" that hollows it (wall 2 to 3 mm for sheet metal).
+  * body: separate thin panels (floor, side panels, roof, hood, doors, bumpers), never one solid block. For a car, van
+    or small truck place the "car_body" module once (it makes 23 panels, set wheelbase, wheel_dia, track and tyre_w to
+    match the wheels). Any other body written as a convex polygon or rectangle extrude is hollowed automatically to a
+    2 to 3 mm wall, but it is still one part, so split what must come apart (doors, hatches, covers) into their own parts.
   * wheels: tyre + hub + axle + bearings, one axle per axis. Exhaust, fuel tank, battery and seats are separate parts.
   * give every system its own "assembly" name (body, wheels, powertrain, exhaust ...) and list an explode direction for
     each moving part. At least 12 parts for a whole vehicle.

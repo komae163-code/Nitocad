@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 from typing import Any, Protocol
 
+import vehicle_decompose as VD
 import vehicle_spec as VS
 
 MAX_VALUE_BYTES = 1_000_000
@@ -47,6 +48,16 @@ def _check_key(key: str) -> str:
     if not isinstance(key, str) or not _KEY.match(key) or ".." in key:
         raise ValueError(f"bad storage key {key!r}")
     return key
+
+
+def coarse_issues_of(spec: Any, module_dir: Path | None = None) -> list[str]:
+    """Why a spec is too coarse to teach by example (a one-piece body, too few parts ...). Empty when it is fine or
+    cannot be read. Judged on the spec alone, so it never depends on what a person happened to ask for."""
+    try:
+        ex = VS.expand_vehicle(spec, None, None, module_dir)
+        return VD.coarse_issues(spec, ex, "") if ex["ok"] else []
+    except Exception:                                                    # noqa: BLE001 - a bad record must not break search
+        return []
 
 
 class MemoryStore:
@@ -154,7 +165,8 @@ class SpecLibrary:
         rec = json.loads(existing) if existing else {"accepted": 0, "rejected": 0, "added": time.time()}
         rec.update({"id": rid, "name": spec["name"], "description": str(description)[:2000], "status": rec.get("status", status)
                     if existing else status, "source": source, "tags": list(tags or rec.get("tags", []))[:20], "spec": spec,
-                    "parts": len(ex["parts"]) + len(ex["external"])})
+                    "parts": len(ex["parts"]) + len(ex["external"]),
+                    "coarse": VD.coarse_issues(spec, ex, "")})
         self.store.put(key, json.dumps(rec))
         if rec["status"] == "candidate":
             self._prune_candidates()
@@ -192,6 +204,8 @@ class SpecLibrary:
         if raw is None:
             return {"ok": False, "errors": ["unknown spec id"]}
         rec = json.loads(raw)
+        if accepted and rec["status"] != "seed" and self._coarse(rec):
+            return {"ok": False, "errors": ["this design is too coarse to become an example: " + self._coarse(rec)[0]]}
         if rec["status"] == "seed":
             rec["accepted" if accepted else "rejected"] += 1            # seeds keep their status; the count still records opinion
         elif accepted and self.review_required:
@@ -223,6 +237,7 @@ class SpecLibrary:
         if not ex["ok"]:
             return {"ok": False, "errors": ex["errors"][:5]}
         bad = [c["name"] for c in ex["checks"] if c["status"] != "pass"]
+        bad += ["split into parts" for _ in self._coarse(rec)[:1]]
         if bad and not allow_failing_checks:
             return {"ok": False, "errors": ["design checks failing: " + ", ".join(bad[:5])]}
         if rec["status"] != "seed":
@@ -266,8 +281,14 @@ class SpecLibrary:
         recs = [json.loads(self.store.get(k) or "{}") for k in self.store.keys("specs/")]
         return [r for r in recs if r and (statuses is None or r.get("status") in statuses)]
 
+    def _coarse(self, rec: dict[str, Any]) -> list[str]:
+        """The record's coarse-plan problems: the verdict stored at add time, or computed now for an older record."""
+        if "coarse" in rec:
+            return list(rec["coarse"])
+        return coarse_issues_of(rec.get("spec"), self.module_dir)
+
     def search(self, text: str, k: int = 2, statuses: tuple[str, ...] = ("seed", "accepted")) -> list[dict[str, Any]]:
-        recs = self.all(statuses)
+        recs = [r for r in self.all(statuses) if not self._coarse(r)]
         if not recs:
             return []
 

@@ -1,0 +1,309 @@
+{
+ "description": "Four cylinders in line, 80 mm bore, for a car: crankshaft (straight shaft, throws not drawn), flywheel, crank pulley, four liners, pistons and connecting rods, cylinder head, cam cover, intake and exhaust manifolds. Origin on the crank axis at the rear end of the crankshaft; the engine runs along +X (front of the car) and the flywheel sits at x = -24, next to the gearbox. Overall 446 mm long, 190 mm wide, 270 mm above the crank axis. No valves, cam, block or sump.",
+ "params": {},
+ "components": [
+  {
+   "id": "crankshaft",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 55,
+    "length_mm": 392
+   },
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "flywheel",
+   "type": "spacer",
+   "material": "steel",
+   "parameters": {
+    "outer_diameter_mm": 300,
+    "inner_diameter_mm": 40,
+    "length_mm": 24
+   },
+   "position": [
+    -24,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "crank_pulley",
+   "type": "pulley",
+   "material": "aluminium",
+   "parameters": {
+    "outer_diameter_mm": 120,
+    "belt_width_mm": 15,
+    "bore_diameter_mm": 30,
+    "thickness_mm": 25,
+    "groove_depth_mm": 4
+   },
+   "position": [
+    392,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "liner_1",
+   "type": "tube",
+   "material": "cast iron",
+   "parameters": {
+    "outer_diameter_mm": 86,
+    "wall_thickness_mm": 3,
+    "length_mm": 164
+   },
+   "position": [
+    62,
+    0,
+    70
+   ]
+  },
+  {
+   "id": "piston_1",
+   "type": "shaft",
+   "material": "aluminium",
+   "parameters": {
+    "diameter_mm": 78,
+    "length_mm": 80
+   },
+   "position": [
+    62,
+    0,
+    110
+   ]
+  },
+  {
+   "id": "conrod_1",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 22,
+    "length_mm": 82
+   },
+   "position": [
+    62,
+    0,
+    28
+   ]
+  },
+  {
+   "id": "liner_2",
+   "type": "tube",
+   "material": "cast iron",
+   "parameters": {
+    "outer_diameter_mm": 86,
+    "wall_thickness_mm": 3,
+    "length_mm": 164
+   },
+   "position": [
+    150,
+    0,
+    70
+   ]
+  },
+  {
+   "id": "piston_2",
+   "type": "shaft",
+   "material": "aluminium",
+   "parameters": {
+    "diameter_mm": 78,
+    "length_mm": 80
+   },
+   "position": [
+    150,
+    0,
+    110
+   ]
+  },
+  {
+   "id": "conrod_2",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 22,
+    "length_mm": 82
+   },
+   "position": [
+    150,
+    0,
+    28
+   ]
+  },
+  {
+   "id": "liner_3",
+   "type": "tube",
+   "material": "cast iron",
+   "parameters": {
+    "outer_diameter_mm": 86,
+    "wall_thickness_mm": 3,
+    "length_mm": 164
+   },
+   "position": [
+    238,
+    0,
+    70
+   ]
+  },
+  {
+   "id": "piston_3",
+   "type": "shaft",
+   "material": "aluminium",
+   "parameters": {
+    "diameter_mm": 78,
+    "length_mm": 80
+   },
+   "position": [
+    238,
+    0,
+    110
+   ]
+  },
+  {
+   "id": "conrod_3",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 22,
+    "length_mm": 82
+   },
+   "position": [
+    238,
+    0,
+    28
+   ]
+  },
+  {
+   "id": "liner_4",
+   "type": "tube",
+   "material": "cast iron",
+   "parameters": {
+    "outer_diameter_mm": 86,
+    "wall_thickness_mm": 3,
+    "length_mm": 164
+   },
+   "position": [
+    326,
+    0,
+    70
+   ]
+  },
+  {
+   "id": "piston_4",
+   "type": "shaft",
+   "material": "aluminium",
+   "parameters": {
+    "diameter_mm": 78,
+    "length_mm": 80
+   },
+   "position": [
+    326,
+    0,
+    110
+   ]
+  },
+  {
+   "id": "conrod_4",
+   "type": "shaft",
+   "material": "steel",
+   "parameters": {
+    "diameter_mm": 22,
+    "length_mm": 82
+   },
+   "position": [
+    326,
+    0,
+    28
+   ]
+  },
+  {
+   "id": "cylinder_head",
+   "type": "flat_plate",
+   "material": "aluminium",
+   "parameters": {
+    "length_mm": 356,
+    "width_mm": 92,
+    "thickness_mm": 20
+   },
+   "position": [
+    194,
+    0,
+    244
+   ]
+  },
+  {
+   "id": "cam_cover",
+   "type": "flat_plate",
+   "material": "aluminium",
+   "parameters": {
+    "length_mm": 300,
+    "width_mm": 70,
+    "thickness_mm": 10
+   },
+   "position": [
+    194,
+    0,
+    259
+   ]
+  },
+  {
+   "id": "intake_manifold",
+   "type": "tube",
+   "material": "aluminium",
+   "parameters": {
+    "outer_diameter_mm": 50,
+    "wall_thickness_mm": 3,
+    "length_mm": 300
+   },
+   "position": [
+    44,
+    -95,
+    244
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "id": "exhaust_manifold",
+   "type": "tube",
+   "material": "steel",
+   "parameters": {
+    "outer_diameter_mm": 45,
+    "wall_thickness_mm": 3,
+    "length_mm": 378
+   },
+   "position": [
+    44,
+    95,
+    234
+   ],
+   "rotation": [
+    0,
+    90,
+    0
+   ]
+  }
+ ]
+}
