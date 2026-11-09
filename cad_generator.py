@@ -58,6 +58,11 @@ logger = get_logger(__name__)
 MAX_OPERATIONS_PER_REQUEST = 25
 
 
+# Templates that return SEVERAL solids by design (an unfused compound). The merged mesh of such a part is never one
+# closed shell, and "exactly one solid" does not apply, so they are verified solid by solid, like an assembly.
+MULTI_SOLID_PART_TYPES = frozenset({"assembly", "building", "jet_aircraft", "turbofan_engine"})
+
+
 class CADGenerator:
     """Main CAD generation engine."""
 
@@ -304,16 +309,35 @@ class CADGenerator:
                     warnings=["Attached files are checked when they are read, not for a single watertight solid"],
                 )
             else:
+                multi_part = params.part_type in MULTI_SOLID_PART_TYPES or (
+                    isinstance(params.parameters, dict)
+                    and (bool(params.parameters.get("vehicle")) or len(params.parameters.get("parts") or []) > 1)
+                )
+                if workplane_for_verify is not None and not multi_part:
+                    # Any other template that turned out to return several solids is treated the same way.
+                    try:
+                        multi_part = len(workplane_for_verify.solids().vals()) > 1
+                    except Exception:  # noqa: BLE001
+                        pass
+                if multi_part and workplane_for_verify is not None:
+                    # A single template that returns several solids (aircraft, engine): check each solid on its own
+                    # (valid, closed surface) instead of "exactly one solid" and the merged mesh.
+                    from geometry_verify import verify_solids
+                    pchecks, perrors, pmeasured = verify_solids([(params.part_type, workplane_for_verify.val())])
+                    if perrors:
+                        raise GeometryValidationError(
+                            "Post-build geometry verification failed: " + "; ".join(perrors),
+                            details={"verification": {"passed": False, "checks": pchecks, "errors": perrors,
+                                                      "measured": pmeasured}},
+                        )
+                    workplane_for_verify = None
                 vreport = verify_geometry(
                     solid=workplane_for_verify,
                     stl_path=stl_path,
                     expected=None,  # expected volume/bbox filled when compiler provides them
-                    # A vehicle or any assembly is many solids: its parts were verified one by one while it was
-                    # exported, and the merged mesh is never tested for being watertight.
-                    multi_part=params.part_type == "assembly" or (
-                        isinstance(params.parameters, dict)
-                        and (bool(params.parameters.get("vehicle")) or len(params.parameters.get("parts") or []) > 1)
-                    ),
+                    # A vehicle, an assembly or any multi-solid part: its solids are verified one by one, and the
+                    # merged mesh is never tested for being watertight.
+                    multi_part=multi_part,
                 )
             if not vreport.passed:
                 raise GeometryValidationError(

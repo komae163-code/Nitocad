@@ -415,14 +415,36 @@ def _part_label(p: dict, i: int) -> str:
     return str(p.get("name") or p.get("id") or p.get("part_type") or f"part {i}")
 
 
+def _same_position(p: Any, q: Any) -> bool:
+    """Equal positions, whatever container they came in: a tuple and a list holding the same numbers are the same place
+    (a plain != on them says they differ, which listed every untouched part as changed)."""
+    if p is None or q is None:
+        return p is None and q is None
+    try:
+        a, b = [float(c) for c in p], [float(c) for c in q]
+    except (TypeError, ValueError):
+        return p == q
+    return len(a) == len(b) and all(abs(x - y) <= 1e-6 for x, y in zip(a, b))
+
+
+def _paired_parts(a: list, b: list) -> list[tuple[dict, dict, str]]:
+    """(old, new, label) pairs. Parts are matched by name when every part has a unique one, so a step that adds parts
+    in the middle of the list does not compare a part with a different one. Unnamed parts are matched by place."""
+    names_a = [str(x.get("name") or x.get("id") or "") for x in a]
+    names_b = [str(y.get("name") or y.get("id") or "") for y in b]
+    if all(names_a) and all(names_b) and len(set(names_a)) == len(a) and len(set(names_b)) == len(b):
+        by_name = dict(zip(names_a, a))
+        return [(by_name[n], y, n) for n, y in zip(names_b, b) if n in by_name]
+    return [(x, y, _part_label(y, i)) for i, (x, y) in enumerate(zip(a, b), start=1)]
+
+
 def _diff_assembly(old: dict, new: dict) -> list[str]:
     a = (old.get("parameters") or {}).get("parts") or []
     b = (new.get("parameters") or {}).get("parts") or []
     out: list[str] = []
     if len(a) != len(b):
         out.append(f"parts: {len(a)} to {len(b)}")
-    for i, (x, y) in enumerate(zip(a, b), start=1):
-        label = _part_label(y, i)
+    for x, y, label in _paired_parts(a, b):
         if x.get("part_type") != y.get("part_type"):
             out.append(f"{label}: type {x.get('part_type')} to {y.get('part_type')}")
             continue
@@ -432,7 +454,7 @@ def _diff_assembly(old: dict, new: dict) -> list[str]:
                 out.append(f"{label} {k}: {xp.get(k, 'default')} to {yp.get(k, 'default')}")
         if x.get("count", 1) != y.get("count", 1):
             out.append(f"{label} count: {x.get('count', 1)} to {y.get('count', 1)}")
-        if x.get("position") != y.get("position"):
+        if not _same_position(x.get("position"), y.get("position")):
             out.append(f"{label} position: {assembly_relations.pos_text(x.get('position'))} to {assembly_relations.pos_text(y.get('position'))}")
     ma = (old.get("parameters") or {}).get("mates") or []
     mb = (new.get("parameters") or {}).get("mates") or []
