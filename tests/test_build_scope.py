@@ -114,13 +114,18 @@ def test_just_build_it_mid_conversation_builds_with_what_there_is():
     assert kind == "build" and desc.startswith("I want a house")
 
 
-def test_the_chat_builds_after_five_messages():
+def test_the_chat_builds_once_its_questions_are_answered_and_never_after_five_messages():
     h = [U("I want a bracket")]
-    for filler in ("maybe", "not sure", "dunno", "hmm"):    # words with no numbers, so the details never add up
-        kind, p = ask(h)
-        assert kind == "ask"
-        h += [A(p.reply), U(filler)]
-    assert ask(h)[0] == "build"
+    asked = []
+    for filler in ("maybe", "not sure", "dunno", "hmm", "ok"):    # words with no numbers, so the details never add up
+        res = ask(h)
+        if res[0] == "build":
+            break
+        asked.append(res[1].choices[0]["question"])
+        h += [A(res[1].reply), U(filler)]
+    assert res[0] == "build"
+    assert len(set(asked)) == len(asked)                          # a typed answer moves on, it never repeats a question
+    assert len([m for m in h if m["role"] == "user"]) <= 5
 
 
 def test_a_part_on_the_bench_is_edited_not_questioned():

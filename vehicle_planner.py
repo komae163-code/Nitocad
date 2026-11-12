@@ -68,9 +68,7 @@ ids are lowercase snake_case. A part needs `position` OR `mate` OR `between`, ne
 BUILD IN PARTS, NEVER IN ONE GO. The person will pull the vehicle apart, weigh it and draw it, so every system is its own set of parts:
   * body: separate thin panels (floor, side panels, roof, hood, doors, bumpers), never one solid block. For a car, van
     or small truck place the "car_body" module once (it makes 23 panels, set wheelbase, wheel_dia, track and tyre_w to
-    match the wheels). For a pickup also set rear_bay to the bed length plus about 50 mm (about 1550 for a 4 m
-    truck): the cab ends there and the bed goes behind it, so never put a bed on a body left at the default
-    rear_bay, because its roof, rear window and trunk lid would sit around the bed. Any other body written as a convex polygon or rectangle extrude is hollowed automatically to a
+    match the wheels). Any other body written as a convex polygon or rectangle extrude is hollowed automatically to a
     2 to 3 mm wall, but it is still one part, so split what must come apart (doors, hatches, covers) into their own parts.
   * wheels: tyre + hub + axle + bearings, one axle per axis. Exhaust, fuel tank, battery and seats are separate parts.
   * give every system its own "assembly" name (body, wheels, powertrain, exhaust ...) and list an explode direction for

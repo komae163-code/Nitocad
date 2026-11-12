@@ -1389,19 +1389,10 @@ def export_pdf(
         block_den = part_dens[bi] if parts else scale_den
         if parts:
             top = next(v for v in block_views if v.name == "top")
-            front = next(v for v in block_views if v.name == "front")
             fx, _ = offsets["front"]
-            # Start at the LEFT EDGE of the front view (not its origin) and keep the whole title on the sheet. A narrow
-            # part's title used to start left of the page, so only its tail ("ALE 1:5") was printed.
-            label_pt = to_page((fx + front.u_min, offsets["top"][1] + top.v_max + 8))
-            text = label.upper() + (f"   SCALE 1:{block_den}" if mixed or block_den > 1 else "")
-            size = 10
-            room = page_w - 2 * (margin * 0.5)
-            while size > 6 and stringWidth(text, "Helvetica-Bold", size) > room:
-                size -= 1
-            c.setFont("Helvetica-Bold", size)
-            x = max(margin * 0.5, min(label_pt[0], page_w - margin * 0.5 - stringWidth(text, "Helvetica-Bold", size)))
-            c.drawString(x, label_pt[1], text)
+            label_pt = to_page((fx, offsets["top"][1] + top.v_max + 8))
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(label_pt[0], label_pt[1], label.upper() + (f"   SCALE 1:{block_den}" if mixed or block_den > 1 else ""))
         for view in block_views:
             _draw_view_pdf(c, view, offsets[view.name], to_page)
             _add_dimensions_pdf(c, view, offsets[view.name], to_page, dim_mult=block_den)

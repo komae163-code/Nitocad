@@ -27,6 +27,15 @@ vehicle_api.py is not in this zip: the version you uploaded already has the wall
 - assembly_gate.py: its gear parameter table knows backlash and keyway.
 - The earlier patch is included: gear keyway and backlash, the decomposition check, default explode directions, PDF scale per part.
 
+- vehicle_chat.py and build_scope.py: a typed answer such as "A Lambo" now counts as answering the question. Before, only a tapped chip
+  did, so the chat asked "What kind of car?" again and again (up to the 5-message cap). It now moves to the next question and builds
+  when the questions run out. test_build_scope's five-message test was rewritten, because it relied on that bug.
+
+- validator.py: whole_number_counts() runs inside validate_parameters, so EVERY part type gets it (single mechanical parts, assemblies,
+  vehicles, civil): a count that arrives as 44.0 becomes 44 before the part's validator looks. A real fraction (44.6) is left to that validator to reject or correct (a sprocket rejects 12.5 teeth, a road records a lane_count correction); only a fraction it leaves alone is rounded and reported. Before, a staged bicycle build crashed at the
+  chainring with "'float' object cannot be interpreted as an integer". Only real counts are touched (teeth, *_count, stages, blades, throws);
+  angle_deg and motor_size_mm have integer defaults but take decimals, so they are left alone. vehicle_spec.py applies the same rule early.
+
 ## Tests
 1786 pass here against 1714 on the original upload. The same 65 tests fail on both, because they need FastAPI, the database or a CAD kernel.
 New: test_vehicle_shell, test_vehicle_overlap, test_vehicle_car, test_library_quality. Changed: test_vehicle_decompose, test_vehicle_new_examples.

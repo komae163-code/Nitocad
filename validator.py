@@ -1,6 +1,7 @@
 """
 Geometric validation and auto-correction for CAD parameters.
 """
+import re as _re_counts
 import re
 from typing import Any
 
@@ -1276,6 +1277,36 @@ def validate_jet_aircraft(params: dict[str, Any]) -> ValidationResult:
     return result
 
 
+# ---- whole-number counts -------------------------------------------------------------------------------------
+# A count that arrives as 44.0 (an expression, an AI's JSON, a typed "44.0") breaks templates that loop over it:
+# "'float' object cannot be interpreted as an integer". Only real counts are touched: a size such as angle_deg
+# or motor_size_mm has an integer default too, but 22.5 is a perfectly good value for it.
+_COUNT_WORDS = _re_counts.compile(r"count|teeth|stages|blades|throws|^engines$")
+
+
+def is_count_key(name: str) -> bool:
+    return bool(_COUNT_WORDS.search(name)) and not name.endswith(("_mm", "_deg"))
+
+
+def whole_number_counts(part_type: str, params: dict, round_fractions: bool = True) -> tuple[dict, list[str]]:
+    """Float counts become ints. 44.0 silently; 44.6 is rounded and reported unless round_fractions is False, which
+    leaves it for the part's own validator to reject or correct. Returns (params, notes); `params` is a copy only
+    when something changed."""
+    from assembly_planner import default_catalog
+    defaults = default_catalog().get(part_type) or {}
+    out, notes = params, []
+    for k, v in params.items():
+        d = defaults.get(k)
+        if (isinstance(d, int) and not isinstance(d, bool) and is_count_key(k)
+                and isinstance(v, float) and _math.isfinite(v) and (v.is_integer() or round_fractions)):
+            if out is params:
+                out = dict(params)
+            out[k] = int(round(v))
+            if not v.is_integer():
+                notes.append(f"{k} must be a whole number, so {v:g} was rounded to {out[k]}")
+    return out, notes
+
+
 def validate_parameters(part_type, params, description=None):
     """
     Validate parameters for any part type and return (parameters, result).
@@ -1284,6 +1315,7 @@ def validate_parameters(part_type, params, description=None):
     defaults are still corrected when they would break the geometry. `description`
     is the user's text, used to tell the two apart; without it every correction applies.
     """
+    params, _ = whole_number_counts(part_type, params, round_fractions=False)   # 44.0 -> 44 before the validator looks
     validators = {
         'motor_mount': validate_motor_mount,
         'l_bracket': validate_l_bracket,
@@ -1362,7 +1394,13 @@ def validate_parameters(part_type, params, description=None):
             else:
                 corrected_params[param] = correction['new']
 
+        if not result.errors:                       # a fraction the validator neither rejected nor corrected: round it
+            corrected_params, count_notes = whole_number_counts(part_type, corrected_params)
+            result.warnings.extend(count_notes)
         return corrected_params, result
     else:
         # No validator, return as-is
-        return params, ValidationResult()
+        params, count_notes = whole_number_counts(part_type, params)
+        result = ValidationResult()
+        result.warnings.extend(count_notes)
+        return params, result

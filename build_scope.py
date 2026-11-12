@@ -217,7 +217,7 @@ def _scope(history, current_spec, has_ai):
     if len(chain) == 1 and (skip or score >= enough):
         # The person gave the full order. Build it whole, as before, unless they asked to be walked through it.
         return _fold(msgs, chain, desc, True) if want_steps and not skip else None
-    remaining = [qa for qa in fam["q"] if qa[0] not in raw]
+    remaining = [qa for i, qa in enumerate(fam["q"]) if i >= len(chain) - 1 and qa[0] not in raw]   # typed answers count too
     if skip or score >= enough or not remaining or len(chain) >= VC._MAX_ROUNDS:
         # Questions were answered: show it in steps. "just build it" means all of it at once.
         return _fold(msgs, chain, desc, not skip)

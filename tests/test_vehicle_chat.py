@@ -657,3 +657,30 @@ def test_an_engine_request_without_an_ai_gets_the_matching_engine_in_three_steps
         assert len(done.spec["parameters"]["parts"]) == 19 and "stage" not in done.spec["parameters"]
     finally:
         VC.set_library(None)
+
+
+def test_typed_answers_move_the_questions_on_instead_of_repeating_one():
+    """"A Lambo" then "I want to build a Toyota Camry" used to get "What kind of car?" three times running."""
+    VC.set_library(lib())
+    try:
+        history = [{"role": "user", "content": "I want to build a car"}]
+        seen = []
+        plan = _ask(history)
+        for typed in ("A Lambo", "I want to build a Toyota Camry", "about 4 metres"):
+            seen.append(plan.choices[0]["question"] if plan.choices else None)
+            history += [{"role": "assistant", "content": plan.reply}, {"role": "user", "content": typed}]
+            plan = _ask(history)
+        assert seen[:3] == ["What kind of car?", "How big is it?", "Should the inside be modelled too?"]
+        assert len(set(seen)) == len(seen)                       # never the same question twice
+        assert plan.intent == "build"                            # all three answered, typed: now it builds
+    finally:
+        VC.set_library(None)
+
+
+def test_tapped_and_typed_answers_can_be_mixed():
+    VC.set_library(lib())
+    try:
+        history, plan = _talk("I want to build a car", ["What kind of car? Sedan", "full size"])
+        assert plan.choices and plan.choices[0]["question"] == "Should the inside be modelled too?"
+    finally:
+        VC.set_library(None)

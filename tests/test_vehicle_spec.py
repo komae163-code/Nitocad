@@ -178,3 +178,37 @@ def test_mate_misuse_is_reported():
     assert any("no effect on a mated part" in e for e in V.expand_vehicle(stepped)["errors"])
     ext = {"name": "m", "components": [{"id": "x", "source": {"query": "bolt"}, "mate": {"type": "face", "to": "y", "face": "+Z"}}]}
     assert any("placed by position" in e for e in V.expand_vehicle(ext)["errors"])
+
+
+def test_counts_from_expressions_are_whole_numbers():
+    """"teeth": "=88/2" gives 44.0 and the gear template then failed with
+    "'float' object cannot be interpreted as an integer" the moment a staged build reached the drivetrain."""
+    spec = {"name": "t", "params": {"ring": {"default": 88, "min": 20, "max": 200}}, "components": [
+        {"id": "g", "type": "gear", "assembly": "a", "position": [0, 0, 0],
+         "parameters": {"module": 2, "teeth": "=ring/2", "thickness_mm": 10, "bore_diameter_mm": 8}}]}
+    ex = V.expand_vehicle(spec)
+    teeth = ex["parts"][0]["parameters"]["teeth"]
+    assert ex["ok"] and teeth == 44 and type(teeth) is int
+
+
+def test_a_fractional_count_is_rounded_and_reported():
+    spec = {"name": "t", "components": [{"id": "g", "type": "gear", "assembly": "a", "position": [0, 0, 0],
+            "parameters": {"module": 2, "teeth": "=89/2", "thickness_mm": 10, "bore_diameter_mm": 8}}]}
+    ex = V.expand_vehicle(spec)
+    assert type(ex["parts"][0]["parameters"]["teeth"]) is int
+    assert any("whole number" in w for w in ex["warnings"])
+
+
+def test_no_shipped_example_or_module_hands_a_float_to_an_integer_parameter():
+    import glob, json
+    cat = V._default_catalog()
+    paths = sorted(glob.glob("vehicles/examples/*.json")) + sorted(glob.glob("vehicles/modules/*.json"))
+    for f in paths:
+        s = json.load(open(f))
+        spec = s if "name" in s and "components" in s and "module" not in s else {
+            "name": "t", "components": [{"id": "m", "module": f.split("/")[-1][:-5], "assembly": "a", "position": [0, 0, 0], "params": {}}]}
+        for p in V.expand_vehicle(spec)["parts"]:
+            for k, v in p["parameters"].items():
+                d = cat.get(p["part_type"], {}).get(k)
+                if isinstance(d, int) and not isinstance(d, bool):
+                    assert isinstance(v, int) and not isinstance(v, bool), (f, p["name"], k, v)

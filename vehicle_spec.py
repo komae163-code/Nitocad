@@ -463,6 +463,11 @@ def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
         if "source" not in comp and comp.get("type") not in cat_types:
             errors.append(f"{label}: type {comp.get('type')!r} is not in the part catalog")
 
+    # --- counts must be whole numbers: an expression such as "=44" or "=n/2" gives 44.0, and a template that does
+    # range(teeth) or loops over hole_count then fails with "'float' object cannot be interpreted as an integer"
+    if parts and not errors:
+        warnings += whole_number_counts(parts, cat_types)
+
     # --- hollow solid bodies, so a body is a sheet-metal skin whatever the model wrote ---------------------
     shelled: list[str] = []
     shell_problems: list[str] = []
@@ -512,6 +517,20 @@ def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
             "explode": spec.get("explode") if isinstance(spec.get("explode"), dict) else {},
             "limits": ["Arithmetic checks only: no geometry has been built or measured.",
                        "Mirror flips position only; rotation is yours to set."]}
+
+
+def whole_number_counts(parts: list[dict[str, Any]], catalog: dict[str, dict[str, Any]] | None = None) -> list[str]:
+    """Apply validator.whole_number_counts to every expanded part, in place. Returns the warnings."""
+    from validator import whole_number_counts as fix
+    notes: list[str] = []
+    for p in parts:
+        prm = p.get("parameters")
+        if isinstance(prm, dict):
+            new, n = fix(p.get("part_type") or p.get("type"), prm)
+            if new is not prm:
+                prm.update(new)
+            notes += [f"{p.get('name')}: {m}" for m in n]
+    return notes
 
 
 def _default_catalog() -> dict[str, dict[str, Any]]:

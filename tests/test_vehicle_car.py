@@ -181,19 +181,3 @@ def test_a_part_inside_another_that_goes_the_same_way_is_pulled_further():
     assert s["panel"] == 1.0 and s["door"] > s["panel"] and s["far"] == 1.0
     assert max(VV.nest_scales({str(i): {"min": (0, 0, 0), "max": (100 - i, 100 - i, 100 - i)} for i in range(12)},
                               {str(i): (0.0, 1.0, 0.0) for i in range(12)}).values()) <= VV.NEST_SCALE_CAP
-
-
-# ------------------------------------------------------------------------------------------- pickup cab
-PICKUP = dict(body_len=4000, body_w=1900, body_h=1500, wheelbase=2700, wheel_dia=720, track=1600, tyre_w=265,
-              ground_clr=220, belt_z=900)
-
-
-def test_car_body_can_be_a_pickup_cab_with_room_for_a_bed():
-    ex = panels(rear_bay=1550, **PICKUP)
-    assert ex["ok"], ex["errors"]
-    assert all(c["status"] == "pass" for c in ex["checks"])
-
-
-def test_car_body_refuses_a_cabin_with_no_length():
-    ex = panels(rear_bay=1900, **PICKUP)
-    assert not ex["ok"] or any(c["status"] != "pass" for c in ex["checks"])

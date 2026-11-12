@@ -1,5 +1,5 @@
 {
- "description": "Car, van or small truck body as 23 separate thin sheet panels, so it can be pulled apart, weighed and drawn: floor, firewall (with a tunnel hole), two side panels with wheel arches and door openings, four doors, two shoulder decks, roof, windscreen, rear window, two side windows, hood, nose, trunk lid, tail, front and rear fascia and two bumpers. Origin at the centre of the footprint on the ground, front is +X, left is +Y. Give wheelbase, wheel_dia, track and tyre_w the same values as the wheels; the floor gets wheel wells and the firewall stops short of the front tyres. Panels are 2.5 mm steel by default and glass is 4 mm acrylic. For a pickup set rear_bay to the bed length plus about 50 mm (about 1550 for a 4 m truck): the cab ends there, and the bed goes behind it, from x = -body_len/2 + 260 to x = -body_len/2 + rear_bay. Place it once, as an instance named for the body, and add the wheels, engine and interior as separate components.",
+ "description": "Car, van or small truck body as 23 separate thin sheet panels, so it can be pulled apart, weighed and drawn: floor, firewall (with a tunnel hole), two side panels with wheel arches and door openings, four doors, two shoulder decks, roof, windscreen, rear window, two side windows, hood, nose, trunk lid, tail, front and rear fascia and two bumpers. Origin at the centre of the footprint on the ground, front is +X, left is +Y. Give wheelbase, wheel_dia, track and tyre_w the same values as the wheels; the floor gets wheel wells and the firewall stops short of the front tyres. Panels are 2.5 mm steel by default and glass is 4 mm acrylic. Place it once, as an instance named for the body, and add the wheels, engine and interior as separate components.",
  "params": {
   "body_len": {
    "default": 4200,
@@ -39,7 +39,7 @@
   "rear_bay": {
    "default": 380,
    "min": 300,
-   "max": 2200
+   "max": 1200
   },
   "wall": {
    "default": 2.5,
@@ -1123,11 +1123,6 @@
    "name": "arch_inside_side_panel",
    "expr": "=wheel_dia + 90 < belt_z - ground_clr + 400",
    "message": "the wheel arch is taller than the body side"
-  },
-  {
-   "name": "cabin_has_length",
-   "expr": "=body_len - 2000 - rear_bay > 250",
-   "message": "rear_bay leaves no room for the cabin; shorten rear_bay or lengthen body_len (the cabin needs body_len - 2000 - rear_bay to be above 250 mm)"
   },
   {
    "name": "trunk_lid_has_length",
