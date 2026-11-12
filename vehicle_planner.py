@@ -65,6 +65,8 @@ A component is one of:
                        fit or STEP, so use it only for scene props (query like "cardboard box")
   Use the first two for anything that carries load or must fit.
 ids are lowercase snake_case. A part needs `position` OR `mate` OR `between`, never two.
+Name sides with a separate token so the finished-model check can pair them: a trailing _l/_r or _left/_right (door_l, side_glazing_1_left),
+and _fl/_fr/_rl/_rr for the four wheel corners. Do not write a side into the middle of a word.
 BUILD IN PARTS, NEVER IN ONE GO. The person will pull the vehicle apart, weigh it and draw it, so every system is its own set of parts:
   * body: separate thin panels (floor, side panels, roof, hood, doors, bumpers), never one solid block. For a car, van
     or small truck place the "car_body" module once (it makes 23 panels, set wheelbase, wheel_dia, track and tyre_w to

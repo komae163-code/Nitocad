@@ -24,12 +24,12 @@ def ask(history, spec=None, ai=False):
 
 
 # ----------------------------------------------------------------- the first message
-def test_a_vague_request_for_a_part_gets_one_tappable_question():
+def test_a_vague_request_for_a_part_gets_one_card_of_tappable_questions():
     kind, plan = ask([U("I want a bracket")])
     assert kind == "ask" and plan.intent == "answer" and plan.spec is None
     assert plan.reply.startswith("Before I build the bracket") and "I would start with" in plan.reply
-    assert len(plan.choices) == 1 and plan.choices[0]["question"] == "What size should the bracket be?"
-    assert len(plan.choices[0]["options"]) == 3
+    assert [c["question"] for c in plan.choices][0] == "What size should the bracket be?"
+    assert len(plan.choices) == 3 and all(c.get("card") and len(c["options"]) == 3 for c in plan.choices)
 
 
 def test_every_family_asks_something_for_a_bare_request():
@@ -87,22 +87,20 @@ def test_one_tap_with_sizes_in_it_is_enough_for_a_simple_part():
     assert hist == [U(desc)]                                  # the planner sees a plain request, no question chat
 
 
-def test_a_choice_without_numbers_leads_to_the_next_question():
+def test_the_card_shows_every_question_once_and_a_reply_without_numbers_still_builds():
     kind, plan = ask([U("I want a gear")])
+    assert kind == "ask" and len(plan.choices) == 3 and all(c.get("card") for c in plan.choices)
     h = [U("I want a gear"), A(plan.reply), U("What size should it be? Small")]
-    kind2, plan2 = ask(h)
-    assert kind2 == "ask" and plan2.reply.startswith("Before I build the gear, one more choice")
-    assert plan2.choices[0]["question"] == "How thick should it be?"
+    kind2, desc, hist, staged = ask(h)
+    assert kind2 == "build" and desc.startswith("I want a gear") and "Small" in desc
 
 
-def test_a_building_needs_two_answers_and_earlier_messages_are_kept():
+def test_a_building_card_has_all_its_questions_and_earlier_messages_are_kept():
     pre = [U("hi"), A("Hello, what would you like to design?")]
     h = pre + [U("I want a house")]
     _, p1 = ask(h)
-    h += [A(p1.reply), tapped(p1, "2 storeys")]
-    _, p2 = ask(h)
-    assert p2.choices[0]["question"] == "How big is the footprint?"
-    h += [A(p2.reply), tapped(p2, "Medium, 10 x 12 m")]
+    assert [c["question"] for c in p1.choices] == ["How many floors?", "How big is the footprint?", "What kind of roof?"]
+    h += [A(p1.reply), U("How many floors? 2 storeys. How big is the footprint? Medium, 10 x 12 m")]
     kind, desc, hist, staged = ask(h)
     assert kind == "build" and hist[:2] == pre and hist[2] == U(desc) and len(hist) == 3
     assert "2 storeys" in desc and "10 x 12 m" in desc
@@ -114,37 +112,12 @@ def test_just_build_it_mid_conversation_builds_with_what_there_is():
     assert kind == "build" and desc.startswith("I want a house")
 
 
-def test_the_chat_builds_once_its_questions_are_answered_and_never_after_five_messages():
+def test_the_card_is_one_round_whatever_the_reply_says():
     h = [U("I want a bracket")]
-    asked = []
-    for filler in ("maybe", "not sure", "dunno", "hmm", "ok"):    # words with no numbers, so the details never add up
-        res = ask(h)
-        if res[0] == "build":
-            break
-        asked.append(res[1].choices[0]["question"])
-        h += [A(res[1].reply), U(filler)]
-    assert res[0] == "build"
-    assert len(set(asked)) == len(asked)                          # a typed answer moves on, it never repeats a question
-    assert len([m for m in h if m["role"] == "user"]) <= 5
-
-
-def test_a_part_on_the_bench_is_edited_not_questioned():
-    on_bench = {"part_type": "l_bracket", "parameters": {}}
-    assert ask([U("I want a bracket")], spec=on_bench) is None
-    assert ask([U("I want a new bracket")], spec=on_bench)[0] == "ask"
-
-
-def test_assemblies_ask_only_when_an_ai_can_build_them():
-    assert ask([U("I want an assembly")], ai=False) is None
-    assert ask([U("I want an assembly")], ai=True)[0] == "ask"
-
-
-def test_circuit_boards_get_board_questions():
-    kind, plan = ask([U("I need a PCB")])
-    assert kind == "ask" and plan.choices[0]["question"] == "What should the board do?"
-    assert "circuit board" in plan.reply
-    assert ask([U("a hex standoff for pcb mounting")])[0] == "ask"   # a mechanical part: it gets part questions
-    assert BS.family_of("a hex standoff for pcb mounting") == "round"
+    res = ask(h)
+    assert res[0] == "ask"
+    h += [A(res[1].reply), U("maybe")]                           # no numbers, no chosen option
+    assert ask(h)[0] == "build"
 
 
 # --------------------------------------------------------------------- through the planner

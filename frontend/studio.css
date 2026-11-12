@@ -301,6 +301,10 @@ html[data-theme="dark"] .filecard .fc-trace{background:#1b2230;border-color:#2c3
 .side-links a:hover{color:var(--orange);}
 .choices{margin-top:12px;display:grid;gap:12px;}
 .choice-q p{margin:0 0 6px;font-weight:600;}
+.choice-card{padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);}
+.card-note{width:100%;box-sizing:border-box;font:inherit;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:8px;padding:8px 10px;resize:vertical;}
+.card-note:focus{outline:none;border-color:var(--orange);}
+.card-actions{display:flex;gap:8px;justify-content:flex-end;}
 
 /* requirements panel (Specs tab) */
 .reqs{margin-top:16px;}

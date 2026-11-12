@@ -431,7 +431,9 @@ def test_a_bare_request_gets_a_question_not_a_model():
         plan = _ask([{"role": "user", "content": "Hey let's build a wheelbarrow"}])
         assert plan.intent == "answer" and plan.spec is None and plan.source == "rules"
         assert plan.reply.startswith("Before I build") and "tray and handles" in plan.reply
-        assert len(plan.choices) == 1 and plan.choices[0]["question"] == "What size should it be?"
+        # every question arrives together, as one card
+        assert [c["question"] for c in plan.choices] == ["What size should it be?", "What is it made of?", "How many wheels?"]
+        assert all(c.get("card") for c in plan.choices)
     finally:
         VC.set_library(None)
 
@@ -460,9 +462,8 @@ def test_answering_the_questions_builds_the_first_step_only():
     VC.set_library(lib())
     try:
         history, plan = _talk("Hey let's build a wheelbarrow",
-                              ["What size should it be? Garden, about 90 litre",
-                               "What is it made of? Steel tray and steel tube frame",
-                               "How many wheels? One wheel"])
+                              ["What size should it be? Garden, about 90 litre. What is it made of? Steel tray and steel "
+                               "tube frame. How many wheels? One wheel"])
         assert plan.intent == "build" and plan.spec["parameters"]["stage"] == {"shown": 1, "of": 3}
         assert len(plan.spec["parameters"]["parts"]) == 5 and "Step 1 of 3" in plan.reply and "the legs and crossbars" in plan.reply
         history += [{"role": "assistant", "content": plan.reply}, {"role": "user", "content": "Next step"}]
@@ -481,10 +482,10 @@ def test_answering_the_questions_builds_the_first_step_only():
 def test_a_size_edit_keeps_the_step_and_restore_vehicle_keeps_it_after_generate():
     VC.set_library(lib())
     try:
-        _, plan = _talk("I want a wheelbarrow", ["What size should it be? Garden, about 90 litre", "just build it"])
+        _, plan = _talk("I want a wheelbarrow", ["just build it"])
         assert plan.spec["parameters"].get("stage") is None            # "just build it" skips the steps
-        _, staged = _talk("I want a wheelbarrow", ["What size should it be? Garden, about 90 litre",
-                                                   "What is it made of? Steel", "How many wheels? One wheel"])
+        _, staged = _talk("I want a wheelbarrow", ["What size should it be? Garden, about 90 litre. "
+                                                   "What is it made of? Steel. How many wheels? One wheel"])
         edit = VC.plan_vehicle_turn("make the wheel diameter 450 mm", staged.spec, llm=None, library=lib())
         assert edit.spec["parameters"]["stage"] == {"shown": 1, "of": 3} and len(edit.spec["parameters"]["parts"]) == 5
         built = VC.restore_vehicle(edit.spec, {"part_type": "assembly", "parameters": {"parts": []}})
@@ -646,8 +647,7 @@ def test_an_engine_request_without_an_ai_gets_the_matching_engine_in_three_steps
     VC.set_library(lib())
     try:
         history, plan = _talk("I want to build a four cylinder inline engine",
-                              ["What size should it be? Small, bore about 30 mm",
-                               "What is it made of? Steel and aluminium"])
+                              ["What size should it be? Small, bore about 30 mm. What is it made of? Steel and aluminium"])
         assert plan.intent == "build", plan.reply
         assert plan.spec["parameters"]["vehicle"]["name"] == "mini_engine_inline_four"
         assert plan.spec["parameters"]["stage"] == {"shown": 1, "of": 3} and len(plan.spec["parameters"]["parts"]) == 2
@@ -659,20 +659,16 @@ def test_an_engine_request_without_an_ai_gets_the_matching_engine_in_three_steps
         VC.set_library(None)
 
 
-def test_typed_answers_move_the_questions_on_instead_of_repeating_one():
-    """"A Lambo" then "I want to build a Toyota Camry" used to get "What kind of car?" three times running."""
+def test_the_questions_come_as_one_card_and_any_reply_to_it_builds():
+    """"A Lambo" used to get "What kind of car?" three times running. Now the card shows all three questions once, and
+    whatever comes back (a typed word, chips, Skip) starts the build."""
     VC.set_library(lib())
     try:
         history = [{"role": "user", "content": "I want to build a car"}]
-        seen = []
-        plan = _ask(history)
-        for typed in ("A Lambo", "I want to build a Toyota Camry", "about 4 metres"):
-            seen.append(plan.choices[0]["question"] if plan.choices else None)
-            history += [{"role": "assistant", "content": plan.reply}, {"role": "user", "content": typed}]
-            plan = _ask(history)
-        assert seen[:3] == ["What kind of car?", "How big is it?", "Should the inside be modelled too?"]
-        assert len(set(seen)) == len(seen)                       # never the same question twice
-        assert plan.intent == "build"                            # all three answered, typed: now it builds
+        card = _ask(history)
+        assert [c["question"] for c in card.choices] == ["What kind of car?", "How big is it?", "Should the inside be modelled too?"]
+        history += [{"role": "assistant", "content": card.reply}, {"role": "user", "content": "A Lambo"}]
+        assert _ask(history).intent == "build"                  # one typed word answers the card; the rest are defaults
     finally:
         VC.set_library(None)
 
@@ -680,7 +676,7 @@ def test_typed_answers_move_the_questions_on_instead_of_repeating_one():
 def test_tapped_and_typed_answers_can_be_mixed():
     VC.set_library(lib())
     try:
-        history, plan = _talk("I want to build a car", ["What kind of car? Sedan", "full size"])
-        assert plan.choices and plan.choices[0]["question"] == "Should the inside be modelled too?"
+        history, plan = _talk("I want to build a car", ["What kind of car? Sedan. full size"])
+        assert plan.intent == "build" and not plan.choices
     finally:
         VC.set_library(None)

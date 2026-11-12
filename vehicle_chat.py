@@ -29,6 +29,8 @@ import json
 import os
 import re
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Callable
 
@@ -85,6 +87,28 @@ def set_bbox_fn(fn: BBoxFn | None) -> None:
     """Bounding boxes of single parts, used to place mated parts. None means: use CadQuery if installed."""
     global _bbox_fn
     _bbox_fn = fn
+
+
+_vision_fn: Callable[[str, list[bytes]], str] | None = None
+_vision_ctx: ContextVar[Callable[[str, list[bytes]], str] | None] = ContextVar("vehicle_vision", default=None)
+
+
+@contextmanager
+def vision_scope(fn: Callable[[str, list[bytes]], str] | None):
+    """The vision model of the person's chosen AI, for the turns planned inside this block only. Per request, so one
+    person's model is never used for another's chat (set_vision_fn is the process-wide fallback for tests and tools)."""
+    token = _vision_ctx.set(fn)
+    try:
+        yield
+    finally:
+        _vision_ctx.reset(token)
+
+
+def set_vision_fn(fn: Callable[[str, list[bytes]], str] | None) -> None:
+    """A vision model for the finished-model inspection: fn(prompt, [png bytes]) -> reply text. None (the default)
+    means the inspection runs its geometric checklist only and says the visual pass was skipped."""
+    global _vision_fn
+    _vision_fn = fn
 
 
 def _setting(name: str, default: Any) -> Any:
@@ -551,7 +575,7 @@ def apply_param_edit_rules(text: str, vspec: dict[str, Any]) -> tuple[dict[str, 
 # person says to just build it, the vehicle is planned. Asking is free: no AI is called and nothing is charged.
 _SCOPE_LEAD = "Before I build"
 _ENOUGH = 3                      # concrete details (sizes, a material, a count) that count as a full order
-_MAX_ROUNDS = 5                  # user messages in one scoping chat before it builds whatever it has
+_MAX_ROUNDS = 5                  # kept for old callers; the scoping card is a single round now
 _SKIP = re.compile(r"\b(just (?:build|make|do) it|go ahead|you (?:decide|choose|pick)|surprise me|use (?:the )?defaults?|"
                    r"don'?t ask|no questions|skip (?:the |these |your )?questions|build it now|build it all|"
                    r"whatever you (?:like|think))\b", re.I)
@@ -620,7 +644,7 @@ def _scope_chain(history: list[dict[str, Any]]) -> list[str]:
 
 def scope_turn(history: list[dict[str, Any]], current_spec: dict[str, Any] | None):
     """None when the normal vehicle flow should handle the message (not a vehicle request, an edit to a vehicle on the
-    bench, or a request detailed enough to build as it stands). Otherwise ("ask", Plan) with one tappable question, or
+    bench, or a request detailed enough to build as it stands). Otherwise ("ask", Plan) with one card holding every question, or
     ("build", description, staged) once the chat has enough, where staged says the build should come in steps.
     Never raises."""
     try:
@@ -655,22 +679,23 @@ def _scope(history, current_spec):
     if len(chain) == 1 and (skip or detail_score(desc) >= _ENOUGH):
         return None                                       # the person gave the full order: build it as before
     questions = (_SCOPE.get(kind) or {"q": _GENERIC})["q"]
-    # Each reply after our first question answers one question, typed or tapped. Counting only the ones whose text
-    # appears in the messages (a tapped chip) made a typed answer such as "A Lambo" ask the same question again.
-    answered = len(chain) - 1
-    remaining = [qa for i, qa in enumerate(questions) if i >= answered and qa[0] not in raw]
-    if skip or detail_score(desc) >= _ENOUGH or not remaining or len(chain) >= _MAX_ROUNDS:
+    # One card, one round. The first reply shows every question at once; whatever comes back (chips, typed details, or
+    # Skip) is the answer, and the build starts. Questions left blank are simply left to the planner's defaults.
+    remaining = [qa for qa in questions if qa[0] not in raw]
+    if skip or detail_score(desc) >= _ENOUGH or len(chain) >= 2 or not remaining:
         return ("build", desc, not skip)
     name = str(kind).replace("_", " ")
     start = (_SCOPE.get(kind) or {}).get("start") or "the main body first, then the moving parts, then the details"
-    if len(chain) == 1:
-        reply = (f"{_SCOPE_LEAD} the {name}, I need a few choices so it comes out right. I would start with {start}. "
-                 "Tap an answer, type your own sizes, or say just build it to skip the questions.")
-    else:
-        reply = f"{_SCOPE_LEAD} the {name}, one more choice."
-    q, opts = remaining[0]
+    reply = (f"{_SCOPE_LEAD} the {name}, I need a few choices so it comes out right. I would start with {start}. "
+             "Pick what you like, add your own sizes, or skip and I will use sensible defaults.")
     from conversation import Plan
-    return ("ask", Plan("answer", reply, None, "rules", choices=[{"question": q, "options": list(opts)}]))
+    return ("ask", Plan("answer", reply, None, "rules", choices=card_choices(remaining)))
+
+
+def card_choices(questions) -> list[dict[str, Any]]:
+    """Every question of a scoping card as one tappable group. `card` tells the studio to draw them as a single card
+    (pick any, add details, build or skip) instead of sending each tap as its own message."""
+    return [{"question": q, "options": list(opts), "card": True} for q, opts in questions]
 
 
 # ------------------------------------------------------------------------------ the turn
@@ -773,7 +798,7 @@ def _turn(text: str, current_spec: dict | None, llm: LLM | None, library: SL.Spe
     if shown is not None and not new_request:                      # a build in steps is in progress
         finish = len(text.split()) <= 6 and bool(_FINISH.search(text))
         if finish or _NEXT.match(text):
-            return _advance(current, shown, finish, lid)
+            return _advance(current, shown, finish, lid, llm, lib)
     elif _NEXT.match(text):                                        # nothing left to add
         return _answer("Every part is already showing. Tell me what to change, or press Generate to make the files.")
     if _QUESTION.search(text) and not _EDIT_VERB.search(text):
@@ -781,7 +806,8 @@ def _turn(text: str, current_spec: dict | None, llm: LLM | None, library: SL.Spe
     return _edit(text, current, llm, lib, lid, shown)
 
 
-def _advance(current: dict[str, Any], shown: int, to_end: bool, library_id: str | None):
+def _advance(current: dict[str, Any], shown: int, to_end: bool, library_id: str | None, llm: LLM | None = None,
+             lib: SL.SpecLibrary | None = None):
     """Add the next build step (or all that is left) to the vehicle on the bench. Free, no AI."""
     ex = VS.expand_vehicle(current, None, None, _module_dir)
     splan = stage_plan(current, ex) if ex["ok"] else []
@@ -789,8 +815,57 @@ def _advance(current: dict[str, Any], shown: int, to_end: bool, library_id: str 
         return _answer("Every part is already showing. Tell me what to change, or press Generate to make the files.")
     k = len(splan) if to_end else shown + 1
     added = [f"added {t}" for t, _ in splan[shown:k]]
-    return _build_plan(current, None, intent="edit", source="rules", changes=added, previous=current, unresolved=None,
+    plan = _build_plan(current, None, intent="edit", source="rules", changes=added, previous=current, unresolved=None,
                        library_id=library_id, stage=k)
+    if to_end and plan.spec is not None and plan.intent != "answer":
+        plan = _inspect_finished(plan, current, llm, lib, library_id)        # "Finish the whole thing": look before handing over
+    return plan
+
+
+def _part_meshes(parts: list[dict[str, Any]]):
+    import explode_mesh
+    return explode_mesh.kernel_part_meshes(parts)[0]
+
+
+def _inspect_finished(plan, vspec: dict[str, Any], llm: LLM | None, lib: SL.SpecLibrary | None, library_id: str | None):
+    """Check the finished vehicle (vehicle_inspect.py), fix what is wrong with at most two revisions, say what was
+    found. The checklist is free; fixing needs an AI and is counted like any other AI edit. Needs the CAD kernel for
+    part boxes: without it the plan is returned untouched. Never raises."""
+    try:
+        import vehicle_build as VB
+        import vehicle_inspect as VI
+        fn = _bbox_fn or VB.kernel_bbox_fn()
+        if fn is None:
+            return plan
+
+        def expand(v: dict[str, Any]):
+            b = to_chat_spec(v, bbox_fn=fn)
+            if not b["ok"]:
+                return None
+            contact = [tuple(x) for x in ((b["expanded"].get("explode") or {}).get("intended_contact") or []) if len(x) == 2]
+            return b["spec"]["parameters"]["parts"], contact
+
+        revise = None
+        if llm is not None and lib is not None:
+            def revise(cur: dict[str, Any], instruction: str):
+                r = VP.revise_vehicle(cur, instruction, llm, lib, time_budget_s=_plan_budget())
+                return r["spec"] if r.get("ok") else None
+
+        rep = VI.inspect_vehicle(vspec, expand=expand, bbox_fn=fn, revise_fn=revise, vision_fn=_vision_ctx.get() or _vision_fn,
+                                 meshes_fn=_part_meshes,
+                                 kind=kind_of(str(vspec.get("name") or "").replace("_", " ")))
+        if rep["changed"]:
+            new = _build_plan(rep["vspec"], None, intent="edit", source="llm", changes=list(plan.changes) + ["fixed after inspection"],
+                              previous=vspec, unresolved=None, library_id=library_id)
+            if new.spec is not None:
+                new.reply = (new.reply + " " + rep["summary"]).strip()
+                return new
+        plan.reply = (plan.reply + " " + rep["summary"]).strip()
+        return plan
+    except Exception:  # noqa: BLE001 - an inspection problem must never lose the finished model
+        import logging
+        logging.getLogger(__name__).exception("vehicle inspection failed")
+        return plan
 
 
 def _start(text: str, llm: LLM | None, lib: SL.SpecLibrary, staged: bool = False):

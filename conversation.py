@@ -788,7 +788,7 @@ def _vehicle_turn(last_user: str, current_spec: dict | None, llm: "LLM | None",
     """A whole vehicle or machine (wheelbarrow, bicycle, ...) or an edit to the one on the bench. None means this
     message is not about a vehicle and the normal planner handles it. See vehicle_chat.py.
 
-    "I want to build a wheelbarrow" with few details starts a short conversation (one tappable question at a time,
+    "I want to build a wheelbarrow" with few details starts a short conversation (one card of tappable questions, in one round,
     free) and the vehicle is then built in steps. A request that already has its sizes, material and counts is built
     whole, as before."""
     import vehicle_chat

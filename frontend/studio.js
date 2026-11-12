@@ -704,7 +704,7 @@ function renderThread(animateLast) {
     if (part) extra = partCardHtml(c, part, latest && latest.id === part.id && m === c.messages[c.messages.length - 1], !!latest && latest.id === part.id);
     if (m.diff) extra = diffHtml(m.diff) + extra;
     if (m.needCredits) extra = needCreditsHtml();
-    if (m.choices && m.choices.length && m === c.messages[c.messages.length - 1]) extra += choicesHtml(m.choices);
+    if (m.choices && m.choices.length && m === c.messages[c.messages.length - 1]) extra += choicesHtml(m.choices, m);
     if (m.retry && m === c.messages[c.messages.length - 1]) extra += `<div class="followups"><button class="chip" data-retry="${m.id}">Try again</button></div>`;
     return `<div class="msg">${ASSIST_AVA}<div class="reply" data-mid="${m.id}">${para(m.text)}${extra}</div></div>`;
   }).join("");
@@ -923,9 +923,36 @@ function diffHtml(d) {
   return `<div class="edit-diff${d.worse ? " has-worse" : ""}"><div class="edit-diff-h">${esc(head)}</div><ul>${rows.join("")}</ul></div>`;
 }
 /* Guidance from the AI as tappable questions. A tap sends the question and the answer together. */
-function choicesHtml(choices) {
+function choicesHtml(choices, m) {
+  if (choices.length && choices[0].card) return choiceCardHtml(choices, m);
   return '<div class="choices">' + choices.map((q) => `<div class="choice-q"><p>${esc(q.question)}</p><div class="followups">` +
     q.options.map((o) => `<button class="chip" data-say="${esc(q.question + " " + o)}">${esc(o)}</button>`).join("") + "</div></div>").join("") + "</div>";
+}
+
+/* The questions-before-building card: every question at once, pick any, add details, Build or Skip. Nothing is sent
+   until Build or Skip, and the answers go as one message. Picks live on the message so a re-render keeps them. */
+function choiceCardHtml(choices, m) {
+  const sel = (m && m.cardSel) || {}, note = (m && m.cardNote) || "";
+  return '<div class="choices choice-card">' + choices.map((q, qi) => `<div class="choice-q"><p>${esc(q.question)}</p><div class="followups">` +
+    q.options.map((o) => `<button class="chip${sel[qi] === o ? " on" : ""}" data-card-chip="${qi}" data-q="${esc(q.question)}" data-o="${esc(o)}">${esc(o)}</button>`).join("") +
+    "</div></div>").join("") +
+    `<textarea class="card-note" rows="2" placeholder="Add details: sizes, materials, anything else" data-card-note>${esc(note)}</textarea>` +
+    '<div class="card-actions"><button class="chip" data-card-skip>Skip, use defaults</button><button class="chip on" data-card-go>Build</button></div></div>';
+}
+function cardMsg(el) { const c = chat(), id = el.closest("[data-mid]"); return c && id ? c.messages.find((x) => String(x.id) === id.dataset.mid) : null; }
+function cardToggle(btn) {
+  const m = cardMsg(btn), qi = btn.dataset.cardChip; if (!m) return;
+  m.cardSel = m.cardSel || {};
+  const was = m.cardSel[qi] === btn.dataset.o;
+  btn.closest(".choice-q").querySelectorAll(".chip").forEach((b) => b.classList.remove("on"));
+  if (was) delete m.cardSel[qi]; else { m.cardSel[qi] = btn.dataset.o; btn.classList.add("on"); }
+}
+function cardAnswer(btn) {
+  const card = btn.closest(".choice-card"), parts = [];
+  card.querySelectorAll(".choice-q .chip.on").forEach((b) => parts.push(b.dataset.q + " " + b.dataset.o));
+  const note = card.querySelector("[data-card-note]").value.trim();
+  if (note) parts.push(note);
+  return parts.length ? parts.join(". ") : "just build it";
 }
 function allowanceMsg() {
   const m = S.meter;
@@ -1778,7 +1805,14 @@ $("chatList").addEventListener("click", async (e) => {
     renderAll(); scrollEnd(false);
   }
 });
+$("threadInner").addEventListener("input", (e) => {
+  const t = e.target.closest("[data-card-note]"); if (!t) return;
+  const m = cardMsg(t); if (m) m.cardNote = t.value;
+});
 $("threadInner").addEventListener("click", async (e) => {
+  const cc = e.target.closest("[data-card-chip]"); if (cc) { cardToggle(cc); return; }
+  const cs = e.target.closest("[data-card-skip]"); if (cs) { send("just build it"); return; }
+  const cg = e.target.closest("[data-card-go]"); if (cg) { send(cardAnswer(cg)); return; }
   const say = e.target.closest("[data-say]"); if (say) { send(say.dataset.say); return; }
   const ec = e.target.closest("[data-edit-param]"); if (ec) { editChip(ec); return; }
   const rt = e.target.closest("[data-retry]");

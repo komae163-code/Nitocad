@@ -160,7 +160,9 @@ def build_router(*, generator, limiter) -> APIRouter:
                 return parsed
             if _parse is None:
                 regex_parse = None
-            return conversation.plan_turn(history, spec, llm=llm, regex_parse=regex_parse, facts=facts)
+            import vehicle_chat
+            with vehicle_chat.vision_scope(ai_models.make_vision(spec_model, settings)):
+                return conversation.plan_turn(history, spec, llm=llm, regex_parse=regex_parse, facts=facts)
 
         def generate(description, spec, user_id, source):
             from smart_parser import ParsedParameters

@@ -250,3 +250,61 @@ def _anthropic(api_key: str, model: str, timeout: float) -> LLM:
         _record_usage("anthropic", model, u.get("input_tokens"), u.get("output_tokens"))
         return "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text")
     return call
+
+
+# ------------------------------------------------------------------------------ pictures in, text out
+# Used only by the finished-vehicle inspection (vehicle_inspect.py): a model is shown renders of the model and asked
+# about a fixed list of faults. DeepSeek has no vision here, so Basic never gets one and the inspection says so.
+VisionFn = Callable[[str, "list[bytes]"], str]
+
+
+def anthropic_vision_payload(model: str, prompt: str, images: list[bytes]) -> dict:
+    import base64
+    blocks: list[dict] = [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                       "data": base64.b64encode(b).decode("ascii")}} for b in images[:4]]
+    blocks.append({"type": "text", "text": prompt})
+    return {"model": model, "max_tokens": 800, "messages": [{"role": "user", "content": blocks}]}
+
+
+def openai_vision_messages(prompt: str, images: list[bytes]) -> list[dict]:
+    import base64
+    parts: list[dict] = [{"type": "text", "text": prompt}]
+    parts += [{"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(b).decode("ascii")}}
+              for b in images[:4]]
+    return [{"role": "user", "content": parts}]
+
+
+def make_vision(spec: ModelSpec, settings: Any) -> VisionFn | None:
+    """fn(prompt, [png bytes]) -> reply text for the model the person picked, or None when it cannot see pictures
+    (Engine, Basic/DeepSeek, a Qwen model that is not a -vl model, or a missing key)."""
+    timeout = float(settings.AI_TIMEOUT_SECONDS)
+    if spec.provider == "anthropic" and settings.ANTHROPIC_API_KEY:
+        key, model = settings.ANTHROPIC_API_KEY, settings.ANTHROPIC_MODEL
+
+        def call_anthropic(prompt: str, images: list[bytes]) -> str:
+            import httpx
+            resp = httpx.post("https://api.anthropic.com/v1/messages",
+                              headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                              json=anthropic_vision_payload(model, prompt, images), timeout=timeout)
+            resp.raise_for_status()
+            body = resp.json()
+            u = body.get("usage") or {}
+            _record_usage("anthropic", model, u.get("input_tokens"), u.get("output_tokens"))
+            return "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text")
+        return call_anthropic
+    if spec.provider in ("openai", "qwen"):
+        key = settings.OPENAI_API_KEY if spec.provider == "openai" else settings.QWEN_API_KEY
+        base = settings.OPENAI_BASE_URL if spec.provider == "openai" else settings.QWEN_BASE_URL
+        model = settings.OPENAI_MODEL if spec.provider == "openai" else settings.QWEN_MODEL
+        if not key or (spec.provider == "qwen" and "vl" not in str(model).lower()):
+            return None
+
+        def call_openai(prompt: str, images: list[bytes]) -> str:
+            from openai import OpenAI
+            resp = OpenAI(api_key=key, base_url=base, timeout=timeout).chat.completions.create(
+                model=model, messages=openai_vision_messages(prompt, images))
+            u = getattr(resp, "usage", None)
+            _record_usage("openai_compatible", model, getattr(u, "prompt_tokens", 0), getattr(u, "completion_tokens", 0))
+            return resp.choices[0].message.content or ""
+        return call_openai
+    return None

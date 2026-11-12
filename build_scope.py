@@ -1,6 +1,6 @@
 """Questions before building, for everything the Studio chat can build.
 
-vehicle_chat.py already does this for whole vehicles: "I want to build a wheelbarrow" gets one tappable question at a
+vehicle_chat.py already does this for whole vehicles: "I want to build a wheelbarrow" gets one card of tappable questions, in one round,
 time, free, and the build starts once there are enough details. This module gives every other kind of build the same
 conversation: brackets, plates, boxes, gears, round parts, flanges, beams, hinges, engine parts, aerospace parts,
 roads and walls, buildings, circuit boards, fasteners and multi-part assemblies.
@@ -165,7 +165,7 @@ def _is_standard(text: str) -> bool:
 
 
 def scope_turn(history: list[dict[str, Any]], current_spec: dict[str, Any] | None, *, has_ai: bool = False):
-    """None when the normal planner should handle the message. Otherwise ("ask", Plan) with one tappable question, or
+    """None when the normal planner should handle the message. Otherwise ("ask", Plan) with one card holding every question, or
     ("build", description, history, staged) once the chat has enough, where history is the conversation with the
     question chat folded into one user message so the planner sees a plain request, and staged says to show the
     build in steps (build_steps.py). Never raises."""
@@ -217,17 +217,13 @@ def _scope(history, current_spec, has_ai):
     if len(chain) == 1 and (skip or score >= enough):
         # The person gave the full order. Build it whole, as before, unless they asked to be walked through it.
         return _fold(msgs, chain, desc, True) if want_steps and not skip else None
-    remaining = [qa for i, qa in enumerate(fam["q"]) if i >= len(chain) - 1 and qa[0] not in raw]   # typed answers count too
-    if skip or score >= enough or not remaining or len(chain) >= VC._MAX_ROUNDS:
-        # Questions were answered: show it in steps. "just build it" means all of it at once.
+    remaining = [qa for qa in fam["q"] if qa[0] not in raw]
+    if skip or score >= enough or len(chain) >= 2 or not remaining:
+        # The card was answered (or skipped): show it in steps. "just build it" means all of it at once.
         return _fold(msgs, chain, desc, not skip)
     m = _WORD_RE.search(first)
     name = fam["label"] or (m.group(1).lower() if m else fam_name.replace("_", " "))
-    if len(chain) == 1:
-        reply = (f"{VC._SCOPE_LEAD} the {name}, I need a few choices so it comes out right. I would start with "
-                 f"{fam['start']}. Tap an answer, type your own sizes, or say just build it to skip the questions.")
-    else:
-        reply = f"{VC._SCOPE_LEAD} the {name}, one more choice."
-    q, opts = remaining[0]
+    reply = (f"{VC._SCOPE_LEAD} the {name}, I need a few choices so it comes out right. I would start with "
+             f"{fam['start']}. Pick what you like, add your own sizes, or skip and I will use sensible defaults.")
     from conversation import Plan
-    return ("ask", Plan("answer", reply, None, "rules", choices=[{"question": q, "options": list(opts)}]))
+    return ("ask", Plan("answer", reply, None, "rules", choices=VC.card_choices(remaining)))
