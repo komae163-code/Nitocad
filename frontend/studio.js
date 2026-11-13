@@ -1280,7 +1280,7 @@ function assemblyHtml(part) {
   /* One row per part (where it sits, how big, what it weighs) when the server sent them. Older saved
      versions have only the grouped parts list, so that is the fallback. */
   const num = (v) => +(+v).toFixed(1);
-  const per = (a.parts || []).map((p) => `<tr><td>${esc(p.name)}<small>${esc(p.part_type || "")}</small></td><td>${esc((p.position_mm || []).map(num).join(", "))}</td>` +
+  const per = (a.parts || []).map((p) => `<tr><td title="${esc(p.name)}">${esc(p.label || p.name)}<small>${esc(p.part_type || "")}</small></td><td>${esc((p.position_mm || []).map(num).join(", "))}</td>` +
     `<td>${p.size_mm ? esc(p.size_mm.map(num).join(" x ")) : ""}</td><td>${p.mass_g != null ? esc(p.mass_g) : "-"}</td></tr>`).join("");
   const list = (bom.rows || []).map((r) => `<tr><td>${esc(r.item)}</td><td>${esc(r.quantity)}</td><td>${esc(r.names.length > 1 ? r.names[0] + " +" + (r.names.length - 1) : r.names[0])}<small>${esc(r.part_type)}</small></td>` +
     `<td>${esc(r.material || "-")}</td><td>${r.total_mass_g == null ? "-" : esc(r.total_mass_g)}</td></tr>`).join("");

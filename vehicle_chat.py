@@ -575,7 +575,6 @@ def apply_param_edit_rules(text: str, vspec: dict[str, Any]) -> tuple[dict[str, 
 # person says to just build it, the vehicle is planned. Asking is free: no AI is called and nothing is charged.
 _SCOPE_LEAD = "Before I build"
 _ENOUGH = 3                      # concrete details (sizes, a material, a count) that count as a full order
-_MAX_ROUNDS = 5                  # kept for old callers; the scoping card is a single round now
 _SKIP = re.compile(r"\b(just (?:build|make|do) it|go ahead|you (?:decide|choose|pick)|surprise me|use (?:the )?defaults?|"
                    r"don'?t ask|no questions|skip (?:the |these |your )?questions|build it now|build it all|"
                    r"whatever you (?:like|think))\b", re.I)

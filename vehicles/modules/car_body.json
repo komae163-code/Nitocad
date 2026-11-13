@@ -219,7 +219,7 @@
    ]
   },
   {
-   "id": "side_panel_l",
+   "id": "side_panel_left",
    "type": "feature_tree",
    "material": "steel",
    "parameters": {
@@ -340,7 +340,7 @@
    ]
   },
   {
-   "id": "side_panel_r",
+   "id": "side_panel_right",
    "type": "feature_tree",
    "material": "steel",
    "parameters": {
@@ -461,7 +461,7 @@
    ]
   },
   {
-   "id": "door_fl",
+   "id": "door_front_left",
    "type": "feature_tree",
    "material": "steel",
    "parameters": {
@@ -492,7 +492,7 @@
    ]
   },
   {
-   "id": "door_fr",
+   "id": "door_front_right",
    "type": "feature_tree",
    "material": "steel",
    "parameters": {
@@ -523,7 +523,7 @@
    ]
   },
   {
-   "id": "door_rl",
+   "id": "door_rear_left",
    "type": "feature_tree",
    "material": "steel",
    "parameters": {
@@ -554,7 +554,7 @@
    ]
   },
   {
-   "id": "door_rr",
+   "id": "door_rear_right",
    "type": "feature_tree",
    "material": "steel",
    "parameters": {
@@ -585,7 +585,7 @@
    ]
   },
   {
-   "id": "shoulder_l",
+   "id": "shoulder_left",
    "type": "feature_tree",
    "material": "steel",
    "parameters": {
@@ -615,7 +615,7 @@
    ]
   },
   {
-   "id": "shoulder_r",
+   "id": "shoulder_right",
    "type": "feature_tree",
    "material": "steel",
    "parameters": {
@@ -761,7 +761,7 @@
    ]
   },
   {
-   "id": "side_window_l",
+   "id": "side_window_left",
    "type": "feature_tree",
    "material": "acrylic",
    "parameters": {
@@ -804,7 +804,7 @@
    ]
   },
   {
-   "id": "side_window_r",
+   "id": "side_window_right",
    "type": "feature_tree",
    "material": "acrylic",
    "parameters": {

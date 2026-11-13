@@ -41,50 +41,18 @@ ReviseFn = Callable[[dict[str, Any], str], "dict[str, Any] | None"]
 VisionFn = Callable[[str, "list[bytes]"], str]
 
 MAX_PASSES = 2
+MAX_OVERLAP_PARTS = 150                            # the exact overlap test samples space; skip it on very large assemblies
+OVERLAP_SHARE = 0.15                               # share of the smaller part's bounding volume that counts as a fault
 MAX_FINDINGS = 6                                   # per pass: enough to act on, few enough for one instruction
-_TOKENS = re.compile(r"[^a-z0-9]+")
-# "wheel" in these names is not a road wheel: steering_wheel, crown_wheel, engine_flywheel, gear/pulley wheels.
-_NOT_ROAD = {"steering", "crown", "fly", "flywheel", "gear", "cog", "pulley", "timing", "water", "hand", "impeller", "idler"}
-
-
-def _tokens(name: str) -> set[str]:
-    return {t for t in _TOKENS.split(name.lower()) if t}
-
-
-def _is_wheel_part(name: str) -> bool:
-    """Part of a road-wheel assembly (tyre, rim, axle stub, bearing ...). Used to let wheels overlap each other."""
-    t = _tokens(name)
-    return bool(t & {"tyre", "tire", "tyres", "tires", "rim"}) or ("wheel" in t and not t & _NOT_ROAD)
-
-
-def _ground_wheels(names: list[str]) -> list[str]:
-    """The parts that touch the ground. Tyres when the car has them, because rims and axles sit above the tread;
-    otherwise whole wheels, never steering/crown/fly wheels."""
-    tyres = [n for n in names if _tokens(n) & {"tyre", "tire", "tyres", "tires"}]
-    return tyres or [n for n in names if _is_wheel_part(n) and not _tokens(n) & {"axle", "hub", "bearing", "bolt", "nut", "stub", "disc", "rotor", "brake"}]
+# What touches the ground: the tyre. Axles, bearings, hubs and brake discs named wheel_* are not wheels for the ground
+# test. A vehicle with no tyre in any name (a locomotive) uses its parts named wheel, wheel_l_1, wheel_right...
+_TYRE = re.compile(r"tyre|tire", re.I)
+_BARE_WHEEL = re.compile(r"(?:^|_)wheel(?:_(?:l|r|left|right|f[lr]|r[lr]|front|rear))*(?:_\d+)?$", re.I)
+_PAIR = re.compile(r"^(?P<a>.*?)(?P<s>_left|_right|_l|_r)(?P<b>(?:_.*)?)$", re.I)
+_CORNER = re.compile(r"_(?P<c>f[lr]|r[lr])(?=_|$)", re.I)             # wheel_fl_tyre, panels_door_rr
+_LEFT = {"_left", "_l"}
 # (min, max) of height/length and width/length. Only kinds where a wrong ratio is plainly a fault.
 RATIOS = {"car": {"h/l": (0.20, 0.45), "w/l": (0.30, 0.55)}, "truck": {"h/l": (0.25, 0.70), "w/l": (0.25, 0.50)}}
-
-
-_CORNER = {"fl": ("f*", "L"), "fr": ("f*", "R"), "rl": ("r*", "L"), "rr": ("r*", "R")}
-_SIDE = {"l": "L", "left": "L", "r": "R", "right": "R"}
-
-
-def _side_key(name: str) -> tuple[tuple[str, ...], str] | None:
-    """(pairing key, 'L' or 'R') for a name that says which side of the car it is on, else None.
-    A corner token (fl, fr, rl, rr) decides the side. A trailing _l/_r on such a name belongs to a pair inside
-    that corner (wheel_fl_bearing_l and wheel_fl_bearing_r), so such a name is left out of the symmetry check."""
-    toks = [t for t in name.lower().split("_") if t]
-    for i, t in enumerate(toks):
-        if t in _CORNER:
-            if any(u in _SIDE for u in toks):      # a second side marker means a local pair whose handing depends on
-                return None                        # how the wheel was mounted, so it is not checked here
-            mark, side = _CORNER[t]
-            return tuple(toks[:i] + [mark] + toks[i + 1:]), side
-    for i, t in enumerate(toks):
-        if t in _SIDE:
-            return tuple(toks[:i] + ["*"] + toks[i + 1:]), _SIDE[t]
-    return None
 
 
 def _finding(code: str, severity: str, parts: list[str], detail: str, instruction: str) -> dict[str, Any]:
@@ -144,24 +112,28 @@ def check_geometry(parts: list[dict[str, Any]], bbox_fn: BBoxFn, *, kind: str | 
         out.append(_finding("floating", "fix", loose, "not touching the body or anything attached to it: " + ", ".join(loose[:6]),
                             "Attach " + ", ".join(loose[:6]) + " to the body: move each so it touches the nearest body surface or its support."))
 
-    # overlap: a large share of the smaller part's volume inside the other (small overlaps are fits)
-    deep = []
-    for i, a in enumerate(names):
-        for b in names[i + 1:]:
-            if frozenset((a, b)) in skip or (_is_wheel_part(a) and _is_wheel_part(b)):
-                continue
-            ov = _overlap_vol(boxes[a], boxes[b])
-            small = min(_vol(boxes[a]), _vol(boxes[b]))
-            if small > 0 and ov / small > 0.5 and body not in (a, b):
-                deep.append((ov / small, a, b))
+    # overlap: parts that really share volume. This uses the exact shape models of vehicle_overlap (a shaft through a
+    # bearing or a tyre ring is not an overlap; a bounding-box test would call it one). Parts it has no model for are
+    # skipped rather than guessed at. A fit is a small share of the smaller part; a fault is a large one.
+    deep: list[tuple[float, str, str]] = []
+    if len(parts) <= MAX_OVERLAP_PARTS:
+        try:
+            import vehicle_overlap as VO
+            res = VO.find_overlaps(parts, skip_pairs=lambda a, b: frozenset((a, b)) in skip or bool(_TYRE.search(a) and _TYRE.search(b)))
+            for r in res["overlaps"]:
+                small = min(_vol(boxes[r["a"]]), _vol(boxes[r["b"]]))
+                if small > 0 and r["volume_mm3"] / small > OVERLAP_SHARE and body not in (r["a"], r["b"]):
+                    deep.append((r["volume_mm3"] / small, r["a"], r["b"]))
+        except Exception:  # noqa: BLE001 - no overlap model available: the other checks still run
+            deep = []
     if deep:
         deep.sort(reverse=True)
         out.append(_finding("overlap", "fix", sorted({n for _, a, b in deep[:3] for n in (a, b)}),
-                            "mostly inside each other: " + "; ".join(f"{a} / {b}" for _, a, b in deep[:3]),
-                            "Separate " + "; ".join(f"{a} and {b}" for _, a, b in deep[:3]) + " so they no longer share most of their volume."))
+                            "share a lot of volume: " + "; ".join(f"{a} / {b}" for _, a, b in deep[:3]),
+                            "Separate " + "; ".join(f"{a} and {b}" for _, a, b in deep[:3]) + " so they no longer share much volume."))
 
     # wheels: level, and nothing hanging below them
-    wheels = _ground_wheels(names)
+    wheels = [n for n in names if _TYRE.search(n)] or [n for n in names if _BARE_WHEEL.search(n)]
     if wheels:
         bottoms = {n: boxes[n][2] for n in wheels}
         ground = min(bottoms.values())
@@ -183,12 +155,19 @@ def check_geometry(parts: list[dict[str, Any]], bbox_fn: BBoxFn, *, kind: str | 
 
     # symmetry: left/right pairs
     cy = (lo[1] + hi[1]) / 2
-    pairs: dict[tuple[str, ...], dict[str, str]] = {}
+    pairs: dict[tuple[str, str], dict[str, str]] = {}
     for n in names:
-        sk = _side_key(n)
-        if sk:
-            pairs.setdefault(sk[0], {})[sk[1]] = n
-    for _key, pr in pairs.items():
+        c = _CORNER.search(n)
+        if c:                                                  # front-left / front-right, rear-left / rear-right
+            if re.search(r"(?:^|_)(?:l|r|left|right)(?:_|$)", n[c.end():], re.I):
+                continue                                       # wheel_fl_bearing_l: the _l is the wheel's own side, not the car's
+            key = (n[:c.start()].lower() + "|" + c.group("c")[0].lower(), n[c.end():].lower())
+            pairs.setdefault(key, {})["L" if c.group("c")[1].lower() == "l" else "R"] = n
+            continue
+        m = _PAIR.match(n)
+        if m:
+            pairs.setdefault((m.group("a").lower(), m.group("b").lower()), {})["L" if m.group("s").lower() in _LEFT else "R"] = n
+    for (_a, _b), pr in pairs.items():
         if "L" in pr and "R" in pr:
             l, r = boxes[pr["L"]], boxes[pr["R"]]
             size_off = max(abs((l[i + 3] - l[i]) - (r[i + 3] - r[i])) for i in range(3))
@@ -215,69 +194,6 @@ def check_geometry(parts: list[dict[str, Any]], bbox_fn: BBoxFn, *, kind: str | 
 
 
 # ------------------------------------------------------------------------------ renders
-def _env_int(name: str, default: int) -> int:
-    import os
-    try:
-        return max(1000, int(os.environ.get(name, default)))
-    except ValueError:
-        return default
-
-
-# Drawing cost grows with triangles: about 5 s per 200k on one core, and the check can render up to 3 times. Over the
-# budget, heavy parts are simplified (never swapped for boxes), so every part keeps its real outline.
-MAX_RENDER_TRIS = _env_int("NITOCAD_RENDER_TRIS", 150000)
-
-
-def decimate_mesh(v: Any, t: Any, target: int) -> tuple[Any, Any]:
-    """Fewer triangles with the same overall shape: vertices are merged on a grid, the grid is coarsened until the
-    triangle count is at most `target`, and triangles that collapse are dropped. No holes appear, fine detail goes."""
-    import numpy as np
-    v, t = np.asarray(v, float), np.asarray(t, int)
-    if len(t) <= target or len(t) == 0:
-        return v, t
-    lo, hi = v.min(0), v.max(0)
-    span = float((hi - lo).max()) or 1.0
-
-    def cluster(cell: float):
-        q = np.floor((v - lo) / cell).astype(np.int64)
-        k = int(q.max()) + 1
-        key = (q[:, 0] * k + q[:, 1]) * k + q[:, 2]
-        uniq, inv = np.unique(key, return_inverse=True)
-        sums = np.zeros((len(uniq), 3)); np.add.at(sums, inv, v)
-        nv = sums / np.bincount(inv, minlength=len(uniq))[:, None]
-        nt = inv[t]
-        ok = (nt[:, 0] != nt[:, 1]) & (nt[:, 1] != nt[:, 2]) & (nt[:, 0] != nt[:, 2])
-        return nv, nt[ok]
-    low, high = span / 4096, span                         # fine grid keeps everything, coarse grid keeps nothing
-    best = cluster(high)
-    for _ in range(14):
-        mid = (low + high) / 2
-        nv, nt = cluster(mid)
-        if len(nt) <= target:
-            best, high = (nv, nt), mid
-        else:
-            low = mid
-    return best
-
-
-def within_triangle_budget(meshes: dict[str, tuple[Any, Any]] | None, budget: int | None = None) -> dict[str, tuple[Any, Any]]:
-    """The meshes to draw. Over `budget` in total, every part is simplified in proportion to its size (at least 300
-    triangles each), so a gear with 100k triangles does not slow the whole check and no part turns into a box."""
-    budget = budget or MAX_RENDER_TRIS
-    if not meshes:
-        return {}
-    counts = {n: len(m[1]) for n, m in meshes.items()}
-    total = sum(counts.values())
-    if total <= budget:
-        return dict(meshes)
-    share = budget / total
-    out = {}
-    for n, (v, t) in meshes.items():
-        target = max(300, int(counts[n] * share))
-        out[n] = decimate_mesh(v, t, target) if counts[n] > target else (v, t)
-    return out
-
-
 def render_views(boxes: dict[str, tuple[float, ...]], out_dir: str | Path, *, meshes: dict[str, tuple[Any, Any]] | None = None,
                  size: int = 640) -> list[Path]:
     """isometric, side, front and top PNGs. Real triangles when `meshes` is given, otherwise each part's box.
@@ -293,7 +209,6 @@ def render_views(boxes: dict[str, tuple[float, ...]], out_dir: str | Path, *, me
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     polys: list[tuple[Any, tuple[float, float, float]]] = []
-    meshes = within_triangle_budget(meshes)
     for i, (name, b) in enumerate(sorted(boxes.items())):
         col = plt.cm.tab20(i % 20)[:3]
         if meshes and name in meshes:

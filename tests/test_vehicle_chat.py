@@ -533,7 +533,7 @@ def test_the_wheelbarrow_has_a_sloped_tray_and_handles_that_rise():
     assert parts["tray"]["part_type"] == "tapered_tray"
     p = parts["tray"]["parameters"]
     assert p["bottom_length_mm"] < p["length_mm"] and p["bottom_width_mm"] < p["width_mm"]
-    rail, handle = parts["rail_l"], parts["handle_l"]
+    rail, handle = parts["rail_left"], parts["handle_left"]
     assert max(e[2] for e in _tube_ends(handle)) > max(e[2] for e in _tube_ends(rail))   # the grips are higher than the rails
     assert abs(handle["rotation"][1]) not in (0, 90)                     # and the handle is angled, not level
     assert abs(parts["tray"]["position"][2] - (rail["position"][2] + 12.5)) < 1   # the tray stands on the rails
@@ -570,8 +570,8 @@ def test_between_accepts_any_direction_and_mirrors_it():
     ex = VS.expand_vehicle(spec, None, None, None)
     assert ex["ok"], ex["errors"]
     parts = {p["name"]: p for p in ex["parts"]}
-    left = sorted(_tube_ends(parts["rail_l"]), key=lambda e: -e[0])
-    right = sorted(_tube_ends(parts["rail_r"]), key=lambda e: -e[0])
+    left = sorted(_tube_ends(parts["rail_left"]), key=lambda e: -e[0])
+    right = sorted(_tube_ends(parts["rail_right"]), key=lambda e: -e[0])
     assert _same(left[0], [100, 20, 50]) and _same(left[1], [-300, 200, 80])
     assert _same(right[0], [100, -20, 50]) and _same(right[1], [-300, -200, 80])
 
@@ -581,8 +581,8 @@ def test_the_wheelbarrow_rails_close_in_and_meet_the_forks():
     ex = VS.expand_vehicle(v, None, None, None)
     assert ex["ok"] and all(c["status"] == "pass" for c in ex["checks"])
     parts = {p["name"]: p for p in ex["parts"]}
-    fork_y = parts["fork_l"]["position"][1]
-    for side, sign in (("l", 1), ("r", -1)):
+    fork_y = parts["fork_left"]["position"][1]
+    for side, sign in (("left", 1), ("right", -1)):
         front, rear = sorted(_tube_ends(parts["rail_" + side]), key=lambda e: -e[0])
         assert abs(front[1] - sign * fork_y) < 1e-3 and abs(front[0] - parts["fork_" + side]["position"][0]) < 1e-3
         assert abs(rear[1]) > abs(front[1]) + 50                    # the rails are wider at the back than at the fork

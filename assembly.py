@@ -8,6 +8,7 @@ from typing import Any
 import cadquery as cq
 
 import assembly_checks
+import part_naming
 import materials
 import screening
 from cad_templates import TEMPLATES
@@ -533,7 +534,7 @@ def _parts_table(placed: list[dict[str, Any]], boxes: dict, volumes: dict, mater
             dens = materials.density_g_cm3(material_by_name.get(name))
             vol = volumes.get(name)
             rows.append({
-                "name": str(name), "part_type": p.get("part_type"),
+                "name": str(name), "label": part_naming.readable(str(name)), "part_type": p.get("part_type"),
                 "position_mm": [round(float(x), 3) for x in pos],
                 "size_mm": [round(float(b - a), 3) for a, b in zip(lo, hi)],
                 "mass_g": round(vol / 1000.0 * dens, 3) if (vol and dens) else None,

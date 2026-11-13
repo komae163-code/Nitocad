@@ -20,6 +20,7 @@ import math
 from typing import Any, Iterable
 from xml.sax.saxutils import escape
 
+import part_naming
 from assembly_checks import _overlap_amount
 
 BBox = dict
@@ -233,6 +234,6 @@ def to_viewer_json(boxes: dict[str, BBox], result: dict[str, Any], title: str = 
     """The JSON that frontend/exploded.html loads (Load JSON button). Boxes only, in the assembled pose."""
     step = {n: i for i, n in enumerate(result.get("sequence", []))}
     return {"title": title, "parts": [
-        {"name": n, "min": list(b["min"]), "max": list(b["max"]),
+        {"name": n, "label": part_naming.readable(n), "min": list(b["min"]), "max": list(b["max"]),
          "offset": list(result["offsets"][n]), "step": step.get(n, i)}
         for i, (n, b) in enumerate(boxes.items())]}

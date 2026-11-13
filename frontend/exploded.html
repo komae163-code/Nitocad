@@ -51,7 +51,7 @@ function load(d){
   var n=d.parts.length, lo=[1e9,1e9,1e9], hi=[-1e9,-1e9,-1e9], list=document.getElementById('list'); list.innerHTML='';
   d.parts.forEach(function(p,i){
     for(var k=0;k<3;k++){lo[k]=Math.min(lo[k],p.min[k],p.min[k]+p.offset[k]);hi[k]=Math.max(hi[k],p.max[k],p.max[k]+p.offset[k]);}
-    var tag=document.createElement('div'); tag.textContent=(i+1)+'. '+p.name; tag.onclick=function(){hl(i)}; list.appendChild(tag);
+    var tag=document.createElement('div'); tag.textContent=(i+1)+'. '+(p.label||p.name); tag.title=p.name; tag.onclick=function(){hl(i)}; list.appendChild(tag);
     if(!R){ flat.push({p:p,step:p.step==null?i:p.step,hue:(i*0.13)%1}); return; }
     var a=P(p.min), b=P(p.max), mn=a.clone().min(b), mx=a.clone().max(b), size=mx.clone().sub(mn);
     var m=new THREE.Mesh(new THREE.BoxGeometry(size.x,size.y,size.z),

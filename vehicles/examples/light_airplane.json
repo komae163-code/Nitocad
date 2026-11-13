@@ -213,7 +213,7 @@
    ]
   },
   {
-   "id": "gear_main_r",
+   "id": "gear_main_right",
    "module": "landing_gear",
    "assembly": "gear",
    "params": {
@@ -231,7 +231,7 @@
    ]
   },
   {
-   "id": "gear_main_l",
+   "id": "gear_main_left",
    "module": "landing_gear",
    "assembly": "gear",
    "params": {

@@ -351,12 +351,12 @@
     1,
     0
    ],
-   "front_wheel_bearing_l": [
+   "front_wheel_bearing_left": [
     0,
     1,
     0
    ],
-   "front_wheel_bearing_r": [
+   "front_wheel_bearing_right": [
     0,
     -1,
     0

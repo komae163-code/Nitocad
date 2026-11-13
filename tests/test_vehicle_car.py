@@ -17,7 +17,7 @@ PARTS = {p["name"]: p for p in EX["parts"]}
 
 
 def panels(**params):
-    spec = {"name": "t", "components": [{"id": "panels", "module": "car_body", "assembly": "body", "position": [0, 0, 0],
+    spec = {"name": "t", "components": [{"id": "exterior", "module": "car_body", "assembly": "body", "position": [0, 0, 0],
                                          "params": params}]}
     return VS.expand_vehicle(spec)
 
@@ -28,8 +28,8 @@ def test_car_body_makes_23_separate_thin_panels_and_its_checks_pass():
     assert ex["ok"], ex["errors"]
     assert len(ex["parts"]) == 23 and all(c["status"] == "pass" for c in ex["checks"])
     names = {p["name"] for p in ex["parts"]}
-    assert {"panels_floor", "panels_roof", "panels_hood", "panels_door_fl", "panels_door_rr", "panels_windscreen",
-            "panels_side_panel_l", "panels_front_bumper"} <= names
+    assert {"exterior_floor", "exterior_roof", "exterior_hood", "exterior_door_front_left", "exterior_door_rear_right", "exterior_windscreen",
+            "exterior_side_panel_left", "exterior_front_bumper"} <= names
     for p in ex["parts"]:                       # every panel is a sheet: under 0.03 m3 (a solid car body is about 7 m3)
         vol = sum((SH.polygon_area(f["profile"]["points"]) if f["profile"]["type"] == "polygon"
                    else f["profile"]["width"] * f["profile"]["height"]) * f["distance"]
@@ -49,18 +49,18 @@ def test_the_panels_never_overlap_each_other(params):
 
 def test_a_door_fits_its_opening_with_a_gap():
     ex = panels()
-    side = next(p for p in ex["parts"] if p["name"] == "panels_side_panel_l")["parameters"]["features"]
+    side = next(p for p in ex["parts"] if p["name"] == "exterior_side_panel_left")["parameters"]["features"]
     opening = next(f for f in side if f["id"] == "door_front")["profile"]
-    door = next(p for p in ex["parts"] if p["name"] == "panels_door_fl")["parameters"]["features"][0]["profile"]
+    door = next(p for p in ex["parts"] if p["name"] == "exterior_door_front_left")["parameters"]["features"][0]["profile"]
     assert door["width"] == pytest.approx(opening["width"] - 6) and door["height"] == pytest.approx(opening["height"] - 6)
     assert door["center"] == opening["center"]
 
 
 def test_the_firewall_has_a_hole_for_the_propshaft_and_the_floor_has_wheel_wells():
     ex = panels(tunnel_z=406, tunnel_d=90)
-    fw = next(p for p in ex["parts"] if p["name"] == "panels_firewall")["parameters"]["features"]
+    fw = next(p for p in ex["parts"] if p["name"] == "exterior_firewall")["parameters"]["features"]
     assert fw[1]["mode"] == "cut" and fw[1]["profile"]["center"][1] == 406 and fw[1]["profile"]["width"] == 90
-    floor = next(p for p in ex["parts"] if p["name"] == "panels_floor")["parameters"]["features"]
+    floor = next(p for p in ex["parts"] if p["name"] == "exterior_floor")["parameters"]["features"]
     assert [f["id"] for f in floor[1:]] == ["well_rear_l", "well_rear_r"]
 
 
@@ -139,7 +139,7 @@ def test_the_engine_sits_between_the_flywheel_and_the_pulley_and_the_gearbox_end
 
 
 def test_the_propshaft_passes_through_the_firewall_hole():
-    shaft, fw = PARTS["propshaft"], PARTS["panels_firewall"]["parameters"]["features"]
+    shaft, fw = PARTS["propshaft"], PARTS["exterior_firewall"]["parameters"]["features"]
     hole = fw[1]["profile"]
     assert shaft["position"][2] == pytest.approx(hole["center"][1]) and shaft["parameters"]["diameter_mm"] < hole["width"]
     assert shaft["position"][0] < 0 < shaft["position"][0] + shaft["parameters"]["length_mm"]
@@ -152,10 +152,10 @@ def test_the_seed_is_small_enough_to_be_shown_to_the_model():
 
 
 def test_a_wheels_mirrored_bearings_stay_on_that_wheel():
-    """Mirroring inside a module used to apply after the instance offset, so wheel_fl_bearing_r sat on the right wheel."""
-    for wheel in ("fl", "fr", "rl", "rr"):
+    """Mirroring inside a module used to apply after the instance offset, so wheel_front_left_bearing_right sat on the right wheel."""
+    for wheel in ("front_left", "front_right", "rear_left", "rear_right"):
         axle_y = PARTS[f"wheel_{wheel}_axle"]["position"][1] + PARTS[f"wheel_{wheel}_axle"]["parameters"]["length_mm"] / 2
-        for side in ("l", "r"):
+        for side in ("left", "right"):
             assert abs(PARTS[f"wheel_{wheel}_bearing_{side}"]["position"][1] - axle_y) < 120, (wheel, side)
 
 

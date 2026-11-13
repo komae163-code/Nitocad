@@ -32,7 +32,7 @@ def test_examples_expand_and_pass_the_planner_validator():
     assert cart["ok"], cart["errors"]
     names = [p["name"] for p in loco["parts"]]
     assert len(names) == len(set(names))
-    assert {"wheel_l_1", "wheel_l_2", "wheel_r_1", "wheel_r_2"} <= set(names)
+    assert {"wheel_left_1", "wheel_left_2", "wheel_right_1", "wheel_right_2"} <= set(names)
     assert set(loco["assemblies"]) == {"loco", "tender"}
     assert loco["fixed"] == {"loco": "chassis", "tender": "tender_frame"}
     assert [e["name"] for e in loco["external"]] == ["coupling_pin"]          # external parts are kept out of the planner list
@@ -45,7 +45,7 @@ def test_overrides_change_the_result_and_are_bounded():
     b = V.expand_vehicle(base, {"gauge": 45})
     assert b["ok"] and b["params"]["axle_len"] > a["params"]["axle_len"]
     y = {p["name"]: p["position"][1] for p in b["parts"]}
-    assert y["wheel_l_1"] == -y["wheel_r_1"] and y["wheel_l_1"] > a["parts"][0]["position"][1] * 0 + 20
+    assert y["wheel_left_1"] == -y["wheel_right_1"] and y["wheel_left_1"] > a["parts"][0]["position"][1] * 0 + 20
     bad = V.expand_vehicle(base, {"gauge": 9999})
     assert not bad["ok"] and any("gauge" in e for e in bad["errors"])
     assert not V.expand_vehicle(base, {"nope": 1})["ok"]
@@ -100,7 +100,7 @@ def test_repeat_and_mirror_naming_and_positions():
     r = V.expand_vehicle(s)
     assert r["ok"], r["errors"]
     pos = {p["name"]: list(p["position"]) for p in r["parts"]}
-    assert len(pos) == 6 and pos["post_3_l"] == [20.0, 5.0, 0.0] and pos["post_3_r"] == [20.0, -5.0, 0.0]
+    assert len(pos) == 6 and pos["post_3_left"] == [20.0, 5.0, 0.0] and pos["post_3_right"] == [20.0, -5.0, 0.0]
 
 
 def test_no_part_cap_but_a_runaway_guard():

@@ -1,7 +1,12 @@
 """
-Writes vehicles/examples/car.json: a hatchback built from panels, not one solid. Run from the repository root:
-    python tools/make_car_example.py
-Edit this script and rerun it, do not hand-edit the JSON.
+OUT OF DATE: this script no longer produces the shipped vehicles/examples/car.json. That file has since grown to 45
+components with a gearbox, driveline, explode settings and spelled-out part names (exterior_door_front_left,
+wheel_front_left_tyre, half_shaft_left); this script still writes the older 33-component car. It now refuses to
+overwrite car.json unless run with --force, and writes to car_legacy.json otherwise. Edit vehicles/examples/car.json
+directly until the generator is brought up to date.
+
+Writes a hatchback built from panels, not one solid. Run from the repository root:
+    python tools/make_car_example.py            (writes vehicles/examples/car_legacy.json)
 
 Why panels: the old example was one body solid with wheel arches cut in, plus an exhaust. It could not be pulled apart, a solid
 block of that size weighs tonnes, and the planner showed it to the model as a proven example, so new cars copied the mistake.
@@ -217,6 +222,8 @@ def build() -> dict:
 
 
 if __name__ == "__main__":
-    out = Path(__file__).resolve().parents[1] / "vehicles" / "examples" / "car.json"
+    import sys
+    name = "car.json" if "--force" in sys.argv else "car_legacy.json"
+    out = Path(__file__).resolve().parents[1] / "vehicles" / "examples" / name
     out.write_text(json.dumps(build(), indent=1) + "\n", encoding="utf-8")
     print("wrote", out)

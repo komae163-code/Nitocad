@@ -100,7 +100,7 @@
    ]
   },
   {
-   "id": "crank_r",
+   "id": "crank_right",
    "type": "flat_plate",
    "material": "aluminium",
    "parameters": {
@@ -120,7 +120,7 @@
    ]
   },
   {
-   "id": "crank_l",
+   "id": "crank_left",
    "type": "flat_plate",
    "material": "aluminium",
    "parameters": {

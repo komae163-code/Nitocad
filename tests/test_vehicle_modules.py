@@ -49,7 +49,7 @@ def test_module_parts_are_prefixed_and_offset_by_the_instance_position():
     r = V.expand_vehicle(s)
     pos = {p["name"]: p["position"] for p in r["parts"]}
     assert pos["w1_axle"][0] == 100.0 and pos["w2_axle"][0] == -100.0
-    assert {"w1_tyre", "w1_axle", "w1_bearing_l", "w1_bearing_r"} <= set(pos)
+    assert {"w1_tyre", "w1_axle", "w1_bearing_left", "w1_bearing_right"} <= set(pos)
 
 
 def test_module_params_are_bounded_and_isolated_from_vehicle_names():

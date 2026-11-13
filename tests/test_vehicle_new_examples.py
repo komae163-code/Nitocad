@@ -80,12 +80,12 @@ def test_engine_numbers_flow_through_overrides():
 
 def test_wheels_touch_the_ground_on_the_car_bin_and_airplane():
     p, _ = parts("car")
-    assert abs(p["wheel_fr_axle"]["position"][2] - 320) < 1e-9
+    assert abs(p["wheel_front_right_axle"]["position"][2] - 320) < 1e-9
     p, _ = parts("wheelie_bin")
     assert abs(p["wheel_right_axle"]["position"][2] - 100) < 1e-9
     p, _ = parts("light_airplane")
     ground = -(1250 / 2 + 420)
-    for g, tyre in (("gear_nose", 320), ("gear_main_r", 380), ("gear_main_l", 380)):
+    for g, tyre in (("gear_nose", 320), ("gear_main_right", 380), ("gear_main_left", 380)):
         assert abs(p[f"{g}_axle"]["position"][2] - tyre / 2 - ground) < 1e-6, g
 
 
@@ -94,7 +94,7 @@ def test_bin_wheels_clear_the_tub_and_the_handle_bar_joins_its_brackets():
     tyre_inner = abs(p["wheel_right_tyre"]["position"][1])
     tub_half_at_tyre_top = 480 / 2 + (580 - 480) / (2 * 1000) * 200
     assert tyre_inner > tub_half_at_tyre_top
-    bracket, bar = p["handle_bracket_l"], p["handle_bar"]
+    bracket, bar = p["handle_bracket_left"], p["handle_bar"]
     bracket_end = bracket["position"][0]                                # tube starts here and runs +X for 55 mm
     bar_front = bar["position"][0] + 16
     assert bar_front > bracket_end                                      # bracket ends are buried in the bar

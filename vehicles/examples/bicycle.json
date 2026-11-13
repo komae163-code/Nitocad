@@ -426,12 +426,12 @@
     "head_tube"
    ],
    [
-    "chainstay_l",
-    "seatstay_l"
+    "chainstay_left",
+    "seatstay_left"
    ],
    [
-    "chainstay_r",
-    "seatstay_r"
+    "chainstay_right",
+    "seatstay_right"
    ]
   ]
  },

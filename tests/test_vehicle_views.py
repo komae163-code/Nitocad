@@ -66,3 +66,12 @@ def test_package_with_a_box_function_includes_exploded_views(tmp_path):
     assert r["ok"]
     names = zipfile.ZipFile(r["zip"]).namelist()
     assert any("exploded" in n for n in names)
+
+
+def test_spelled_out_sides_still_pull_sideways_and_a_right_bumper_is_not_the_rear():
+    import vehicle_views as VV
+    c, ref = (0, 500, 300), (0, 0, 300)
+    for n in ("chainstay_left", "chainstay_l", "half_shaft_right", "exterior_door_front_left"):
+        assert VV.default_direction(n, c, ref) == (0.0, 1.0, 0.0), n
+    assert VV.default_direction("rear_bumper", c, ref) == (-1.0, 0.0, 0.0)
+    assert VV.default_direction("bumper_right", c, ref) == (0.0, 1.0, 0.0)               # a bumper on the right side

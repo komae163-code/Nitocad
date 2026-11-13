@@ -127,7 +127,7 @@
    ]
   },
   {
-   "id": "wheel_l",
+   "id": "wheel_left",
    "type": "feature_tree",
    "assembly": "loco",
    "material": "PLA",
@@ -190,7 +190,7 @@
    ]
   },
   {
-   "id": "wheel_r",
+   "id": "wheel_right",
    "type": "feature_tree",
    "assembly": "loco",
    "material": "PLA",
@@ -305,22 +305,22 @@
  "notes": "Concept core of a 0-4-0 loco: chassis, boiler tube, two axles, four wheels, tender frame and one external pin. No rods, cab or fittings yet.",
  "explode": {
   "directions": {
-   "wheel_l_1": [
+   "wheel_left_1": [
     0,
     1,
     0
    ],
-   "wheel_l_2": [
+   "wheel_left_2": [
     0,
     1,
     0
    ],
-   "wheel_r_1": [
+   "wheel_right_1": [
     0,
     -1,
     0
    ],
-   "wheel_r_2": [
+   "wheel_right_2": [
     0,
     -1,
     0

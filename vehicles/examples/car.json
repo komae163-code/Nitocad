@@ -75,7 +75,7 @@
  },
  "components": [
   {
-   "id": "panels",
+   "id": "exterior",
    "module": "car_body",
    "assembly": "body",
    "position": [
@@ -98,7 +98,7 @@
    }
   },
   {
-   "id": "wheel_fl",
+   "id": "wheel_front_left",
    "module": "wheel_on_axle",
    "assembly": "wheels",
    "params": {
@@ -115,7 +115,7 @@
    ]
   },
   {
-   "id": "brake_disc_fl",
+   "id": "brake_disc_front_left",
    "type": "spacer",
    "assembly": "wheels",
    "material": "steel",
@@ -136,7 +136,7 @@
    ]
   },
   {
-   "id": "wheel_fr",
+   "id": "wheel_front_right",
    "module": "wheel_on_axle",
    "assembly": "wheels",
    "params": {
@@ -153,7 +153,7 @@
    ]
   },
   {
-   "id": "brake_disc_fr",
+   "id": "brake_disc_front_right",
    "type": "spacer",
    "assembly": "wheels",
    "material": "steel",
@@ -174,7 +174,7 @@
    ]
   },
   {
-   "id": "wheel_rl",
+   "id": "wheel_rear_left",
    "module": "wheel_on_axle",
    "assembly": "wheels",
    "params": {
@@ -191,7 +191,7 @@
    ]
   },
   {
-   "id": "brake_disc_rl",
+   "id": "brake_disc_rear_left",
    "type": "spacer",
    "assembly": "wheels",
    "material": "steel",
@@ -212,7 +212,7 @@
    ]
   },
   {
-   "id": "wheel_rr",
+   "id": "wheel_rear_right",
    "module": "wheel_on_axle",
    "assembly": "wheels",
    "params": {
@@ -229,7 +229,7 @@
    ]
   },
   {
-   "id": "brake_disc_rr",
+   "id": "brake_disc_rear_right",
    "type": "spacer",
    "assembly": "wheels",
    "material": "steel",
@@ -358,7 +358,7 @@
    ]
   },
   {
-   "id": "half_shaft_l",
+   "id": "half_shaft_left",
    "type": "shaft",
    "assembly": "driveline",
    "material": "steel",
@@ -378,7 +378,7 @@
    ]
   },
   {
-   "id": "half_shaft_r",
+   "id": "half_shaft_right",
    "type": "shaft",
    "assembly": "driveline",
    "material": "steel",
@@ -477,7 +477,7 @@
    ]
   },
   {
-   "id": "subframe_rail_l",
+   "id": "subframe_rail_left",
    "type": "tube",
    "assembly": "chassis",
    "material": "steel",
@@ -498,7 +498,7 @@
    ]
   },
   {
-   "id": "subframe_rail_r",
+   "id": "subframe_rail_right",
    "type": "tube",
    "assembly": "chassis",
    "material": "steel",
@@ -590,7 +590,7 @@
    ]
   },
   {
-   "id": "seat_base_l",
+   "id": "seat_base_left",
    "type": "simple_box",
    "assembly": "interior",
    "material": "nylon",
@@ -606,7 +606,7 @@
    ]
   },
   {
-   "id": "seat_back_l",
+   "id": "seat_back_left",
    "type": "simple_box",
    "assembly": "interior",
    "material": "nylon",
@@ -622,7 +622,7 @@
    ]
   },
   {
-   "id": "seat_base_r",
+   "id": "seat_base_right",
    "type": "simple_box",
    "assembly": "interior",
    "material": "nylon",
@@ -638,7 +638,7 @@
    ]
   },
   {
-   "id": "seat_back_r",
+   "id": "seat_back_right",
    "type": "simple_box",
    "assembly": "interior",
    "material": "nylon",
@@ -778,12 +778,12 @@
     0,
     1
    ],
-   "seat_back_l": [
+   "seat_back_left": [
     -1,
     0,
     0
    ],
-   "seat_back_r": [
+   "seat_back_right": [
     -1,
     0,
     0

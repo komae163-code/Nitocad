@@ -93,8 +93,8 @@ def test_a_snake_case_name_still_counts_as_a_car():
 
 def test_default_directions_send_wheels_out_roof_up_exhaust_down():
     ref = (0.0, 0.0, 500.0)
-    assert VV.default_direction("wheel_fl_tyre", (1000, 800, 300), ref) == (0.0, 1.0, 0.0)
-    assert VV.default_direction("wheel_rr_tyre", (-1000, -800, 300), ref) == (0.0, -1.0, 0.0)
+    assert VV.default_direction("wheel_front_left_tyre", (1000, 800, 300), ref) == (0.0, 1.0, 0.0)
+    assert VV.default_direction("wheel_rear_right_tyre", (-1000, -800, 300), ref) == (0.0, -1.0, 0.0)
     assert VV.default_direction("roof", (0, 0, 1400), ref) == (0.0, 0.0, 1.0)
     assert VV.default_direction("exhaust", (-500, 300, 100), ref) == (0.0, 0.0, -1.0)
     assert VV.default_direction("mystery", (0, 0, 500), ref) is None

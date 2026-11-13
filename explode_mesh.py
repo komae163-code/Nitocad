@@ -18,6 +18,7 @@ import base64
 from typing import Any, Iterable
 
 import assembly_exploded as AE
+import part_naming
 
 MAX_TRIANGLES = 450_000          # above this the mesh is tessellated again more coarsely
 MAX_FACTOR = 8.0
@@ -67,7 +68,7 @@ def build(meshes: dict[str, tuple[Any, Any]], *, directions: dict[str, Iterable[
     parts = []
     for name, (v, t) in meshes.items():
         off = res["offsets"].get(name, (0.0, 0.0, 0.0))
-        parts.append({"name": name, "tris": int(len(t)), "pos": _encode(v, t, centre),
+        parts.append({"name": name, "label": part_naming.readable(name), "tris": int(len(t)), "pos": _encode(v, t, centre),
                       "off": [round(float(x), 3) for x in off]})
     warnings = []
     if res["unseparated"]:

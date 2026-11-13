@@ -47,9 +47,9 @@ def summary(vspec: dict[str, Any], module_dir: Path | None = None) -> dict[str, 
 
 _UP = re.compile(r"roof|hood|bonnet|canopy|lid|cover|windscreen|windshield|head|spinner|rotor|prop", re.I)
 _DOWN = re.compile(r"floor|tank|battery|exhaust|muffler|sump|skid|undertray|pan$|_pan", re.I)
-_FRONT = re.compile(r"bumper_f|front_bumper|radiator|grille|nose|headlight|engine", re.I)
-_REAR = re.compile(r"bumper_r|rear_bumper|tailgate|trunk|boot|tail_light|exhaust|muffler", re.I)
-_SIDE = re.compile(r"door|wheel|tyre|tire|hub|axle|bearing|mirror|panel_[lr]|side|brake|disc|caliper|_[lr]$|_[lr]_", re.I)
+_FRONT = re.compile(r"bumper_(?:f|front)(?:_|$)|front_bumper|radiator|grille|nose|headlight|engine", re.I)
+_REAR = re.compile(r"bumper_(?:r|rear)(?:_|$)|rear_bumper|tailgate|trunk|boot|tail_light|exhaust|muffler", re.I)
+_SIDE = re.compile(r"door|wheel|tyre|tire|hub|axle|bearing|mirror|panel_(?:l|r|left|right)|side|brake|disc|caliper|_(?:l|r|left|right)(?:_|$)", re.I)
 
 
 def default_direction(name: str, centre: tuple[float, float, float], ref: tuple[float, float, float]) -> tuple[float, float, float] | None:

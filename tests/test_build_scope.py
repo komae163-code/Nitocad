@@ -28,8 +28,8 @@ def test_a_vague_request_for_a_part_gets_one_card_of_tappable_questions():
     kind, plan = ask([U("I want a bracket")])
     assert kind == "ask" and plan.intent == "answer" and plan.spec is None
     assert plan.reply.startswith("Before I build the bracket") and "I would start with" in plan.reply
-    assert [c["question"] for c in plan.choices][0] == "What size should the bracket be?"
-    assert len(plan.choices) == 3 and all(c.get("card") and len(c["options"]) == 3 for c in plan.choices)
+    assert len(plan.choices) == 3 and plan.choices[0]["question"] == "What size should the bracket be?"
+    assert len(plan.choices[0]["options"]) == 3 and all(c.get("card") for c in plan.choices)
 
 
 def test_every_family_asks_something_for_a_bare_request():

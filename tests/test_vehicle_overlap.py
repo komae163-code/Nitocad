@@ -61,11 +61,11 @@ def test_pairs_that_are_meant_to_touch_can_be_skipped():
 
 
 def test_a_wrongly_sized_panel_is_caught_in_the_real_body():
-    spec = {"name": "t", "components": [{"id": "panels", "module": "car_body", "assembly": "body", "position": [0, 0, 0],
+    spec = {"name": "t", "components": [{"id": "exterior", "module": "car_body", "assembly": "body", "position": [0, 0, 0],
                                          "params": {}}]}
     ex = VS.expand_vehicle(spec)
     assert VO.find_overlaps(ex["parts"])["overlaps"] == []
-    roof = next(p for p in ex["parts"] if p["name"] == "panels_roof")
+    roof = next(p for p in ex["parts"] if p["name"] == "exterior_roof")
     roof["parameters"]["features"][0]["profile"]["height"] += 60            # a roof wider than the glass beside it
     hits = VO.find_overlaps(ex["parts"])["overlaps"]
-    assert {h["a"] for h in hits} | {h["b"] for h in hits} >= {"panels_roof", "panels_side_window_l"}
+    assert {h["a"] for h in hits} | {h["b"] for h in hits} >= {"exterior_roof", "exterior_side_window_left"}

@@ -24,10 +24,10 @@ Rules
   * A string that starts with "=" is an expression. Anything else is a literal. Expressions are parsed with a strict
     whitelist (arithmetic, a few math functions, comparisons); no attribute access, no calls to anything else.
   * `repeat` {n, step} makes id_1..id_n, offset by i*step (i counts from 0; i and n are usable in expressions).
-  * `mirror: "y"` makes id_l and id_r with the y position negated. Rotation is NOT mirrored; set it yourself.
+  * `mirror: "y"` makes id_left and id_right (id_1_left with repeat) with the y position negated. Rotation is NOT mirrored; set it yourself.
   * A component may give a `mate` instead of a `position` (face or coaxial, see mates.py). Numbers in a mate may be
     "=expressions". `to` names an EARLIER part; in a repeated or mirrored component use {i} (1-based) and {side}
-    ("_l", "_r" or "") in it, e.g. "to": "axle_{i}". Mates need quarter-turn (multiples of 90 degrees) rotations on
+    ("_left", "_right" or "") in it, e.g. "to": "axle_{i}". Mates need quarter-turn (multiples of 90 degrees) rotations on
     both parts; that is a limit of the mate solver, not of this layer.
   * Modules (reusable internals): {"id": "front", "module": "wheel_on_axle", "params": {"rim_dia": "=wheel_dia"},
     "position": [...], "assembly": "x"} places a module from `spec["modules"]` or vehicles/modules/<name>.json. A module
@@ -308,6 +308,39 @@ def _flatten(components: list[Any], env: dict[str, float], errors: list[str], in
     return out, mod_checks
 
 
+_LEGACY_TOKEN = {"l": "left", "r": "right", "fl": "front_left", "fr": "front_right", "rl": "rear_left", "rr": "rear_right"}
+
+
+def _legacy_to_new(name: str) -> str:
+    """wheel_fl_tyre -> wheel_front_left_tyre, half_shaft_l -> half_shaft_left, crank_1_r -> crank_1_right."""
+    return "_".join(_LEGACY_TOKEN.get(t, t) for t in str(name).split("_"))
+
+
+def canon_name(name: str, known: set[str]) -> str:
+    """A reference to a part by the name an older spec used. Mirrored parts used to be called id_l and id_r; they are id_left
+    and id_right now. A name that exists is returned as it is; otherwise the spelled-out form if that exists; otherwise
+    the name unchanged, so a genuine typo still fails where it always did."""
+    if name in known or not isinstance(name, str):
+        return name
+    new = _legacy_to_new(name)
+    return new if new in known else name
+
+
+def _canon_explode(raw: Any, known: set[str]) -> dict[str, Any]:
+    """The spec's explode settings with part names brought up to date (see canon_name)."""
+    if not isinstance(raw, dict):
+        return {}
+    out = dict(raw)
+    if isinstance(raw.get("directions"), dict):
+        out["directions"] = {canon_name(k, known): v for k, v in raw["directions"].items()}
+    if isinstance(raw.get("intended_contact"), list):
+        out["intended_contact"] = [[canon_name(n, known) for n in pair] if isinstance(pair, (list, tuple)) else pair
+                                   for pair in raw["intended_contact"]]
+    if isinstance(raw.get("fixed"), str):
+        out["fixed"] = canon_name(raw["fixed"], known)
+    return out
+
+
 def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
                    catalog: dict[str, dict[str, Any]] | None = None,
                    module_dir: Path | None = None) -> dict[str, Any]:
@@ -423,7 +456,7 @@ def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
             # left wheel's second bearing to the right wheel (right place by symmetry, wrong name and group)
             moved = lambda v: [v[k] + off[k] for k in range(3)]
             base_pos = moved(own)
-            sides = [("", base_pos)] if mirror is None else [("_l", base_pos), ("_r", moved([own[0], -own[1], own[2]]))]
+            sides = [("", base_pos)] if mirror is None else [("_left", base_pos), ("_right", moved([own[0], -own[1], own[2]]))]
             for side_suffix, p3 in sides:
                 mate = None
                 if "mate" in comp:
@@ -442,7 +475,7 @@ def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
                         errors.append(f"{label}: repeat.step has no effect on a mated part; use {{i}} in mate.offset instead")
                         break
                     if isinstance(mate, dict) and isinstance(mate.get("to"), str):
-                        mate["to"] = mate["to"].replace("{i}", str(i + 1)).replace("{side}", side_suffix)
+                        mate["to"] = canon_name(mate["to"].replace("{i}", str(i + 1)).replace("{side}", side_suffix), seen)
                 name = cid + (f"_{i + 1}" if rep else "") + side_suffix
                 if name in seen:
                     errors.append(f"{label}: expanded id {name!r} is used twice")
@@ -452,7 +485,7 @@ def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
                     external.append({"name": name, "source": comp["source"], "assembly": asm,
                                      "position": [round(c, 4) for c in p3], "rotation": rot})
                 else:
-                    side_rot = [-rot[0], rot[1], rot[2]] if (flip_r and side_suffix == "_r") else rot
+                    side_rot = [-rot[0], rot[1], rot[2]] if (flip_r and side_suffix == "_right") else rot
                     parts.append({"name": name, "part_type": comp.get("type"), "parameters": params,
                                   **({"mate": mate} if mate is not None else {"position": [round(c, 4) for c in p3]}),
                                   "rotation": side_rot,
@@ -514,7 +547,7 @@ def expand_vehicle(spec: Any, overrides: dict[str, Any] | None = None,
             "params": {**{k: env[k] for k in env}}, "parts": parts, "external": external,
             "assemblies": assemblies, "fixed": fixed, "checks": checks,
             "auto_shelled": shelled, "shell_problems": shell_problems,
-            "explode": spec.get("explode") if isinstance(spec.get("explode"), dict) else {},
+            "explode": _canon_explode(spec.get("explode"), seen),
             "limits": ["Arithmetic checks only: no geometry has been built or measured.",
                        "Mirror flips position only; rotation is yours to set."]}
 
