@@ -30,7 +30,9 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable
 
+import build_jobs
 import chat_store
+import job_progress as JP
 import conversation
 import dfm
 import edit_diff
@@ -237,15 +239,26 @@ def _call_plan(deps: Deps, history: list[dict], spec: dict | None, facts: dict |
     return deps.plan(history, spec, facts=facts) if takes_facts else deps.plan(history, spec)
 
 
-def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any]:
+def run_turn(deps: Deps, user_id: str, chat_id: str, text: str, *, resume: bool = False) -> dict[str, Any]:
+    """One chat turn. `resume=True` is a background job run again after a restart: the person's message is already saved,
+    so it is not added twice, and a turn that had already saved its reply is returned as it is, not run again."""
     lock = _lock_for(chat_id)
     if not lock.acquire(blocking=False):
         raise ChatBusy()
     try:
         if chat_store.get_chat(user_id, chat_id) is None:
             raise ChatNotFound()
+        JP.step("Reading your request")
 
-        user_msg = chat_store.add_message(user_id, chat_id, "user", text, max_messages=deps.max_messages)
+        user_msg = None
+        if resume:
+            state, user_msg, reply_msg = build_jobs.resume_state(chat_store.recent_messages(user_id, chat_id, 2), text)
+            if state == "done":
+                return {"user_message": user_msg, "assistant_message": reply_msg, "part": None, "charged": 0,
+                        "balance": deps.balance(user_id), "needs_credits": False, "intent": "answer", "plan_source": None,
+                        "requirements": [], "new_requirements": [], "resumed": True}
+        if user_msg is None:
+            user_msg = chat_store.add_message(user_id, chat_id, "user", text, max_messages=deps.max_messages)
         chat_store.set_title_if_default(user_id, chat_id, _chat_title(text))
 
         new_reqs = reqmod.parse_requirements(text)
@@ -300,6 +313,7 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
         # template spec for it to edit, so a question about one is planned as if no part were open.
         on_code = codegen_chat.is_part_spec(current_spec)
         before_results = evaluate(current["facts"]) if current and not on_code else []
+        JP.step("Planning the design")
         plan = _call_plan(deps, history, None if on_code else current_spec,
                           conversation.facts_digest(current["facts"], before_results) if current and not on_code else None)
         if plan.source == "llm":
@@ -337,6 +351,7 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
             return finish(reply, meta={"choices": plan.choices} if plan.choices else None, charged=charged, requirements=results)
 
         description = text.strip()
+        JP.step("Building the model")
         try:
             result = deps.generate(description, plan.spec, user_id, plan.source)
         except Exception as exc:  # noqa: BLE001 - a failed preview must never break the chat
@@ -352,6 +367,7 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str) -> dict[str, Any
         spec = _keep_vehicle(plan.spec, spec)
         spec = _keep_stage(plan.spec, spec)
         facts = reqmod.facts_from_result(result, spec["part_type"])
+        JP.step("Saving your design")
         part = chat_store.add_part(
             user_id, chat_id, job_id=result.get("job_id"), title=part_title(spec),
             part_type=spec["part_type"], spec=spec, notes=_notes(result), facts=facts,

@@ -134,6 +134,10 @@ def _setting(name: str, default: Any) -> Any:
 
 def _plan_budget() -> float:
     """Seconds one planning message may take in total (VEHICLE_PLAN_TIME_BUDGET_S, default 120)."""
+    import job_progress as JP
+    over = JP.budget_override()                      # a background build has its own, longer limit
+    if over:
+        return float(over)
     return float(_setting("VEHICLE_PLAN_TIME_BUDGET_S", VP.DEFAULT_TIME_BUDGET_S))
 
 
@@ -850,7 +854,8 @@ def _inspect_finished(plan, vspec: dict[str, Any], llm: LLM | None, lib: SL.Spec
                 r = VP.revise_vehicle(cur, instruction, llm, lib, time_budget_s=_plan_budget())
                 return r["spec"] if r.get("ok") else None
 
-        rep = VI.inspect_vehicle(vspec, expand=expand, bbox_fn=fn, revise_fn=revise, vision_fn=_vision_ctx.get() or _vision_fn,
+        import job_progress as JP
+        rep = VI.inspect_vehicle(vspec, expand=expand, bbox_fn=fn, revise_fn=revise, on_step=JP.step, vision_fn=_vision_ctx.get() or _vision_fn,
                                  meshes_fn=_part_meshes,
                                  kind=kind_of(str(vspec.get("name") or "").replace("_", " ")))
         if rep["changed"]:

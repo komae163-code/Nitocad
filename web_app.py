@@ -32,6 +32,7 @@ import codegen_store
 import civil_api
 import file_api
 import pcb_api
+import build_jobs
 import chat_store
 import bachs_pay
 import paystack_pay
@@ -55,8 +56,17 @@ async def lifespan(app: FastAPI):
     db.init_db()
     chat_store.configure(db.get_conn)
     chat_store.init_tables()
+    build_jobs.configure(db.get_conn)
+    build_jobs.init_tables()
     codegen_store.configure(db.get_conn)
     codegen_store.init_tables()
+    try:                                  # run again any background build a restart interrupted
+        import asyncio
+        resumed = app.state.resume_jobs(asyncio.get_running_loop()) if hasattr(app.state, "resume_jobs") else 0
+        if resumed:
+            logger.info("resumed background builds", extra={"count": resumed})
+    except Exception:  # noqa: BLE001
+        logger.exception("background build resume failed")
     logger.info(
         "starting nitocad api",
         extra={"environment": settings.ENVIRONMENT, "r2_configured": settings.r2_configured},
@@ -2768,7 +2778,9 @@ async def readyz():
 
 
 # CAD Studio chats: server-stored conversations. See chat_api.py.
-app.include_router(chat_api.build_router(generator=generator, limiter=limiter))
+_chat_router = chat_api.build_router(generator=generator, limiter=limiter)
+app.state.resume_jobs = _chat_router.resume_jobs
+app.include_router(_chat_router)
 # Vehicle parts: summary, exploded view, package. See vehicle_api.py.
 app.include_router(vehicle_api.build_router(limiter=limiter))
 # Code-first CAD: the AI writes CadQuery once, sliders re-run it free. Runs AI-written code in a sandbox, see CHANGES_codegen_spike.md.

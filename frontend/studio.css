@@ -477,3 +477,10 @@ html[data-theme="dark"] .bubble{background:#161624;}
 .filecard .fc-trace-row select,.filecard .fc-trace-row input{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;font-size:.85rem;min-width:0;}
 .filecard .fc-trace-row input{width:110px;}
 .filecard .fc-trace-check{display:flex;gap:6px;align-items:center;font-size:.82rem;color:var(--ink-soft);margin-bottom:4px;}
+
+/* background build progress */
+.working.job .job-note{margin:10px 0 6px;font-size:.82rem;color:var(--muted,#8a8f98);}
+.working.job .job-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:6px;}
+.working.job .job-time{font-size:.8rem;color:var(--muted,#8a8f98);}
+.working.job .work-row small{opacity:.65;margin-left:4px;}
+.working.job .job-cancel{padding:5px 12px;}

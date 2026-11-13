@@ -5,7 +5,7 @@ follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## Unreleased
 
-- One questions card before building, finished-model inspection with an optional vision pass, and readable part names. See CHANGES_questions_card_inspect_naming.md.
+- One questions card before building, finished-model inspection with an optional vision pass, readable part names, and background builds you can leave and come back to. See CHANGES_questions_card_inspect_naming.md.
 
 ## [Unreleased] - One project from Nitocad-merged (3.9.0 + packs) and Nitocad-merged-v8 (mechanical, building, feature tree)
 

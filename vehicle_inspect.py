@@ -274,11 +274,13 @@ def _score(findings: list[dict[str, Any]]) -> int:
 def inspect_vehicle(vspec: dict[str, Any], *, expand: Callable[[dict[str, Any]], "tuple[list[dict[str, Any]], list[tuple[str, str]]] | None"],
                     bbox_fn: BBoxFn, revise_fn: ReviseFn | None = None, vision_fn: VisionFn | None = None,
                     meshes_fn: Callable[[list[dict[str, Any]]], dict[str, tuple[Any, Any]]] | None = None,
-                    work_dir: str | Path | None = None, kind: str | None = None, max_passes: int = MAX_PASSES) -> dict[str, Any]:
+                    work_dir: str | Path | None = None, kind: str | None = None, max_passes: int = MAX_PASSES,
+                    on_step: Callable[..., None] | None = None) -> dict[str, Any]:
     """Check, fix, check again, at most `max_passes` fixes. `expand(vspec)` returns (placed parts, intended contact
     pairs) or None when the spec cannot be placed. Returns {"vspec", "changed", "passes", "findings", "visual",
     "summary"}. Never raises: any failure ends the loop with the best design so far."""
     max_passes = max(0, min(int(max_passes), MAX_PASSES))
+    say = on_step or (lambda *a, **k: None)
     best, best_found = vspec, None
     passes: list[dict[str, Any]] = []
     visual = "skipped: no vision model is connected" if vision_fn is None else "not run"
@@ -289,6 +291,7 @@ def inspect_vehicle(vspec: dict[str, Any], *, expand: Callable[[dict[str, Any]],
             if placed is None:
                 break
             parts, contact = placed
+            say("Inspecting the finished model", f"check {n + 1}: floating parts, overlaps, wheels, symmetry")
             found = check_geometry(parts, bbox_fn, kind=kind, intended_contact=contact)
             if vision_fn is not None:
                 try:
@@ -297,6 +300,7 @@ def inspect_vehicle(vspec: dict[str, Any], *, expand: Callable[[dict[str, Any]],
                         meshes = meshes_fn(parts) if meshes_fn else None
                     except Exception:  # noqa: BLE001 - no real triangles: show each part's box instead
                         meshes = None
+                    say("Looking at renders of the model")
                     imgs = render_views(boxes, work_dir or Path("/tmp") / "nitocad_inspect", meshes=meshes)
                     if imgs:
                         known = "; ".join(f["detail"] for f in found) or "nothing"
@@ -316,6 +320,7 @@ def inspect_vehicle(vspec: dict[str, Any], *, expand: Callable[[dict[str, Any]],
             if not fixable or n == max_passes or revise_fn is None:
                 best_found = found
                 break
+            say("Fixing what the inspection found", "; ".join(f["detail"] for f in fixable[:2]))
             new = revise_fn(best, " ".join(f["instruction"] for f in fixable))
             if not isinstance(new, dict) or new == best:
                 best_found = found

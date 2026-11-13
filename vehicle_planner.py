@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+import job_progress as JP
 import spec_library as SL
 import vehicle_decompose as VD
 import vehicle_spec as VS
@@ -162,6 +163,8 @@ def _run_loop(messages: list[dict[str, str]], llm: LLM, cat: dict[str, dict[str,
                 last_errors = last_errors + [f"planning stopped after {int(clock() - started)} s to stay inside the "
                                              f"{int(time_budget_s)} s time limit"]
             break
+        JP.step("Asking the AI for the parts list" if attempt == 1 else "Asking the AI to fix its plan",
+                None if attempt == 1 else f"try {attempt} of {max_attempts}")
         try:
             reply = llm(messages)
         except Exception as e:                                              # noqa: BLE001 - any model/network failure
@@ -176,6 +179,7 @@ def _run_loop(messages: list[dict[str, str]], llm: LLM, cat: dict[str, dict[str,
             history.append({"attempt": attempt, "errors": last_errors})
             messages.append({"role": "user", "content": _feedback_message(last_errors)})
             continue
+        JP.step("Checking the plan: sizes, fits and overlaps")
         ex = VS.expand_vehicle(spec, None, cat, module_dir)
         if not ex["ok"]:
             last_errors = ex["errors"]

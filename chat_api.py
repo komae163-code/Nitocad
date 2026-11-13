@@ -14,6 +14,8 @@ delete another's chat.
   PATCH  /chats/{id}                     rename
   DELETE /chats/{id}                     delete (soft)
   POST   /chats/{id}/messages            send a message: plan -> free preview -> reply (never charges)
+  POST   /chats/{id}/turns               the same turn as a saved background job (see build_jobs.py)
+  GET    /jobs/{id}  POST /jobs/{id}/cancel   follow or stop a background build
   POST   /chats/{id}/parts/{part}/generate   pay once for that version and unlock its full files
   POST   /chats/{id}/parts/{part}/check      manufacturability check for one process (paid once per version and process)
   GET    /templates                          the template picker's catalogue
@@ -25,13 +27,17 @@ description. The studio talks to POST /chats/{id}/messages instead.
 """
 
 import asyncio
+import threading
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 import ai_models
+import build_jobs
 import chat_service
 import chat_store
 import vehicle_chat
@@ -229,7 +235,8 @@ def build_router(*, generator, limiter) -> APIRouter:
     async def chat_config():
         # Previews and edits are free. An AI answer to a question costs answer_credits. Pressing Generate costs
         # generate_credits, which depends on the AI tier. There is no daily message or generation limit.
-        return {"preview_credits": 0, "build_credits": 0, "edit_credits": 0,
+        return {
+            "background_builds": bool(settings.BACKGROUND_BUILDS),"preview_credits": 0, "build_credits": 0, "edit_credits": 0,
                 "generate_credits": {t: ai_models.generate_credits(settings, t) for t in ai_models.TIERS},
                 "check_credits": int(settings.CHECK_CREDITS),
                 "max_message_chars": settings.CHAT_MAX_MESSAGE_CHARS}
@@ -305,6 +312,8 @@ def build_router(*, generator, limiter) -> APIRouter:
         chat = await run_in_threadpool(_with_anchor_state, chat, uid)
         chat = await run_in_threadpool(_with_requirements, chat, uid)
         chat = await run_in_threadpool(_with_checks, chat, uid)
+        active = await run_in_threadpool(build_jobs.active_for_chat, uid, chat_id)
+        chat["active_job"] = build_jobs.public(active) if active else None
         return chat
 
     @router.post("/chats/{chat_id}/requirements", status_code=201)
@@ -344,13 +353,8 @@ def build_router(*, generator, limiter) -> APIRouter:
             raise HTTPException(status_code=404, detail="Chat not found")
         return {"success": True}
 
-    @router.post("/chats/{chat_id}/messages")
-    @limiter.limit(settings.RATE_LIMIT_GENERATE)
-    async def send_message(request: Request, chat_id: str, body: MessageBody, wallet: Wallet):
-        uid = _uid(wallet)
-        text = body.content.strip()
-        if not text:
-            raise HTTPException(status_code=422, detail="Message must not be empty")
+    async def _validated_model(uid: str, body: MessageBody):
+        """The AI the person picked, or the HTTP error that says why they cannot use it."""
         model = ai_models.find(settings, body.model)
         if model is None or not model.available:
             raise HTTPException(status_code=400, detail="That AI is not available yet. Pick another one.")
@@ -361,14 +365,9 @@ def build_router(*, generator, limiter) -> APIRouter:
                 detail=f"{model.label} is part of the {ai_models.required_plan(model).title()} plan. "
                        "Pick DeepSeek or upgrade to use it.",
             )
-        try:
-            out = await run_in_threadpool(chat_service.run_turn, make_deps(model, asyncio.get_running_loop()), uid, chat_id, text)
-        except chat_service.ChatNotFound:
-            raise HTTPException(status_code=404, detail="Chat not found")
-        except chat_service.ChatBusy:
-            raise HTTPException(status_code=409, detail="This chat is still working on your last message.")
-        except chat_store.ChatLimitError as exc:
-            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        return model
+
+    def _finalise_out(out: dict, model) -> dict:
         if out.get("part"):
             out["part"]["anchor_tx"] = None
             # A template message builds a free preview. A code part was paid for when it was written.
@@ -377,6 +376,119 @@ def build_router(*, generator, limiter) -> APIRouter:
             out["part"]["ai_tier"] = part_tier
             out["part"]["generate_credits"] = ai_models.generate_credits(settings, part_tier)
         return out
+
+    @router.post("/chats/{chat_id}/messages")
+    @limiter.limit(settings.RATE_LIMIT_GENERATE)
+    async def send_message(request: Request, chat_id: str, body: MessageBody, wallet: Wallet):
+        uid = _uid(wallet)
+        text = body.content.strip()
+        if not text:
+            raise HTTPException(status_code=422, detail="Message must not be empty")
+        model = await _validated_model(uid, body)
+        try:
+            out = await run_in_threadpool(chat_service.run_turn, make_deps(model, asyncio.get_running_loop()), uid, chat_id, text)
+        except chat_service.ChatNotFound:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        except chat_service.ChatBusy:
+            raise HTTPException(status_code=409, detail="This chat is still working on your last message.")
+        except chat_store.ChatLimitError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        return _finalise_out(out, model)
+
+    # ------------------------------------------------------------ background builds
+    # POST /chats/{id}/turns   the same turn as /messages, but saved as a job. A quick answer comes back at once, exactly
+    #                          like /messages; a long one answers 202 with the job, and the browser follows it.
+    # GET  /jobs/{id}          where it is: status, progress lines and, when done, the same fields /messages returns.
+    # POST /jobs/{id}/cancel   stop it at its next step.
+    # Leaving the page does not stop a job. Coming back, GET /chats/{id} carries `active_job` so the browser rejoins it.
+    runner = build_jobs.Runner(settings.BACKGROUND_MAX_WORKERS)
+
+    def _job_payload(job: dict) -> dict:
+        pub = build_jobs.public(job)
+        return {**(job.get("result") or {}), "job": pub} if job["status"] == "done" else {"job": pub}
+
+    def _submit_job(job: dict, model, loop) -> None:
+        def work(attempt: int) -> dict:
+            try:
+                out = chat_service.run_turn(make_deps(model, loop), job["user_id"], job["chat_id"], job["text"], resume=attempt > 1)
+            except chat_service.ChatBusy:
+                raise RuntimeError("This chat was busy with another message. Send it again in a moment.")
+            except chat_service.ChatNotFound:
+                raise RuntimeError("This chat no longer exists.")
+            return _finalise_out(out, model)
+
+        def run() -> None:
+            build_jobs.execute(job["id"], work, plan_budget_s=settings.BACKGROUND_PLAN_BUDGET_S,
+                               max_runtime_s=settings.BACKGROUND_JOB_MAX_S)
+        runner.submit(job["id"], run)
+
+    def _resubmit(loop, jobs) -> None:
+        for job in jobs:
+            model = ai_models.find(settings, job.get("model_id"))
+            if model is None or not model.available:
+                model = ai_models.find(settings, None)
+            _submit_job(job, model, loop)
+
+    def resume_jobs(loop) -> int:
+        """At startup: delete old finished jobs and start a sweeper that runs again any build whose process died. The
+        sweeper waits for a job's heartbeat to go quiet (build_jobs.STALE_S), so a build another process is still
+        running is left alone."""
+        try:
+            build_jobs.purge_old()
+        except Exception:  # noqa: BLE001 - jobs are an extra; the app must start without them
+            import logging
+            logging.getLogger(__name__).exception("could not purge old background builds")
+
+        def sweep() -> None:
+            import logging
+            import time as _t
+            while True:
+                _t.sleep(30)
+                try:
+                    _resubmit(loop, build_jobs.requeue_stale(skip_ids=runner.live_ids()))
+                except Exception:  # noqa: BLE001
+                    logging.getLogger(__name__).exception("background build sweep failed")
+        threading.Thread(target=sweep, name="build-sweeper", daemon=True).start()
+        return 0
+    router.resume_jobs = resume_jobs
+
+    @router.post("/chats/{chat_id}/turns")
+    @limiter.limit(settings.RATE_LIMIT_GENERATE)
+    async def start_turn(request: Request, chat_id: str, body: MessageBody, wallet: Wallet):
+        uid = _uid(wallet)
+        text = body.content.strip()
+        if not text:
+            raise HTTPException(status_code=422, detail="Message must not be empty")
+        if not settings.BACKGROUND_BUILDS:
+            return await send_message(request, chat_id, body, wallet)
+        model = await _validated_model(uid, body)
+        if await run_in_threadpool(chat_store.get_chat, uid, chat_id) is None:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        try:
+            job = await run_in_threadpool(build_jobs.create, uid, chat_id, text, getattr(model, "id", None),
+                                          max_active_per_user=settings.BACKGROUND_MAX_ACTIVE_PER_USER)
+        except build_jobs.JobActive as busy:
+            return JSONResponse(status_code=409, content={"detail": "This chat is still working on your last message.", "job": busy.job})
+        except build_jobs.JobLimit as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        _submit_job(job, model, asyncio.get_running_loop())
+        await run_in_threadpool(runner.wait, job["id"], settings.BACKGROUND_INLINE_WAIT_S)
+        latest = await run_in_threadpool(build_jobs.get, uid, job["id"]) or job
+        return JSONResponse(status_code=200 if latest["status"] in build_jobs.DONE else 202, content=jsonable_encoder(_job_payload(latest)))
+
+    @router.get("/jobs/{job_id}")
+    async def get_job(job_id: str, wallet: Wallet):
+        job = await run_in_threadpool(build_jobs.get, _uid(wallet), job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return JSONResponse(content=jsonable_encoder(_job_payload(job)))
+
+    @router.post("/jobs/{job_id}/cancel")
+    async def cancel_job(job_id: str, wallet: Wallet):
+        job = await run_in_threadpool(build_jobs.request_cancel, _uid(wallet), job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return JSONResponse(content=jsonable_encoder(_job_payload(job)))
 
     @router.post("/chats/{chat_id}/imports/{import_id}/part")
     @limiter.limit(settings.RATE_LIMIT_GENERATE)

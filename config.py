@@ -384,6 +384,17 @@ class Settings(BaseSettings):
     # Wall-clock limit for planning one vehicle message (all model retries together). The browser waits 170 s. One model
     # call is still limited only by AI_TIMEOUT_SECONDS. A timeout builds nothing and charges nothing.
     VEHICLE_PLAN_TIME_BUDGET_S: float = 120.0
+    # Background builds: a turn runs as a saved job the person can leave and come back to. The browser waits up to
+    # BACKGROUND_INLINE_WAIT_S for a quick answer (so short replies feel as before), then shows progress instead.
+    # BACKGROUND_PLAN_BUDGET_S replaces VEHICLE_PLAN_TIME_BUDGET_S inside a job; BACKGROUND_JOB_MAX_S stops a job that
+    # runs too long. One model call is still limited by AI_TIMEOUT_SECONDS. Workers are threads in this process: with
+    # several web workers each runs its own jobs, and a job left running by a restart is run again at startup.
+    BACKGROUND_BUILDS: bool = True
+    BACKGROUND_INLINE_WAIT_S: float = 20.0
+    BACKGROUND_PLAN_BUDGET_S: float = 900.0
+    BACKGROUND_JOB_MAX_S: float = 3600.0
+    BACKGROUND_MAX_WORKERS: int = 2
+    BACKGROUND_MAX_ACTIVE_PER_USER: int = 3
     # Built vehicle packages are kept this many seconds so a repeat download does not rebuild them. 0 turns the cache off.
     # Per process: with several workers each keeps its own copy. Payment is always checked before the cache is used.
     VEHICLE_PACKAGE_CACHE_TTL_S: int = 900

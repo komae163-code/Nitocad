@@ -26,23 +26,24 @@ const Backend = {
      everything. Returns { reply, part?, needCredits?, balance?, authExpired?, error? }. */
   async send({ chat, text }) {
     if (DEMO) return Demo.send(text, lastPart(chat));
-    let r = await api("POST", `/chats/${chat.id}/messages`, { content: text, ...(S.model ? { model: S.model } : {}) });
+    const body = { content: text, ...(S.model ? { model: S.model } : {}) };
+    /* /turns saves the turn as a background job: a quick answer comes straight back, a long one is followed to the end and
+       survives closing the page. A server without it (404 "Not Found") gets the old /messages request. */
+    let r = S.background === false ? null : await api("POST", `/chats/${chat.id}/turns`, body);
+    if (!r || (r.status === 404 && r.data && r.data.detail === "Not Found")) { S.background = false; r = await api("POST", `/chats/${chat.id}/messages`, body); }
     if (!r.ok && r.status === 422) r = await api("POST", `/chats/${chat.id}/messages`, { content: text });   // an older server that does not take "model"
     if (r.authExpired) return { authExpired: true };
+    const job = r.data && r.data.job;
+    if (job && (r.status === 202 || r.status === 409 || r.ok) && (job.status === "queued" || job.status === "running")) return await followJob(chat, job);
+    if (job && job.status === "failed") return { reply: job.error || "The build failed. Nothing was charged.", error: true, status: 0 };
+    if (job && job.status === "cancelled") return { reply: job.error || "Cancelled.", error: false };
     if (!r.ok) {
       const msg = r.status === 409 ? "I am still working on your last message. Give me a moment."
         : r.status === 404 ? "I could not find this chat any more. Start a new design."
         : (r.detail || "Something went wrong building that. Please try again.") + (r.status ? ` [${r.status}]` : "");
       return { reply: msg, error: true, status: r.status };
     }
-    const d = r.data;
-    return {
-      reply: d.assistant_message.content, part: d.part ? fromServerPart(d.part) : null,
-      needCredits: !!d.needs_credits, balance: d.balance,
-      choices: (d.assistant_message.meta && d.assistant_message.meta.choices) || [],
-      diff: d.diff || (d.assistant_message.meta && d.assistant_message.meta.diff) || null,
-      requirements: d.requirements || [], newRequirements: d.new_requirements || []
-    };
+    return turnOut(r.data);
   },
 
   async anchor(part) {
@@ -356,6 +357,8 @@ async function loadChat(c) {
   if (r.authExpired) { Auth.clearSession(); return false; }
   if (!r.ok) { toast(r.detail || "Could not open that chat."); return false; }
   Object.assign(c, fromServerChat(r.data));
+  c.activeJob = r.data.active_job || null;
+  if (c.activeJob) setTimeout(() => { if (S.activeId === c.id && c.activeJob && !S.busy) resumeJob(c, c.activeJob); }, 400);
   return true;
 }
 let saveT = 0;
@@ -1344,6 +1347,69 @@ function closeCanvas() { $("app").classList.remove("canvas-open"); $("scrim").cl
    or a 409 because the last turn is still running). Instead of leaving an error in the chat, watch the saved chat
    until the finished turn shows up, then show it. Returns the same shape send() builds replies from, or null. */
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+/* The reply fields the chat needs, from a finished turn (/messages, or a finished background job). */
+function turnOut(d) {
+  return {
+    reply: d.assistant_message.content, part: d.part ? fromServerPart(d.part) : null,
+    needCredits: !!d.needs_credits, balance: d.balance,
+    choices: (d.assistant_message.meta && d.assistant_message.meta.choices) || [],
+    diff: d.diff || (d.assistant_message.meta && d.assistant_message.meta.diff) || null,
+    requirements: d.requirements || [], newRequirements: d.new_requirements || []
+  };
+}
+const fmtElapsed = (s) => s < 60 ? `${s}s` : `${Math.floor(s / 60)} min ${s % 60}s`;
+const TICK = '<svg viewBox="0 0 12 12"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg>';
+/* Progress for a background build: the steps the server has reached, how long it has run, and a Cancel button. */
+function showJobWorking(job) {
+  hideWorking();
+  const el = document.createElement("div"); el.className = "msg"; el.id = "working";
+  el.innerHTML = ASSIST_AVA + '<div class="reply"><div class="working job"><div class="job-rows"></div>' +
+    '<div class="job-note">This build runs on the server. You can close this page and come back later. It will be here when it is done.</div>' +
+    '<div class="job-foot"><span class="job-time"></span><button class="chip job-cancel" type="button">Cancel build</button></div></div></div>';
+  $("threadInner").appendChild(el); scrollEnd(true);
+  el.querySelector(".job-cancel").onclick = async (e) => { e.target.disabled = true; e.target.textContent = "Cancelling..."; await api("POST", `/jobs/${job.id}/cancel`, null, 20000); };
+  updateJobWorking(job);
+}
+function updateJobWorking(job) {
+  const el = $("working"); if (!el || !el.querySelector(".job-rows")) return;
+  const steps = (job.steps && job.steps.length) ? job.steps.slice(-8) : [{ label: job.status === "queued" ? "Waiting for a free worker" : "Starting" }];
+  el.querySelector(".job-rows").innerHTML = steps.map((st, i) => {
+    const live = i === steps.length - 1;
+    return `<div class="work-row ${live ? "live" : "done"}"><span class="tick">${live ? "" : TICK}</span><span>${esc(st.label)}${st.detail ? ` <small>${esc(st.detail)}</small>` : ""}</span></div>`;
+  }).join("");
+  el.querySelector(".job-time").textContent = "Running for " + fmtElapsed(job.elapsed_s || 0);
+}
+/* Follow a background build until it ends. Returns the same shape as a normal reply. No overall time limit here: the
+   server stops a job that runs too long. A dropped connection is retried; only a long run of failures gives up, and the
+   build keeps going on the server either way. */
+async function followJob(c, job) {
+  showJobWorking(job);
+  let fails = 0;
+  for (let i = 0; ; i++) {
+    await sleepMs(i < 15 ? 2000 : 5000);
+    const r = await api("GET", `/jobs/${job.id}`, null, 20000);
+    if (r.authExpired) return { authExpired: true };
+    if (!r.ok) {
+      if (r.status === 404) return { reply: "That build is no longer on the server. Send your message again.", error: true };
+      if (++fails >= 12) return { reply: "I lost the connection. The build keeps running on the server. Open this chat again in a minute to see it.", error: false };
+      continue;
+    }
+    fails = 0;
+    const d = r.data, j = d.job || {};
+    updateJobWorking(j);
+    if (j.status === "done") return d.assistant_message ? turnOut(d) : { reply: "Done. Reopen this chat to see it.", error: false };
+    if (j.status === "failed") return { reply: j.error || "The build failed. Nothing was charged.", error: true, status: 0 };
+    if (j.status === "cancelled") return { reply: j.error || "Cancelled.", error: false };
+  }
+}
+/* Rejoin a build that was still running when this chat was opened (the page was closed or reloaded meanwhile). */
+async function resumeJob(c, job) {
+  if (S.busy || !job) return;
+  S.busy = true; $("send").disabled = true;
+  const out = await followJob(c, job);
+  c.activeJob = null;
+  await applyOut(c, out, null, false);
+}
 async function recoverTurn(c, knownCount) {
   if (DEMO || !c.remote) return null;
   const row = document.querySelector("#working .work-row.live:last-child span:last-child") || document.querySelector("#working .work-row:last-child span:last-child");
@@ -1397,10 +1463,16 @@ async function send(text, templateId, importId) {
     }
     if (back && back.authExpired) out = back;
   }
+  await applyOut(c, out, text, true);
+}
+
+/* Show a finished turn in the chat. `text` is the message that was sent (null when rejoining a build); `popOnExpire`
+   removes that message again if the sign-in ran out. */
+async function applyOut(c, out, text, popOnExpire) {
   hideWorking(); S.busy = false;
-  if (out.authExpired) { Auth.clearSession(); c.messages.pop(); toast("Your session expired. Sign in again."); save(); route(); return; }
+  if (out.authExpired) { Auth.clearSession(); if (popOnExpire) c.messages.pop(); toast("Your session expired. Sign in again."); save(); route(); return; }
   const msg = { id: uid(), role: "assistant", text: out.reply || "" };
-  if (out.error) msg.retry = text;
+  if (out.error && text) msg.retry = text;
   if (out.needCredits) msg.needCredits = true;
   if (out.choices && out.choices.length) msg.choices = out.choices;
   if (out.diff) msg.diff = out.diff;

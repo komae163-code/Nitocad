@@ -30,7 +30,25 @@
 - tools/make_car_example.py was out of date (33 components against the shipped 45). It now refuses to overwrite car.json
   without --force.
 
+## 4. Background builds (build_jobs.py, job_progress.py, chat_api.py, frontend/studio.js)
+- `POST /chats/{id}/turns` runs the same turn as `/messages` as a saved job. An answer that is ready within
+  BACKGROUND_INLINE_WAIT_S (20 s) comes straight back, exactly like `/messages`. A longer one answers 202 with the job, and
+  the browser shows live progress (the steps the server has reached, time running, Cancel).
+- Leaving the page does not stop a build. Reopening the chat rejoins it (`active_job` on `GET /chats/{id}`); a finished
+  build is already saved in the chat. `GET /jobs/{id}` follows a job, `POST /jobs/{id}/cancel` stops it at its next step.
+- Inside a job the planning limit is BACKGROUND_PLAN_BUDGET_S (900 s) instead of VEHICLE_PLAN_TIME_BUDGET_S (120 s); a job
+  is stopped after BACKGROUND_JOB_MAX_S (3600 s). One model call is still limited by AI_TIMEOUT_SECONDS.
+- State is in the database (table `build_jobs`), so it survives page closes. Workers are threads in the web process
+  (BACKGROUND_MAX_WORKERS at once, one job per chat, three per person). A running job writes a heartbeat; if its process
+  dies, a sweeper runs the job again once the heartbeat has been silent for 75 s (at most twice, the person's message
+  is not saved twice, a reply already saved is not built again), then marks it failed. A job is claimed atomically, so
+  it never runs twice at once, even with several processes.
+- A server without `/turns` is handled: the browser falls back to `/messages`. Set BACKGROUND_BUILDS=false to turn the
+  feature off on the server.
+- Limits: a redeploy still interrupts a build; it resumes within about two minutes, from the start of that turn (not
+  from the middle). Progress lines are coarse (planning, each AI try, checking, building, inspecting, saving).
+
 ## Tests
-New: test_vehicle_inspect.py, test_vision.py, test_part_naming.py; updated for the new names and the single card:
+New: test_vehicle_inspect.py, test_vision.py, test_part_naming.py, test_build_jobs.py; updated for the new names and the single card:
 test_build_scope.py, test_vehicle_chat.py, test_vehicle_car.py, test_vehicle_spec.py, test_vehicle_modules.py,
 test_vehicle_new_examples.py, test_vehicle_overlap.py, test_vehicle_decompose.py, test_vehicle_views.py.
