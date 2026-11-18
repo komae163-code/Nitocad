@@ -32,6 +32,7 @@ from typing import Any, Callable
 
 import build_jobs
 import chat_store
+import design_inspect
 import job_progress as JP
 import conversation
 import dfm
@@ -363,6 +364,10 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str, *, resume: bool 
             return finish(f"{reason} You were not charged." if "not charged" not in reason.lower() else reason,
                           meta={"error": True})
 
+        inspected = ""
+        if JP.active() and plan.intent in ("build", "edit") and plan.source is not None:
+            plan, result, inspected = _inspect_built(deps, history, description, user_id, plan, result)    # background builds only
+
         spec = _spec_from_result(result, plan.spec)
         spec = _keep_vehicle(plan.spec, spec)
         spec = _keep_stage(plan.spec, spec)
@@ -374,6 +379,8 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str, *, resume: bool 
         )
         reply = plan.reply or _default_reply(plan, part)
         reply += _notes_sentence(part["notes"] or [])
+        if inspected:
+            reply += " " + inspected
         results = evaluate(facts)
         # What the edit did to the build, compared with the version before it. Built from the spec that
         # was actually made, so validator corrections and follow-on changes show up too.
@@ -391,6 +398,44 @@ def run_turn(deps: Deps, user_id: str, chat_id: str, text: str, *, resume: bool 
         return finish(reply, part=part, requirements=results, meta={"diff": diff} if diff else None, diff=diff)
     finally:
         lock.release()
+
+
+def _inspect_built(deps: Deps, history: list[dict], description: str, user_id: str, plan, result: dict):
+    """Look at a finished assembly or circuit board, fix what is wrong (at most two fixes, kept only if the checks come
+    back better), and say what was found. Only inside a background build, because it takes time. Vehicles have their own
+    inspection (vehicle_inspect.py), code parts and single parts are not inspected. Never raises, except to stop a job
+    that was cancelled or ran too long. Returns (plan, result, sentence to add to the reply)."""
+    try:
+        import vehicle_chat
+        if vehicle_chat.vehicle_of(plan.spec) is not None:
+            return plan, result, ""
+        kind = design_inspect.kind_of(plan.spec, result)
+        if kind is None:
+            return plan, result, ""
+
+        def rebuild(s: dict):
+            r = deps.generate(description, s, user_id, plan.source)
+            return r if r.get("success") else None
+
+        replan = None
+        if kind == "assembly" and deps.uses_ai:
+            def replan(instruction: str, cur: dict):
+                p = _call_plan(deps, list(history) + [{"role": "user", "content": instruction}], cur, None)
+                ok = p is not None and p.spec and p.intent in ("build", "edit") and p.spec.get("part_type") == cur.get("part_type")
+                return p.spec if ok else None
+
+        rep = design_inspect.refine(kind, plan.spec, result, rebuild=rebuild, replan=replan, say=JP.step)
+        if rep["changed"]:
+            plan.spec = rep["spec"]
+            plan.changes = list(plan.changes or []) + ["fixed after inspection"]
+            result = rep["result"]
+        return plan, result, rep["summary"]
+    except (JP.JobCancelled, JP.JobTimeout):
+        raise
+    except Exception:  # noqa: BLE001 - an inspection problem must never lose the finished design
+        import logging
+        logging.getLogger(__name__).exception("inspection failed")
+        return plan, result, ""
 
 
 def _codegen_material_turn(user_id: str, chat_id: str, text: str, current: dict, finish: Callable[..., dict],
@@ -647,6 +692,7 @@ def start_template_part(deps: Deps, user_id: str, chat_id: str, template_id: str
         if chat_store.get_chat(user_id, chat_id) is None:
             raise ChatNotFound()
         text = f"Start from the template: {template.title}"
+        earlier = studio_templates.earlier_request(chat_store.recent_messages(user_id, chat_id, 12))      # what they asked before pressing it
         user_msg = chat_store.add_message(user_id, chat_id, "user", text, max_messages=deps.max_messages)
         chat_store.set_title_if_default(user_id, chat_id, _chat_title(template.title))
         spec = studio_templates.spec_of(template)
@@ -674,7 +720,10 @@ def start_template_part(deps: Deps, user_id: str, chat_id: str, template_id: str
                                    facts=reqmod.facts_from_result(result, built["part_type"]))
         reply = studio_templates.reply_for(template) + _notes_sentence(part["notes"] or [])
         sentence = _requirement_sentence(evaluate_for(part), f"Version {part['version']}")
-        return finish(reply + (" " + sentence if sentence else ""), part=part)
+        if earlier:
+            reply += f' You asked earlier: "{earlier}". This template does not use it yet; tap below to apply it, or tell me what to change.'
+        return finish(reply + (" " + sentence if sentence else ""), part=part,
+                      meta={"choices": studio_templates.next_steps(template, earlier)})
     finally:
         lock.release()
 

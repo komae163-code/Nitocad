@@ -54,6 +54,19 @@ _KINDS = {
     "bin": "bin", "dustbin": "bin", "wheelie bin": "bin",
     "airplane": "airplane", "aeroplane": "airplane", "plane": "airplane", "aircraft": "airplane", "jet": "airplane",
     "engine": "engine",
+    # Vehicles people ask for by type or by make. None of these is a word that means something else in a CAD prompt: "bus"
+    # (an I2C bus, a bus bar), "tesla" (the unit) and "beetle" are left out on purpose.
+    "coupe": "car", "hatchback": "car", "suv": "car", "supercar": "car", "hypercar": "car", "roadster": "car",
+    "convertible": "car", "limousine": "car", "limo": "car", "taxi": "car", "minivan": "car", "jeep": "car", "crossover": "car",
+    "lamborghini": "car", "lambo": "car", "ferrari": "car", "porsche": "car", "mclaren": "car", "bugatti": "car",
+    "maserati": "car", "bentley": "car", "rolls-royce": "car", "rolls royce": "car", "aston martin": "car",
+    "tesla model": "car", "bmw": "car", "audi": "car", "mercedes": "car", "toyota": "car", "honda": "car", "nissan": "car",
+    "mustang": "car", "corvette": "car", "camaro": "car", "volkswagen": "car",
+    "van": "truck", "tractor": "truck", "ambulance": "truck", "cybertruck": "truck", "minibus": "truck",
+    "school bus": "truck", "city bus": "truck", "double decker": "truck", "double-decker": "truck", "campervan": "truck",
+    "motorcycle": "bicycle", "motorbike": "bicycle", "moped": "bicycle", "dirt bike": "bicycle",
+    "rickshaw": "tricycle", "tuk-tuk": "tricycle", "tuk tuk": "tricycle", "tuktuk": "tricycle",
+    "forklift": "vehicle", "bulldozer": "vehicle", "excavator": "vehicle", "rover": "vehicle", "atv": "vehicle",
 }
 _KIND_RE = re.compile(r"\b(" + "|".join(sorted(map(re.escape, _KINDS), key=len, reverse=True)) + r")s?\b", re.I)
 _COMPONENT_AFTER = re.compile(
@@ -182,9 +195,22 @@ def vehicle_of(spec: Any) -> dict[str, Any] | None:
     return v if isinstance(v, dict) else None
 
 
+# Things named after a vehicle that are not a vehicle: a bike rack, a car key holder, a jet engine. They go to the general planner.
+_NOT_A_VEHICLE = re.compile(r"\b(?:bike|bicycle|car|truck|motorcycle|motorbike|scooter|cart|trolley|tractor|van)\s+"
+                            r"(?:rack|stand|holder|hanger|mount|lock|pump|helmet|light|bell|bag|basket|cover|garage|shed|ramp|key|"
+                            r"keyring|keychain|charger|organizer|organiser|tray|cup holder)\b|\bjet\s+(?:engine|turbine)\b", re.I)
+_NOT_A_VEHICLE_AFTER = re.compile(r"\s+(?:der|den|de|gogh|dyke|halen)\b", re.I)      # "van der Waals", "van Gogh"
+
+
 def kind_of(text: str) -> str | None:
-    m = _KIND_RE.search(text or "")
-    return _KINDS[m.group(1).lower()] if m else None
+    t = text or ""
+    if _NOT_A_VEHICLE.search(t):
+        return None
+    for m in _KIND_RE.finditer(t):
+        if m.group(1).lower() == "van" and _NOT_A_VEHICLE_AFTER.match(t, m.end()):
+            continue
+        return _KINDS[m.group(1).lower()]
+    return None
 
 
 def is_vehicle_request(text: str) -> bool:
@@ -833,8 +859,12 @@ def _part_meshes(parts: list[dict[str, Any]]):
 def _inspect_finished(plan, vspec: dict[str, Any], llm: LLM | None, lib: SL.SpecLibrary | None, library_id: str | None):
     """Check the finished vehicle (vehicle_inspect.py), fix what is wrong with at most two revisions, say what was
     found. The checklist is free; fixing needs an AI and is counted like any other AI edit. Needs the CAD kernel for
-    part boxes: without it the plan is returned untouched. Never raises."""
+    part boxes: without it the plan is returned untouched. Runs only inside a background build (it takes time), so a
+    normal one-request turn is never slowed by it. Never raises."""
     try:
+        import job_progress as _JP
+        if not _JP.active():
+            return plan
         import vehicle_build as VB
         import vehicle_inspect as VI
         fn = _bbox_fn or VB.kernel_bbox_fn()
@@ -879,9 +909,10 @@ def _start(text: str, llm: LLM | None, lib: SL.SpecLibrary, staged: bool = False
     if llm is not None:
         r = VP.plan_vehicle(text, llm, lib, time_budget_s=_plan_budget())
         if r["ok"]:
-            return _build_plan(r["spec"], r["expanded"], intent="build", source="llm", changes=None, previous=None,
+            plan = _build_plan(r["spec"], r["expanded"], intent="build", source="llm", changes=None, previous=None,
                                unresolved=r.get("unresolved_checks"), library_id=r.get("candidate_id"),
                                stage=first_stage)
+            return plan if staged else _inspect_finished(plan, r["spec"], llm, lib, r.get("candidate_id"))
         errors = r.get("errors") or []
         timed_out = bool(r.get("timed_out"))
     # No AI (Engine plan) or the AI failed: the closest built-in example, said plainly.
@@ -930,8 +961,9 @@ def _edit(text: str, current: dict[str, Any], llm: LLM | None, lib: SL.SpecLibra
             if not changes:
                 return _answer("That does not change the design. Tell me what to change, for example "
                                "\"make the wheel 400 mm\" or \"add a second axle\".", "llm")
-            return _build_plan(r["spec"], r["expanded"], intent="edit", source="llm", changes=changes,
+            plan = _build_plan(r["spec"], r["expanded"], intent="edit", source="llm", changes=changes,
                                previous=current, unresolved=r.get("unresolved_checks"), library_id=library_id, stage=stage)
+            return plan if stage else _inspect_finished(plan, r["spec"], llm, lib, library_id)
         err = (r.get("errors") or ["the change could not be planned"])[0][:200]
         if r.get("timed_out"):
             err = "that took too long to plan"

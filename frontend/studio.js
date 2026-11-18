@@ -105,7 +105,8 @@ const Backend = {
     if (r.authExpired) return { authExpired: true };
     if (!r.ok) return { reply: r.detail || "I could not start that template. Please try again.", error: true };
     const d = r.data;
-    return { reply: d.assistant_message.content, part: d.part ? fromServerPart(d.part) : null, balance: d.balance, choices: [],
+    return { reply: d.assistant_message.content, part: d.part ? fromServerPart(d.part) : null, balance: d.balance,
+      choices: (d.assistant_message.meta && d.assistant_message.meta.choices) || [],
       requirements: d.requirements || [], newRequirements: d.new_requirements || [] };
   },
 
@@ -413,6 +414,97 @@ async function fetchStl(part, asBlob) {
 
 /* ============================================================ viewer */
 const V = { ready: false, running: false, mesh: null, wire: false, grid: true, token: 0 };
+/* ---- Which way is up. CAD files (STEP, most STL) have Z up and the viewer turns them with rotateX(-90deg), so
+   CAD X is the viewer's +X, CAD Y is its -Z and CAD Z is its +Y. A file made with Y up skips that turn.
+   The Up button switches between the two and the choice is remembered in this browser. ---- */
+/* UP.pref is the choice for designs (kept in this browser). UP.axis is what the main viewer shows right now: it equals
+   UP.pref for a design, and is the file's own choice for a file attached from the computer. Live chat cards always use UP.pref. */
+const UP = { axis: "z", pref: "z" };
+try { const u = localStorage.getItem("nitocad.up"); if (u === "y" || u === "z") UP.axis = UP.pref = u; } catch (_) { /* storage can be blocked */ }
+const upLabel = (up = UP.axis) => up === "z" ? "Z up" : "Y up";
+function upTurn(obj, up = UP.axis) { obj.rotation.x = up === "y" ? Math.PI / 2 : 0; return obj; }   // undoes the CAD turn already in the geometry
+const axisNames = (up = UP.axis) => up === "z" ? ["X", "Z", "Y"] : ["X", "Y", "Z"];               // names of the viewer's x, y and z
+function axesFor(up = UP.axis) {
+  const y = up === "z" ? [0, 0, -1] : [0, 1, 0], z = up === "z" ? [0, 1, 0] : [0, 0, 1];
+  return [{ name: "X", dir: [1, 0, 0], color: 0xE5484D }, { name: "Y", dir: y, color: 0x30A46C }, { name: "Z", dir: z, color: 0x3E63DD }];
+}
+function dimText(size, up = UP.axis) {
+  const n = axisNames(up), v = { [n[0]]: size.x, [n[1]]: size.y, [n[2]]: size.z };
+  const big = Math.max(size.x, size.y, size.z) >= 3000, f = (k) => big ? (k / 1000).toFixed(2) : k.toFixed(1);   /* civil parts read better in metres */
+  return `X ${f(v.X)} x Y ${f(v.Y)} x Z ${f(v.Z)} ${big ? "m" : "mm"}`;
+}
+function relabelSection() {
+  const n = axisNames();
+  [["x", `Width (${n[0]})`], ["y", `Height (${n[1]})`], ["z", `Depth (${n[2]})`]].forEach(([k, t]) => {
+    const b = document.querySelector(`#cvSheet [data-axis="${k}"]`); if (b) b.textContent = t;
+  });
+}
+function axisLabel(letter, color) {
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d"); g.font = "600 44px 'IBM Plex Mono', monospace"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillStyle = "#" + color.toString(16).padStart(6, "0"); g.fillText(letter, 32, 34);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, toneMapped: false }));
+  sp.renderOrder = 12; return sp;
+}
+function axisGroup(len, labelScale, thin, up = UP.axis) {
+  const grp = new THREE.Group();
+  for (const a of axesFor(up)) {
+    const dir = new THREE.Vector3(...a.dir);
+    let bar;
+    if (thin) {
+      bar = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), dir.clone().multiplyScalar(len)]),
+        new THREE.LineBasicMaterial({ color: a.color, depthTest: false, transparent: true, opacity: 0.55, toneMapped: false }));
+    } else {
+      bar = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, len, 10), new THREE.MeshBasicMaterial({ color: a.color, toneMapped: false }));
+      bar.position.copy(dir.clone().multiplyScalar(len / 2));
+      bar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    }
+    bar.renderOrder = 11; grp.add(bar);
+    const sp = axisLabel(a.name, a.color); sp.position.copy(dir.clone().multiplyScalar(len * 1.22)); sp.scale.setScalar(labelScale); grp.add(sp);
+  }
+  return grp;
+}
+/* (Re)builds the axis lines in a scene and the gizmo scene. `rig` is the main viewer V or a live chat card. */
+function initAxes(rig, up = UP.axis) {
+  rig.axisMode = up;
+  if (rig.axesObj) { rig.scene.remove(rig.axesObj); disposeObject(rig.axesObj); }
+  rig.axesObj = axisGroup(46, 6, true, up); rig.axesObj.visible = rig.axesOn !== false; rig.scene.add(rig.axesObj);
+  if (!rig.gscene) { rig.gscene = new THREE.Scene(); rig.gcam = new THREE.PerspectiveCamera(32, 1, 0.1, 30); }
+  for (const o of [...rig.gscene.children]) { rig.gscene.remove(o); disposeObject(o); }
+  rig.gscene.add(axisGroup(1, 0.42, false, up));
+}
+/* the small orientation gizmo in the corner: drawn after the model, from the same viewing direction */
+function drawGizmo(rig, r, camera, target, maxSize) {
+  const size = r.getSize(rig.gSize || (rig.gSize = new THREE.Vector2()));
+  const s = Math.max(44, Math.min(maxSize, size.x * 0.28, size.y * 0.4)), pad = 8, y0 = size.y - s - pad;
+  rig.gcam.position.copy(camera.position).sub(target).normalize().multiplyScalar(4.4);
+  rig.gcam.up.copy(camera.up); rig.gcam.lookAt(0, 0, 0);
+  r.autoClear = false; r.setScissorTest(true);
+  r.setViewport(pad, y0, s, s); r.setScissor(pad, y0, s, s);
+  r.clearDepth(); r.render(rig.gscene, rig.gcam);
+  r.setScissorTest(false); r.setViewport(0, 0, size.x, size.y); r.autoClear = true;
+}
+/* Moves the main viewer to `up`: button text, section labels, axis lines and gizmo. */
+function syncUp(up) {
+  UP.axis = up;
+  const t = $("tUp"); if (t) { t.textContent = upLabel(); t.title = `Up axis: ${upLabel()}. Click to switch.`; }
+  relabelSection();
+  if (V.ready && V.axisMode !== up) initAxes(V, up);
+}
+/* A file attached from the computer starts with its format's usual up axis (STL: Z, OBJ, GLB, 3MF: Y). Switching turns it in place. */
+const fileTurn = (f) => f.up === f.native ? 0 : (f.native === "z" ? Math.PI / 2 : -Math.PI / 2);
+function refitFile() { const f = V.fileCtx; if (f) { f.pivot.rotation.x = fileTurn(f); viewerPlace(f.pivot, true); } }
+/* forMain: the button in the main viewer tools. If it is showing an attached file, only that file turns.
+   Otherwise (or from a live chat card) the choice is for designs and is remembered. */
+function toggleUp(forMain = true) {
+  if (forMain && V.fileCtx) { V.fileCtx.up = V.fileCtx.up === "z" ? "y" : "z"; syncUp(V.fileCtx.up); refitFile(); return; }
+  UP.pref = UP.pref === "z" ? "y" : "z";
+  try { localStorage.setItem("nitocad.up", UP.pref); } catch (_) { /* fine */ }
+  if (!V.fileCtx) syncUp(UP.pref);
+  const c = chat();
+  if (c) { mountCardViewers(c); if (V.mesh && !V.fileCtx && S.activePartId) viewerShow(partOf(c, S.activePartId)); }
+}
 function viewerInit() {
   if (V.ready) return;
   const el = $("cvStage");
@@ -430,6 +522,7 @@ function viewerInit() {
   const dl = new THREE.DirectionalLight(0xffffff, 1.6); dl.position.set(60, 90, 50); V.scene.add(dl);
   applyRealisticLook(V.scene, V.renderer, dl);
   V.gridObj = new THREE.GridHelper(160, 16, 0xb7c3d1, 0xd5dde6); V.scene.add(V.gridObj);
+  V.axesOn = true; initAxes(V);
   new ResizeObserver(viewerFit).observe(el);
   V.ready = true;
 }
@@ -441,7 +534,7 @@ function viewerFit() {
   const half = V.orthoHalf || 50, a = w / h;
   Object.assign(V.ortho, { left: -half * a, right: half * a, top: half, bottom: -half }); V.ortho.updateProjectionMatrix();
 }
-function viewerLoop() { if (!V.running) return; requestAnimationFrame(viewerLoop); V.controls.update(); V.renderer.render(V.scene, V.camera); }
+function viewerLoop() { if (!V.running) return; requestAnimationFrame(viewerLoop); V.controls.update(); V.renderer.render(V.scene, V.camera); if (V.axesOn) drawGizmo(V, V.renderer, V.camera, V.controls.target, 96); }
 function viewerReset() {
   if (!V.ready) return;
   const y = V.mesh ? V.mesh.userData.midY || 0 : 0;
@@ -555,8 +648,8 @@ function viewerStatus(msg, loading) {
   el.querySelector("span").textContent = msg;
 }
 function applyWire() { if (V.mesh) setWireframe(V.mesh, V.wire); }
-function viewerPlace(obj) {
-  if (V.mesh) { V.scene.remove(V.mesh); disposeObject(V.mesh); }
+function viewerPlace(obj, keep) {
+  if (V.mesh) { V.scene.remove(V.mesh); if (!keep) disposeObject(V.mesh); }
   const wrap = new THREE.Group(); wrap.add(obj);
   const b0 = new THREE.Box3().setFromObject(wrap), size = b0.getSize(new THREE.Vector3());
   const k = 70 / (Math.max(size.x, size.y, size.z) || 1);
@@ -566,11 +659,10 @@ function viewerPlace(obj) {
   wrap.userData.midY = (b1.max.y - b1.min.y) / 2;
   V.mesh = wrap; V.scene.add(wrap); applyWire(); viewerReset(); viewerStatus("");
   V.bounds = new THREE.Box3().setFromObject(wrap); V.islands = undefined; resetInspect();
-  const d = $("cvDim"); d.hidden = false; const big = Math.max(size.x, size.y, size.z) >= 3000;   /* civil parts read better in metres */
-  const fmt = (v) => big ? (v / 1000).toFixed(2) : v.toFixed(1);
-  d.textContent = `${fmt(size.x)} x ${fmt(size.z)} x ${fmt(size.y)} ${big ? "m" : "mm"}`;
+  const d = $("cvDim"); d.hidden = false; d.textContent = dimText(size);
 }
 async function viewerShow(part) {
+  V.fileCtx = null; syncUp(UP.pref);
   $("cvEmpty").hidden = !!part;
   if (!part) { if (V.mesh) { V.scene.remove(V.mesh); V.mesh = null; } $("cvDim").hidden = true; return; }
   viewerInit(); viewerFit();
@@ -583,7 +675,7 @@ async function viewerShow(part) {
     else {
       const geo = prepareStlGeometry(new STLLoader().parse(await fetchStl(part, false)));
       geo.center(); geo.rotateX(-Math.PI / 2);
-      obj = buildPartObject(geo, part.material);
+      obj = upTurn(buildPartObject(geo, part.material));
     }
     if (token !== V.token) return;
     viewerPlace(obj);
@@ -723,11 +815,11 @@ async function stlBuffer(part) {
   if (!stlCache.has(key)) stlCache.set(key, fetchStl(part, false).catch((e) => { stlCache.delete(key); throw e; }));
   return (await stlCache.get(key)).slice(0);
 }
-async function partModel(part) {
+async function partModel(part, up = UP.pref) {
   if (part.demoKind) { await sleep(120); return Demo.geometry(part.demoKind, part.params); }
   const geo = prepareStlGeometry(new STLLoader().parse(await stlBuffer(part)));
   geo.center(); geo.rotateX(-Math.PI / 2);
-  return buildPartObject(geo, part.material);
+  return upTurn(buildPartObject(geo, part.material), up);
 }
 function fitModel(obj) {
   const wrap = new THREE.Group(); wrap.add(obj);
@@ -737,10 +829,7 @@ function fitModel(obj) {
   wrap.position.set(-c.x, -b1.min.y, -c.z);
   return { wrap, midY: (b1.max.y - b1.min.y) / 2, size };
 }
-function sizeLabel(size) {
-  const big = Math.max(size.x, size.y, size.z) >= 3000, f = (v) => big ? (v / 1000).toFixed(2) : v.toFixed(1);
-  return `${f(size.x)} x ${f(size.z)} x ${f(size.y)} ${big ? "m" : "mm"}`;
-}
+function sizeLabel(size) { return dimText(size, UP.pref); }
 function newStage(w, h, preserve) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0xEDF2F4);
   const camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 2000);
@@ -756,17 +845,25 @@ const snapCache = new Map();
 function closeLiveCard() {
   if (!liveCard) return;
   const l = liveCard; liveCard = null; l.dead = true;
-  try { document.removeEventListener("pointerdown", l.away, true); l.ro.disconnect(); l.controls.dispose(); if (l.model) disposeObject(l.model); l.renderer.dispose(); l.renderer.forceContextLoss(); l.renderer.domElement.remove(); } catch (e) { /* already gone */ }
+  try { document.removeEventListener("pointerdown", l.away, true); l.ro.disconnect(); l.controls.dispose(); if (l.model) disposeObject(l.model); if (l.axesObj) disposeObject(l.axesObj); if (l.gscene) disposeObject(l.gscene); l.renderer.dispose(); l.renderer.forceContextLoss(); l.renderer.domElement.remove(); } catch (e) { /* already gone */ }
 }
 async function startLiveCard(host, part) {
   const w = host.clientWidth || 320, h = host.clientHeight || 230;
   const { scene, camera, renderer } = newStage(w, h, false);
   const dom = renderer.domElement; dom.className = "p3d-canvas"; host.appendChild(dom);
   const controls = new OrbitControls(camera, dom); controls.enableDamping = true; controls.dampingFactor = 0.12;
-  const live = { renderer, controls, model: null, dead: false, until: 0, running: false, active: false };
-  liveCard = live;
+  const live = { scene, renderer, controls, model: null, dead: false, until: 0, running: false, active: false, axesOn: true };
+  liveCard = live; initAxes(live, UP.pref);
   /* Passive until tapped, so a swipe over the model still scrolls the chat. */
   controls.enabled = false; dom.style.touchAction = "pan-y";
+  /* Axes and Up buttons. They sit on top of the canvas, so their events must not reach the card (tap to activate) or the face picker. */
+  const mkBtn = (cls, text, title) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "p3d-btn " + cls; b.textContent = text; b.title = title;
+    ["pointerdown", "pointerup", "click"].forEach((ev) => b.addEventListener(ev, (e) => e.stopPropagation())); host.appendChild(b); return b;
+  };
+  const axBtn = mkBtn("p3d-axes", "Axes", "Show or hide the X, Y and Z axes"); axBtn.setAttribute("aria-pressed", "true");
+  axBtn.addEventListener("click", () => { live.axesOn = !live.axesOn; axBtn.setAttribute("aria-pressed", String(live.axesOn)); if (live.axesObj) live.axesObj.visible = live.axesOn; kick(100); });
+  if (!part.demoKind) { const upBtn = mkBtn("p3d-up", upLabel(UP.pref), "Which axis points up in the file. Click to switch."); upBtn.addEventListener("click", () => toggleUp(false)); }
   const hint = host.querySelector(".p3d-hint"), done = document.createElement("button");
   done.type = "button"; done.className = "p3d-done"; done.textContent = "Done"; host.appendChild(done);
   const setActive = (on) => {
@@ -834,6 +931,7 @@ async function startLiveCard(host, part) {
   const frame = () => {
     if (live.dead) return;
     controls.update(); renderer.render(scene, camera);
+    if (live.axesOn) drawGizmo(live, renderer, camera, controls.target, 64);
     if (performance.now() < live.until) requestAnimationFrame(frame); else live.running = false;
   };
   const kick = (ms) => { live.until = Math.max(live.until, performance.now() + ms); if (!live.running && !live.dead) { live.running = true; requestAnimationFrame(frame); } };
@@ -853,7 +951,7 @@ async function startLiveCard(host, part) {
   } catch (e) { console.warn("3D card could not load:", e); host.classList.add("failed"); }
 }
 function snapshotOf(part) {
-  const key = part.id + ":" + (part.jobId || part.demoKind || "");
+  const key = part.id + ":" + (part.jobId || part.demoKind || "") + ":" + UP.pref;
   if (snapCache.has(key)) return Promise.resolve(snapCache.get(key));
   snapChain = snapChain.then(async () => {
     if (!snapRig) snapRig = newStage(480, 300, true);
@@ -928,8 +1026,14 @@ function diffHtml(d) {
 /* Guidance from the AI as tappable questions. A tap sends the question and the answer together. */
 function choicesHtml(choices, m) {
   if (choices.length && choices[0].card) return choiceCardHtml(choices, m);
-  return '<div class="choices">' + choices.map((q) => `<div class="choice-q"><p>${esc(q.question)}</p><div class="followups">` +
-    q.options.map((o) => `<button class="chip" data-say="${esc(q.question + " " + o)}">${esc(o)}</button>`).join("") + "</div></div>").join("") + "</div>";
+  /* q.say[i] is the exact message option i sends (a template's next steps); q.needs_ai[i] hides an option that the Engine
+     plan cannot do. Without them an option sends "question option", as before. */
+  return '<div class="choices">' + choices.map((q) => {
+    const chips = q.options.map((o, i) => ({ o, i })).filter(({ i }) => !(q.needs_ai && q.needs_ai[i] && onEngine()));
+    if (!chips.length) return "";
+    return `<div class="choice-q"><p>${esc(q.question)}</p><div class="followups">` +
+      chips.map(({ o, i }) => `<button class="chip" data-say="${esc(q.say && q.say[i] ? q.say[i] : q.question + " " + o)}">${esc(o)}</button>`).join("") + "</div></div>";
+  }).join("") + "</div>";
 }
 
 /* The questions-before-building card: every question at once, pick any, add details, Build or Skip. Nothing is sent
@@ -1517,11 +1621,14 @@ async function meshObject(file) {
   else { const { ThreeMFLoader } = await import("three/addons/loaders/3MFLoader.js"); obj = new ThreeMFLoader().parse(buf); }
   return { obj, buf };
 }
-function showInViewer(obj, title) {
+function showInViewer(obj, title, native = "z") {
   $("app").classList.add("canvas-open"); S.activePartId = null; renderCanvas();
   $("cvTitle").textContent = title; $("cvEmpty").hidden = true;
   viewerInit(); viewerFit(); if (!V.running) { V.running = true; viewerLoop(); }
-  V.token++; viewerPlace(obj);
+  V.token++;
+  const pivot = new THREE.Group(); pivot.add(obj);
+  V.fileCtx = { pivot, native, up: native }; syncUp(native); pivot.rotation.x = 0;
+  viewerPlace(pivot);
   if (innerWidth <= 1180) $("scrim").classList.add("on");
 }
 function b64ToBuf(b64) { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; }
@@ -1629,7 +1736,7 @@ async function attachFile(file) {
       const id = uid(); fileStore[id] = { buffer: buf };
       c.messages.push({ id, role: "assistant", text: "", fileCard: { name: file.name, kind: ext, size: fmtBytes(file.size), rows: [], dims: [], features: [], missing: [], notes: [], warnings: ["Mesh files show shape only. To build a part from it, describe it in the chat."], description: "", local: true, mesh: ext === "stl" } });
       hideWorking(); S.busy = false; renderThread(); scrollEnd(true);
-      showInViewer(obj, file.name);
+      showInViewer(obj, file.name, extOf(file.name) === "stl" ? "z" : "y");
       return;
     }
     if (!SERVER_EXT.has(ext)) { hideWorking(); S.busy = false; return bad("This file type is not supported. Use STEP, IGES, BREP, DXF, SVG, KiCad (.kicad_pcb), Gerber (a .zip or single layer), PDF, PNG, JPG, WEBP, STL, OBJ, GLB or 3MF."); }
@@ -1855,6 +1962,23 @@ $("expT").addEventListener("input", (e) => { if (V.exp) explodeApply(e.target.va
 function stepVersion(d) { const sel = $("cvVersion"), i = sel.selectedIndex + d; if (i < 0 || i >= sel.options.length) return; sel.selectedIndex = i; sel.dispatchEvent(new Event("change")); }
 $("cvPrev").addEventListener("click", () => stepVersion(-1)); $("cvNext").addEventListener("click", () => stepVersion(1));
 $("tGrid").addEventListener("click", (e) => { V.grid = !V.grid; e.currentTarget.setAttribute("aria-pressed", V.grid); if (V.gridObj) V.gridObj.visible = V.grid; });
+$("tUp").addEventListener("click", () => toggleUp(true));
+relabelSection(); $("tUp").textContent = upLabel(); $("tUp").title = `Up axis: ${upLabel()}. Click to switch.`;
+$("tAxes").addEventListener("click", (e) => { V.axesOn = !V.axesOn; e.currentTarget.setAttribute("aria-pressed", String(V.axesOn)); if (V.axesObj) V.axesObj.visible = V.axesOn; });
+
+/* ---- symbol row under the prompt box: insert Greek letters and engineering signs at the cursor ---- */
+const SYMBOLS = [["α", "alpha"], ["β", "beta"], ["γ", "gamma"], ["δ", "delta"], ["θ", "theta"], ["φ", "phi"], ["ω", "omega"], ["π", "pi"],
+  ["µ", "micro"], ["Ω", "ohm"], ["Δ", "delta, change"], ["Ø", "diameter"], ["°", "degrees"], ["±", "plus or minus"], ["×", "times"]];
+$("symRow").innerHTML = SYMBOLS.map(([ch, name]) => `<button type="button" data-sym="${ch}" aria-label="${name}" title="${name}">${ch}</button>`).join("");
+$("symBtn").addEventListener("click", (e) => {
+  const row = $("symRow"); row.hidden = !row.hidden; e.currentTarget.setAttribute("aria-expanded", String(!row.hidden));
+});
+$("symRow").addEventListener("mousedown", (e) => { if (e.target.closest("[data-sym]")) e.preventDefault(); });   // keep the cursor in the box
+$("symRow").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-sym]"); if (!b) return;
+  const t = $("input"), a = t.selectionStart ?? t.value.length, z = t.selectionEnd ?? a;
+  t.setRangeText(b.dataset.sym, a, z, "end"); t.focus(); t.dispatchEvent(new Event("input", { bubbles: true }));
+});
 $("cvVersion").addEventListener("change", (e) => { S.activePartId = e.target.value; renderCanvas(); viewerShow(partOf(chat(), S.activePartId)); });
 document.querySelector(".tabs").addEventListener("click", (e) => { const t = e.target.closest(".tab"); if (!t) return; S.tab = t.dataset.tab; renderCanvas(); });
 

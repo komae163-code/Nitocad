@@ -50,6 +50,7 @@ Rules:
 - Net names are UPPERCASE letters/digits/underscore. Ports that should be electrically connected share a net name.
 - Exactly one ground net (use GND) - every gnd port goes on it.
 - Each power net needs exactly one power_out source; power_in ports must be on a net whose voltage is within the accepted range.
+- If the user states a board width limit (for example "max width 60 mm"), set board.max_width_mm to it, between 20 and 200.
 - If the request needs something the library cannot do (e.g. a buck converter, motor driver, wireless), do NOT invent \
 blocks: return {"error": "explain what is missing"}.
 
@@ -59,6 +60,20 @@ Available blocks:
 
 def _system_prompt() -> str:
     return SYSTEM_PROMPT.replace("{library}", describe_library())
+
+
+def apply_board_width(result: "PlanResult", prompt: str) -> "PlanResult":
+    """A width the user stated in words wins over whatever the planner chose."""
+    from pcb.intent import board_width_mm, BOARD_WIDTH_RANGE
+    w = board_width_mm(prompt)
+    if w is None:
+        return result
+    result.spec.setdefault("board", {})["max_width_mm"] = float(w)
+    note = f"Board width limit set to {w:g} mm."
+    if w in BOARD_WIDTH_RANGE:
+        note += f" The limit is kept between {BOARD_WIDTH_RANGE[0]:g} and {BOARD_WIDTH_RANGE[1]:g} mm."
+    result.notes.insert(0, note)
+    return result
 
 
 def _extract_json(text: str):
@@ -90,7 +105,7 @@ def llm_plan(prompt: str, call, *, max_repairs: int = 2) -> PlanResult:
             raise PlanError([str(data["error"])[:300]])
         clean, errors, warnings = validate_spec(data)
         if not errors:
-            return PlanResult(clean, "llm", notes=warnings, attempts=attempt)
+            return apply_board_width(PlanResult(clean, "llm", notes=warnings, attempts=attempt), prompt)
         last_errors = errors
         messages += [{"role": "assistant", "content": json.dumps(data)},
                      {"role": "user", "content": "That spec was rejected:\n- " + "\n- ".join(errors[:12])
@@ -220,7 +235,7 @@ def keyword_plan(prompt: str) -> PlanResult:
     clean, errors, warnings = validate_spec(spec)
     if errors:
         raise PlanError(errors)
-    return PlanResult(clean, "keywords", notes=notes + warnings)
+    return apply_board_width(PlanResult(clean, "keywords", notes=notes + warnings), prompt)
 
 
 def plan(prompt: str, call=None, *, max_repairs: int = 2) -> PlanResult:

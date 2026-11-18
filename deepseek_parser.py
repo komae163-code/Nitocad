@@ -53,7 +53,7 @@ Choose exactly one part_type from this list, and extract only the parameters rel
 - spacer: outer_diameter_mm, inner_diameter_mm, length_mm
 - washer: outer_diameter_mm, inner_diameter_mm, thickness_mm
 - sphere: diameter_mm
-- gear: module, teeth, thickness_mm, bore_diameter_mm, pressure_angle
+- gear: module, teeth, thickness_mm, bore_diameter_mm, pressure_angle (degrees; the word alpha on a gear means the pressure angle)
 - pulley: outer_diameter_mm, belt_width_mm, bore_diameter_mm, thickness_mm, groove_depth_mm
 - sprocket: teeth, chain_pitch_mm, thickness_mm, bore_diameter_mm
 - structural_beam: beam_type ("i_beam"|"channel"), height_mm, width_mm, length_mm, thickness_mm
@@ -393,6 +393,8 @@ def parse_description(
     model: str = "deepseek-v4-flash",
 ) -> ParsedParameters:
     """Drop-in parser with explicit LLM/cache/regex provenance."""
+    import symbols
+    description = symbols.normalize(description)
     resolved_key = api_key or settings.DEEPSEEK_API_KEY
     # A circuit board is planned by the pcb pack (which checks the circuit), not by this parser, so a
     # board request never needs the model here: it is deterministic, free, and cannot be mislabelled

@@ -1,19 +1,26 @@
 {
  "name": "two_axle_cart",
+ "notes": "A small four-wheel cart: a deck on two axles, with a tyre, axle and bearing at each wheel. The smallest complete wheeled vehicle.",
  "params": {
   "track": {
    "default": 60,
    "min": 20,
    "max": 300
   },
-  "wheel_dia": 30,
-  "base": 120
+  "wheel_dia": {
+   "default": 30,
+   "min": 12,
+   "max": 120
+  },
+  "base": 120,
+  "wheel_w": 10
  },
  "components": [
   {
    "id": "deck",
    "type": "flat_plate",
    "fixed": true,
+   "assembly": "deck",
    "parameters": {
     "length_mm": "=base",
     "width_mm": "=track",
@@ -26,29 +33,75 @@
    ]
   },
   {
-   "id": "axle",
-   "type": "shaft",
-   "parameters": {
-    "diameter_mm": 6,
-    "length_mm": "=track + 10"
+   "id": "wheel_front_left",
+   "module": "wheel_on_axle",
+   "assembly": "wheels",
+   "params": {
+    "tyre_dia": "=wheel_dia",
+    "rim_dia": "=wheel_dia*0.5",
+    "tyre_w": "=wheel_w",
+    "axle_dia": 6,
+    "axle_len": "=wheel_w+6",
+    "bearing_w": 3
    },
-   "repeat": {
-    "n": 2,
-    "step": [
-     "=base - 20",
-     0,
-     0
-    ]
+   "position": [
+    "=(base-20)/2",
+    "=(track/2 + wheel_w/2 + 2)",
+    "=wheel_dia/2"
+   ]
+  },
+  {
+   "id": "wheel_front_right",
+   "module": "wheel_on_axle",
+   "assembly": "wheels",
+   "params": {
+    "tyre_dia": "=wheel_dia",
+    "rim_dia": "=wheel_dia*0.5",
+    "tyre_w": "=wheel_w",
+    "axle_dia": 6,
+    "axle_len": "=wheel_w+6",
+    "bearing_w": 3
+   },
+   "position": [
+    "=(base-20)/2",
+    "=-(track/2 + wheel_w/2 + 2)",
+    "=wheel_dia/2"
+   ]
+  },
+  {
+   "id": "wheel_rear_left",
+   "module": "wheel_on_axle",
+   "assembly": "wheels",
+   "params": {
+    "tyre_dia": "=wheel_dia",
+    "rim_dia": "=wheel_dia*0.5",
+    "tyre_w": "=wheel_w",
+    "axle_dia": 6,
+    "axle_len": "=wheel_w+6",
+    "bearing_w": 3
    },
    "position": [
     "=-(base-20)/2",
-    0,
+    "=(track/2 + wheel_w/2 + 2)",
     "=wheel_dia/2"
-   ],
-   "rotation": [
-    90,
-    0,
-    0
+   ]
+  },
+  {
+   "id": "wheel_rear_right",
+   "module": "wheel_on_axle",
+   "assembly": "wheels",
+   "params": {
+    "tyre_dia": "=wheel_dia",
+    "rim_dia": "=wheel_dia*0.5",
+    "tyre_w": "=wheel_w",
+    "axle_dia": 6,
+    "axle_len": "=wheel_w+6",
+    "bearing_w": 3
+   },
+   "position": [
+    "=-(base-20)/2",
+    "=-(track/2 + wheel_w/2 + 2)",
+    "=wheel_dia/2"
    ]
   }
  ]

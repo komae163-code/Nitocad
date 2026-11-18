@@ -44,6 +44,7 @@ class Template:
     tags: tuple[str, ...]
     hint: str
     spec: dict[str, Any]
+    needs_ai: bool = False          # no edit the free Engine plan understands: changing it by chat needs an AI
 
     @property
     def parts(self) -> int:
@@ -69,20 +70,20 @@ TEMPLATES: tuple[Template, ...] = (
     _T("bearing-608", "608 ball bearing", "standard_parts", "8 mm bore, 22 mm outside, 7 mm wide.", ("Standard size",),
        "Try: make the bore 10 mm", _part("bearing", {"inner_diameter_mm": 8, "outer_diameter_mm": 22, "width_mm": 7})),
     _T("bearing-6205", "6205 deep groove bearing", "standard_parts", "25 mm bore, 52 mm outside, 15 mm wide, from the bearing table.",
-       ("Standard size",), "Try: use a 6206 instead", _part("std_bearing", {"designation": "6205"})),
+       ("Standard size",), "Try: use a 6206 bearing", _part("std_bearing", {"designation": "6205"})),
     _T("o-ring-20", "O-ring 20 x 3.53", "standard_parts", "20 mm inside diameter, 3.53 mm cross-section.", ("Standard size",),
        "Try: make the inside diameter 30 mm", _part("o_ring", {"cross_section_mm": 3.53, "inner_diameter_mm": 20})),
     _T("key-25", "Parallel key for a 25 mm shaft", "standard_parts", "Key sized from the standard for a 25 mm shaft.", ("Standard size",),
-       "Try: use a 30 mm shaft", _part("key", {"shaft_diameter_mm": 25})),
+       "Try: use a 30 mm shaft", _part("key", {"shaft_diameter_mm": 25}), needs_ai=True),
     _T("flange-nps2", "ASME slip-on flange, NPS 2", "standard_parts", "Class 150 slip-on pipe flange, from the ASME B16.5 table.",
-       ("Standard size", "Pipe"), "Try: use NPS 3", _part("asme_flange", {"standard": "ASME_B16_5_150", "nps": "2", "flange_type": "slip_on"})),
+       ("Standard size", "Pipe"), "Try: use NPS 3", _part("asme_flange", {"standard": "ASME_B16_5_150", "nps": "2", "flange_type": "slip_on"}), needs_ai=True),
     # ---- fasteners
     _T("screw-m8", "M8 socket cap screw", "fasteners", "ISO 4762, 30 mm long.", ("Standard size", "Metric"),
        "Try: make it 40 mm long", _part("socket_cap_screw", {"size": "M8", "length_mm": 30})),
     _T("bolt-m8", "M8 hex bolt", "fasteners", "ISO 4017, 40 mm long.", ("Standard size", "Metric"),
-       "Try: use M10", _part("hex_bolt", {"size": "M8", "length_mm": 40})),
+       "Try: make it 50 mm long", _part("hex_bolt", {"size": "M8", "length_mm": 40})),
     _T("nut-m8", "M8 hex nut", "fasteners", "ISO 4032, to the standard's dimensions.", ("Standard size", "Metric"),
-       "Try: use M12", _part("hex_nut", {"size": "M8"})),
+       "Try: make it an M12 nut", _part("hex_nut", {"size": "M8"})),
     _T("standoff-m3", "Hex standoff for M3", "fasteners", "6 mm across the flats, 10 mm long, with a 3.2 mm hole.", ("Electronics",),
        "Try: make it 20 mm long", _part("hex_standoff", {"across_flats_mm": 6, "inner_diameter_mm": 3.2, "length_mm": 10})),
     _T("spacer-10", "Round spacer", "fasteners", "10 mm outside, 5 mm bore, 10 mm long.", (),
@@ -103,7 +104,7 @@ TEMPLATES: tuple[Template, ...] = (
        "Try: make it 150 mm long", _part("flat_plate", {"length_mm": 100, "width_mm": 80, "thickness_mm": 5, "hole_diameter_mm": 3.2,
                                                         "corner_fillet_mm": 3, "hole_count_x": 4, "hole_count_y": 3}, "6061")),
     _T("motor-mount", "Motor mount", "brackets", "A plate for a 50 mm motor, with four mounting holes.", ("Mounting",),
-       "Try: make it for a 60 mm motor", _part("motor_mount", {"thickness_mm": 3, "hole_diameter_mm": 3.2, "fillet_radius_mm": 1.0,
+       "Try: make it thicker", _part("motor_mount", {"thickness_mm": 3, "hole_diameter_mm": 3.2, "fillet_radius_mm": 1.0,
                                                                "motor_size_mm": 50}, "6061")),
     # ---- gears and drives
     _T("gear-20", "Spur gear, 20 teeth", "drive", "Module 2, 10 mm thick, 5 mm bore.", ("Gear",),
@@ -114,12 +115,12 @@ TEMPLATES: tuple[Template, ...] = (
     _T("sprocket-18", "Chain sprocket, 18 teeth", "drive", "12.7 mm pitch, 8 mm thick, 8 mm bore.", ("Sprocket",),
        "Try: use 24 teeth", _part("sprocket", {"teeth": 18, "chain_pitch_mm": 12.7, "thickness_mm": 8, "bore_diameter_mm": 8})),
     _T("shaft-10", "Shaft", "drive", "10 mm diameter, 100 mm long, with a 1 mm chamfer.", ("Shaft",),
-       "Try: add a keyway", _part("shaft", {"diameter_mm": 10, "length_mm": 100, "chamfer_mm": 1}, "C45 steel")),
+       "Try: make it 120 mm long", _part("shaft", {"diameter_mm": 10, "length_mm": 100, "chamfer_mm": 1}, "C45 steel")),
     # ---- enclosures and tubes
     _T("box-100", "Box", "enclosures", "100 x 80 x 50 mm with 3 mm walls.", ("Enclosure",),
-       "Try: add a vent slot", _part("simple_box", {"length_mm": 100, "width_mm": 80, "height_mm": 50, "wall_thickness_mm": 3}, "ABS")),
+       "Try: make it 150 mm long", _part("simple_box", {"length_mm": 100, "width_mm": 80, "height_mm": 50, "wall_thickness_mm": 3}, "ABS")),
     _T("tube-20", "Round tube", "enclosures", "20 mm outside, 2 mm wall, 100 mm long.", ("Tube",),
-       "Try: make it square", _part("tube", {"outer_diameter_mm": 20, "wall_thickness_mm": 2, "length_mm": 100}, "6061")),
+       "Try: make the wall 3 mm", _part("tube", {"outer_diameter_mm": 20, "wall_thickness_mm": 2, "length_mm": 100}, "6061")),
     # ---- assemblies
     _T("asm-gear-shaft", "Gear on a shaft", "assemblies", "A 20 tooth gear fitted on an 8 mm shaft.", ("2 parts",),
        "Try: use 30 teeth", _assembly([
@@ -130,12 +131,12 @@ TEMPLATES: tuple[Template, ...] = (
            _on("shaft", "shaft", {"diameter_mm": 8, "length_mm": 40}),
            _on("bearing", "bearing", {"inner_diameter_mm": _BORE_8, "outer_diameter_mm": 22, "width_mm": 7}, z=15)])),
     _T("asm-pulley-shaft", "Pulley on a shaft", "assemblies", "A 40 mm pulley fitted on an 8 mm shaft.", ("2 parts",),
-       "Try: make the pulley 50 mm", _assembly([
+       "Try: make the shaft 80 mm long", _assembly([
            _on("shaft", "shaft", {"diameter_mm": 8, "length_mm": 50}),
            _on("pulley", "pulley", {"outer_diameter_mm": 40, "belt_width_mm": 10, "bore_diameter_mm": _BORE_8,
                                     "thickness_mm": 15, "groove_depth_mm": 3}, z=15)])),
     _T("asm-shaft-bearings", "Shaft between two bearings", "assemblies", "A 60 mm shaft with a bearing near each end.", ("3 parts",),
-       "Try: move the bearings closer", _assembly([
+       "Try: make the shaft 120 mm long", _assembly([
            _on("shaft", "shaft", {"diameter_mm": 8, "length_mm": 60}),
            _on("bearing_left", "bearing", {"inner_diameter_mm": _BORE_8, "outer_diameter_mm": 22, "width_mm": 7}, z=5),
            _on("bearing_right", "bearing", {"inner_diameter_mm": _BORE_8, "outer_diameter_mm": 22, "width_mm": 7}, z=48)])),
@@ -165,11 +166,50 @@ def listing() -> dict[str, Any]:
     }
 
 
+def _hint_text(template: Template) -> str:
+    return template.hint.replace("Try:", "").strip()
+
+
 def reply_for(template: Template) -> str:
-    """The assistant's message when a template is started."""
+    """The assistant's message when a template is started: what it is, how to change it, what to do when it looks right."""
     what = (f"{template.title}, an assembly of {template.parts} parts" if template.parts > 1 else template.title)
-    return (f"Started from the template: {what}. This is a free preview, built with no AI. "
-            f"{template.hint}, or press Generate when it looks right.")
+    head = f"Started from the template: {what}. This is a free preview, built with no AI. "
+    if template.needs_ai:
+        change = (f"Tell me what to change, for example: {_hint_text(template)}. This one needs an AI picked in the model picker; "
+                  "Engine cannot edit it. ")
+    else:
+        change = f"Tell me what to change, for example: {_hint_text(template)}, or say it in your own words. "
+    return head + change + "When it looks right, press Generate."
+
+
+def earlier_request(messages: list[dict]) -> str | None:
+    """The last thing the person asked for before pressing a template: their latest message that is not itself a template
+    start or a bare "build it". Kept so the template does not make the chat forget what they came for."""
+    for m in reversed(messages):
+        if m.get("role") != "user":
+            continue
+        t = str(m.get("content") or "").strip()
+        if t.lower().startswith("start from the template:") or t.lower() in ("just build it", "build it", "skip") or len(t) < 8:
+            continue
+        return t[:140].rstrip()
+    return None
+
+
+def next_steps(template: Template, earlier_request: str | None = None) -> list[dict[str, Any]]:
+    """One-tap next steps under the reply, in the shape the chat already draws: {question, options, say}, where say[i] is
+    the message option i sends. needs_ai[i] marks a step the Engine plan cannot do; the chat hides it for Engine."""
+    options: list[str] = []
+    say: list[str] = []
+    needs_ai: list[bool] = []
+    if earlier_request:
+        options.append("Change it to match what I asked before")
+        say.append(f"Change this to match what I asked for: {earlier_request}")
+        needs_ai.append(True)
+    h = _hint_text(template)
+    options.append(h[:1].upper() + h[1:])
+    say.append(h)
+    needs_ai.append(bool(template.needs_ai))
+    return [{"question": "What next?", "options": options, "say": say, "needs_ai": needs_ai}]
 
 
 def _vehicle_templates() -> tuple[Template, ...]:
@@ -187,10 +227,18 @@ def _vehicle_templates() -> tuple[Template, ...]:
              ("Vehicle", "Concept layout"), "Try: make the tray 900 mm long"),
             ("bicycle", "veh-bicycle", "Bicycle", "A road-bike layout: frame tubes, two wheels, cranks and chainring, bars and saddle.",
              ("Vehicle", "Concept layout"), "Try: make the wheel diameter 700 mm"),
-            ("two_axle_cart", "veh-two-axle-cart", "Two-axle cart", "A bare two-wheel axle set: an axle and two wheels, the smallest vehicle layout.",
-             ("Vehicle", "Concept layout"), "Try: make the wheel diameter 300 mm"),
+            ("two_axle_cart", "veh-two-axle-cart", "Two-axle cart", "A small four-wheel cart: a deck on two axles, with a tyre, axle and bearings at each wheel.",
+             ("Vehicle", "Concept layout"), "Try: make the wheel diameter 40 mm"),
             ("rc_helicopter", "veh-rc-helicopter", "RC helicopter", "An electric RC helicopter with its internals: motor, gears, rotor head, tail and skids.",
              ("Vehicle", "Internals", "Concept layout"), "Try: make the rotor span 500 mm"),
+            ("car", "veh-car", "Hatchback car", "A small front-engine, rear-drive car built from separate parts: body panels, engine, gearbox, "
+             "driveshaft, suspension, wheels and seats.", ("Vehicle", "Internals", "Concept layout"), "Try: make the wheelbase 2800 mm"),
+            ("light_airplane", "veh-light-airplane", "Light airplane", "A small propeller airplane: fuselage, wings, tail, engine and landing gear.",
+             ("Vehicle", "Concept layout"), "Try: make the fuselage length 9000 mm"),
+            ("wheelie_bin", "veh-wheelie-bin", "Wheelie bin", "A two-wheel waste bin with a lid, handle and axle.",
+             ("Vehicle", "Concept layout"), "Try: make the bin 1100 mm tall"),
+            ("mini_engine_inline_four", "veh-engine-inline-four", "Inline-four engine", "A small four-cylinder engine with crank, rods, pistons, valves and block.",
+             ("Vehicle", "Internals"), "Try: make the bore 36 mm"),
         )
         out = []
         for stem, tid, title, summary, tags, hint in cards:

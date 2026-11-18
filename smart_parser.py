@@ -131,6 +131,8 @@ def extract_all_dimensions(text: str) -> list[ExtractedDimension]:
         (r'(diameter|dia|diam)\s*(?:of|is|=|:)?\s*(\d+(?:\.\d+)?)', 'diameter'),
         (r'(radius|r)\s*(?:of|is|=|:)?\s*(\d+(?:\.\d+)?)', 'radius'),
         (r'(module)\s*(?:of|is|=|:)?\s*(\d+(?:\.\d+)?)', 'module'),
+        (r'(?:pressure\s*angle|alpha)\s*(?:of|is|=|:)?\s*(\d+(?:\.\d+)?)', 'pressure_angle'),
+        (r'(\d+(?:\.\d+)?)\s*(?:deg(?:rees?)?)\s*pressure', 'pressure_angle'),
         (r'(teeth|tooth\s*count)\s*(?:of|is|=|:)?\s*(\d+(?:\.\d+)?)', 'teeth'),
         (r'(bore)\s*(?:diameter\s*)?(?:of|is|=|:)?\s*(\d+(?:\.\d+)?)', 'bore'),
         (r'(throws|num\s*throws)\s*(?:of|is|=|:)?\s*(\d+(?:\.\d+)?)', 'throws'),
@@ -669,6 +671,8 @@ def infer_missing_dimensions(part_type: str, dimensions: list[ExtractedDimension
         params['teeth'] = int(dim_map.get('teeth', 20))
         params['thickness_mm'] = dim_map.get('thickness', 10.0)
         params['bore_diameter_mm'] = dim_map.get('bore', 5.0)
+        if 'pressure_angle' in dim_map:
+            params['pressure_angle'] = dim_map['pressure_angle']
         
     elif part_type == 'sprocket':
         params['teeth'] = int(dim_map.get('teeth', 18))
@@ -886,6 +890,8 @@ def parse_description(description: str, use_claude: bool = False, api_key: str =
     Main parsing function with smart extraction.
     """
     warnings = []
+    import symbols
+    description = symbols.normalize(description)
 
     # A circuit board is described by what it does, not by dimensions: hand the sentence to the pcb
     # pack (see cad_templates/pcb.py). Mechanical parts that merely mention a PCB are not affected.

@@ -55,7 +55,7 @@ FAMILIES: dict[str, dict[str, Any]] = {
                                      "Large, module 3, 50 teeth, 20 mm bore"]),
         ("How thick should it be?", ["5 mm thick", "10 mm thick", "20 mm thick"]),
         ("What is it made of?", ["Steel", "Brass", "Plastic"])]),
-    "round": _f(("shaft", "bearing", "spacer", "washer", "standoff", "bushing", "sphere"),
+    "round": _f(("shaft", "bearing", "spacer", "washer", "standoff", "bushing", "sphere", "round bar", "round rod", "dowel"),
                 "the main body first, then the bore or ends, then the edge finishing", [
         ("How big should it be?", ["Small, 10 mm diameter, 50 mm long", "Medium, 25 mm diameter, 150 mm long",
                                    "Large, 60 mm diameter, 400 mm long"]),
@@ -72,7 +72,7 @@ FAMILIES: dict[str, dict[str, Any]] = {
     "hinge": _f(("hinge", "cam"), "the main leaf first, then the pin, then the mounting holes", [
         ("What size should it be?", ["Small, 40 mm long, 3 mm thick", "Medium, 80 mm long, 4 mm thick",
                                      "Large, 150 mm long, 6 mm thick"]), _MATERIALS]),
-    "engine_part": _f(("connecting rod", "con rod", "crankshaft"), "the main shape first, then the journals, then the oil holes", [
+    "engine_part": _f(("connecting rod", "con rod", "crankshaft", "piston", "camshaft", "cylinder head"), "the main shape first, then the journals, then the oil holes", [
         ("How many cylinders is it for?", ["1 cylinder", "2 cylinders", "4 cylinders"]),
         ("How long is the stroke?", ["40 mm stroke", "80 mm stroke", "100 mm stroke"]),
         ("What is it made of?", ["Steel", "Aluminium"])]),
@@ -90,7 +90,7 @@ FAMILIES: dict[str, dict[str, Any]] = {
     "culvert": _f(("culvert",), "the barrel first, then the end walls, then the wing walls", [
         ("How big is the opening?", ["2 m wide, 2 m tall", "3 m wide, 2 m tall", "4 m wide, 3 m tall"]),
         ("How long is it?", ["8 m long", "12 m long", "20 m long"])]),
-    "wall": _f(("retaining wall",), "the stem first, then the base slab, then the drainage", [
+    "wall": _f(("retaining wall", "brick wall", "concrete wall", "masonry wall", "stone wall", "garden wall", "boundary wall", "sea wall"), "the stem first, then the base slab, then the drainage", [
         ("How tall is the wall?", ["2 m tall", "4 m tall", "6 m tall"]),
         ("How long is it?", ["10 m long", "25 m long", "50 m long"])]),
     "building": _f(("house", "building", "bungalow", "villa", "cabin", "shed", "garage", "warehouse"),
@@ -101,7 +101,7 @@ FAMILIES: dict[str, dict[str, Any]] = {
     "fastener": _f(("bolt", "screw", "nut", "rivet"), "the shank or body first, then the head, then the thread", [
         ("What size should it be?", ["6 mm diameter, 20 mm long", "8 mm diameter, 30 mm long", "12 mm diameter, 50 mm long"]),
         ("What is it made of?", ["Steel", "Stainless steel", "Brass"])]),
-    "pcb": _f((), "the board outline and power first, then the main chip, then the connectors", [
+    "pcb": _f(("circuit board", "pcb", "arduino shield", "motor driver board", "sensor board", "power supply board", "led matrix", "breakout board", "development board", "dev board", "evaluation board"), "the board outline and power first, then the main chip, then the connectors", [
         ("What should the board do?", ["Sensor board with an I2C header", "Motor driver with a MOSFET",
                                        "Power board with a buck converter", "Microcontroller board"]),
         ("What supply voltage?", ["5 V supply", "12 V supply", "3.3 V supply"]),

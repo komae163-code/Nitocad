@@ -124,3 +124,17 @@ def test_between_rejects_unsupported_cases():
         assert not r["ok"], extra
     diag = V.expand_vehicle({"name": "t", "components": [{"id": "x", **base, "between": [[0, 0, 0], [1, 1, 1]]}]})
     assert diag["ok"]                                                    # a 3D diagonal is drawn now, in any direction
+
+
+def test_a_tyre_always_has_rubber_even_when_the_rim_is_set_as_big_as_the_tyre():
+    """A rim at least as big as the tyre made a ring with no thickness, which the kernel cannot build, so the tyre vanished
+    from the model. The tyre is now at least 2 mm thicker than the rim, for any sizes."""
+    for module, comp in (("wheel_on_axle", "w"), ("landing_gear", "g")):
+        for tyre_dia, rim_dia in ((100, 250), (300, 300), (400, 250), (60, 1200)):
+            spec = {"name": "t", "components": [{"id": comp, "module": module, "params": {"tyre_dia": tyre_dia, "rim_dia": rim_dia},
+                                                 "position": [0, 0, 0]}]}
+            ex = V.expand_vehicle(spec)
+            assert ex["ok"], (module, ex["errors"][:2])
+            for p in (p for p in ex["parts"] if p["name"].endswith("tyre")):
+                xs = [q[0] for q in p["parameters"]["features"][0]["profile"]["points"]]
+                assert max(xs) - min(xs) >= 2.0 - 1e-9 and min(xs) >= rim_dia / 2 - 1e-9, (module, tyre_dia, rim_dia, xs)

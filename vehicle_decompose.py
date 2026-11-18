@@ -28,6 +28,11 @@ _GEAR_WORDS = re.compile(r"\b(gears?|gearbox|gear box|transmission|differential|
 _ENGINE_WORDS = re.compile(r"\b(engine|motor|piston|cylinder|crank\w*)\b", re.I)
 _WHEEL_NAME = re.compile(r"(?<!fly)wheel|tyre|tire", re.I)
 _MONOLITH_TYPES = {"feature_tree", "simple_box"}
+_TYRE_NAME = re.compile(r"tyre|tire", re.I)
+# Every wheeled vehicle rolls on tyres, whatever it is called (a Lamborghini, a forklift, a tuk-tuk). A plan with wheels and no
+# tyre part is sent back. Rail and tracked vehicles, and anything described as a train or tank, are left alone.
+_WHEELED_KINDS = {"car", "truck", "bicycle", "tricycle", "scooter", "cart", "wheelbarrow", "bin", "locomotive"}
+_NOT_TYRED = re.compile(r"\b(locomotive|loco|train|tram|rail|railway|tank|tracked|crawler|caterpillar)\b", re.I)
 _BIG_VEHICLE = re.compile(r"\b(car|sedan|saloon|coupe|hatchback|suv|van|truck|lorry|pickup|bus|tractor|tank|jeep|buggy|locomotive|train|tram|boat|ship|airplane|aeroplane|aircraft|plane|jet|helicopter)s?\b", re.I)
 
 
@@ -111,4 +116,13 @@ def coarse_issues(vspec: dict[str, Any], expanded: dict[str, Any], request: str 
     if wheels and not any(_ptype(p) in ("shaft", "tube") and re.search(r"axle", str(p.get("name", "")), re.I)
                           for p in parts):
         out.append("the wheels have no axle. Add one shaft per axle, through the wheel centres")
+    # a vehicle that rolls must have wheels (a plan with none used to pass: no wheels, so no axle and no tyre to complain about)
+    import vehicle_chat as _VC
+    if not wheels and _VC.kind_of(text) in _WHEELED_KINDS:
+        out.append("the vehicle has no wheels. Add them: place the wheel_on_axle module once per wheel position, "
+                   "which makes the tyre, axle and bearings, and give each wheel a side-by-side partner on the other side")
+    if wheels and not _NOT_TYRED.search(text) \
+            and not any(_TYRE_NAME.search(n) or _ptype(p) == "tyre" for n, p in zip(names, parts)):
+        out.append("the wheels have no tyres. Give every wheel a tyre: a ring part named like 'wheel_front_left_tyre' around the "
+                   "rim (a feature_tree revolve), or place the wheel_on_axle module, which makes tyre, axle and bearings")
     return out

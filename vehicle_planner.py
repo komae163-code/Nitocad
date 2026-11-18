@@ -71,7 +71,8 @@ BUILD IN PARTS, NEVER IN ONE GO. The person will pull the vehicle apart, weigh i
     or small truck place the "car_body" module once (it makes 23 panels, set wheelbase, wheel_dia, track and tyre_w to
     match the wheels). Any other body written as a convex polygon or rectangle extrude is hollowed automatically to a
     2 to 3 mm wall, but it is still one part, so split what must come apart (doors, hatches, covers) into their own parts.
-  * wheels: tyre + hub + axle + bearings, one axle per axis. Exhaust, fuel tank, battery and seats are separate parts.
+  * wheels: tyre + hub + axle + bearings, one axle per axis. Every wheeled road vehicle (car, truck, bicycle, cart, wheelbarrow, bin)
+    must have a tyre part for each wheel, named like wheel_front_left_tyre; only rail or tracked vehicles have none. Exhaust, fuel tank, battery and seats are separate parts.
   * give every system its own "assembly" name (body, wheels, powertrain, exhaust ...) and list an explode direction for
     each moving part. At least 12 parts for a whole vehicle.
   * when gears, a gearbox or a transmission are asked for, build real parts of type "gear" (two or more that mesh, on

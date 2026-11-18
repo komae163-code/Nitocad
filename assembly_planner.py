@@ -21,6 +21,8 @@ for what is covered.
 """
 from __future__ import annotations
 
+import part_naming as PN
+
 import ast
 import json
 import math
@@ -230,7 +232,7 @@ def planner_system_prompt(catalog: dict[str, dict[str, Any]] | None = None) -> s
         "(defaults shown; omit a parameter to keep its default).\n"
         "- Each part's local axis is +Z (shafts, tubes and plates extrude along +Z from their origin); "
         "use rotation to orient them.\n"
-        "- name: unique lowercase snake_case. "
+        "- name: unique lowercase snake_case. " + PN.RULE + " "
         + (f"Maximum {MAX_PARTS} parts. " if MAX_PARTS is not None else "")
         + "Parts must not overlap each other except where a fit is intended "
         "(shaft through bearing bore: bore diameter equal to shaft diameter).\n"

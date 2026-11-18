@@ -38,7 +38,7 @@
   }
  },
  "derived": {
-  "tyre_r": "=tyre_dia/2",
+  "tyre_r": "=max(tyre_dia/2, rim_dia/2 + 2)",
   "rim_r": "=rim_dia/2",
   "axle_len": "=tyre_w + 60"
  },

@@ -1,3 +1,19 @@
+## Live chat viewer axes and Up toggle
+
+- The small live viewer in chat now has the X, Y, Z axes and the corner gizmo, with an Axes button on the card. Older version snapshots stay clean.
+- New Up button (Z up or Y up) on the live card and in the main viewer tools. Z up is the CAD default. Y up is for files made with Y up. The choice is remembered in this browser and applies to all viewers at once. Axis lines, gizmo, the X x Y x Z size readout and the section buttons all follow it.
+- Files attached from your computer (STL, OBJ, GLB, GLTF, 3MF) now have the toggle too. Each file starts with its format's usual up axis (STL: Z up, the others: Y up) and the Up button in the main viewer turns just that file in place. The file's choice is not saved, and it never changes the design preference.
+- Not covered: the example shapes built into the app, which are made in the viewer's own frame.
+
+## Axes, symbols and board width
+
+- Studio viewer: X, Y and Z axes (red, green, blue) at the origin, plus a small orientation gizmo in the top-left corner that follows the camera. New Axes button in the viewer tools turns both off. Labels use CAD names (Z up), matching STEP files. The size readout now reads "X .. x Y .. x Z ..", and the section buttons read Width (X), Height (Z) and Depth (Y).
+- New symbols.py: turns Greek letters and engineering signs (alpha, beta, theta and so on, Omega, micro, diameter, degree, plus-minus, times) into plain words before the planner and both parsers read them. Used by conversation.plan_turn, smart_parser.parse_description and deepseek_parser.parse_description. Exported files stay ASCII.
+- Studio prompt box: new "α Ω °" button opens a symbol row that inserts at the cursor.
+- Gears: pressure angle is now read by the rules parser ("pressure angle 25", "alpha = 25", "25 degree pressure angle"). The AI prompt knows alpha means pressure angle on a gear. Helix angle (beta) is not supported by the gear template yet.
+- Circuit boards: the board width limit can be set in words ("max width 60 mm", "board 5 cm wide", "no wider than 55 mm wide"). The latest mention wins, values are kept between 20 and 200 mm, and "5 mm wide trace" is ignored. Both planners apply it. Default stays 80 mm.
+- Tests: tests/test_symbols.py and tests/test_pcb_width.py.
+
 # Changelog
 
 All notable changes to this project are documented here. Format loosely

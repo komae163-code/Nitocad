@@ -153,6 +153,12 @@ def check_geometry(parts: list[dict[str, Any]], bbox_fn: BBoxFn, *, kind: str | 
                                 "Tuck " + ", ".join(poke[:4]) + " in so no more than a third of each wheel's width is outside the body, "
                                 "or add wheel arches."))
 
+    # tyres: a car or truck with wheel or axle parts and no tyre has lost its tyres
+    if kind not in ("locomotive", "tank", "train", "tram") and not any(_TYRE.search(n) or _BARE_WHEEL.search(n) for n in names) \
+            and any(re.search(r"wheel|axle|hub", n, re.I) for n in names):
+        out.append(_finding("tyres", "fix", [], "the wheels have no tyres",
+                            "Give every wheel a tyre: a ring part named like wheel_front_left_tyre around the rim."))
+
     # symmetry: left/right pairs
     cy = (lo[1] + hi[1]) / 2
     pairs: dict[tuple[str, str], dict[str, str]] = {}
@@ -326,6 +332,8 @@ def inspect_vehicle(vspec: dict[str, Any], *, expand: Callable[[dict[str, Any]],
                 best_found = found
                 break
             placed2 = expand(new)
+            if placed2 is not None and not {p["name"] for p in parts} <= {p["name"] for p in placed2[0]}:
+                break                                        # a fix may move, resize or add parts, never delete one
             if placed2 is None or _score(check_geometry(placed2[0], bbox_fn, kind=kind, intended_contact=placed2[1])) >= _score(found):
                 best_found = found                       # not better: keep what we had
                 break

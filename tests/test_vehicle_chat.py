@@ -680,3 +680,52 @@ def test_tapped_and_typed_answers_can_be_mixed():
         assert plan.intent == "build" and not plan.choices
     finally:
         VC.set_library(None)
+
+
+def test_vehicles_with_no_template_are_still_recognised_as_vehicles():
+    """"a Lamborghini", "a tractor", "a tuk-tuk" were not vehicles to the chat, so they never reached the vehicle builder and got
+    none of its checks (tyres, panels, steps). Words that mean something else in CAD (a bus bar, an I2C bus, a tesla) are not."""
+    for text, kind in (("a Lamborghini", "car"), ("I want to build a Lambo", "car"), ("a Ferrari F40", "car"), ("a Tesla Model 3", "car"),
+                       ("a supercar", "car"), ("a tractor", "truck"), ("a school bus", "truck"), ("an ambulance", "truck"),
+                       ("a motorbike", "bicycle"), ("a tuk-tuk", "tricycle"), ("a forklift", "vehicle"), ("a mars rover", "vehicle")):
+        assert VC.kind_of(text) == kind and VC.is_vehicle_request(text), text
+    for text in ("a PCB with an I2C bus", "I need a bus bar 40 mm wide", "a 1 tesla magnet holder", "a van der Waals diagram plate",
+                 "a tractor seat bracket", "a car door hinge", "a forklift fork bracket", "a beetle shaped paperweight"):
+        assert not VC.is_vehicle_request(text), text
+
+
+def test_a_lamborghini_request_is_planned_as_a_vehicle_and_a_plan_without_wheels_is_sent_back_for_them():
+    import json
+    import conversation as C
+    from pathlib import Path
+    car = json.loads((Path(__file__).resolve().parent.parent / "vehicles" / "examples" / "car.json").read_text())
+    no_tyres = json.loads(json.dumps(car))
+    no_tyres["components"] = [c for c in no_tyres["components"] if "wheel" not in c["id"] and "brake_disc" not in c["id"]
+                              and not str(c.get("mate", {}).get("to", "")).startswith(("wheel", "brake"))]
+    replies = [json.dumps(no_tyres), json.dumps(car)]
+    seen = []
+
+    def llm(messages):
+        seen.append(messages[-1]["content"])
+        return replies.pop(0) if len(replies) > 1 else replies[0]
+    VC.set_library(None)
+    h = [{"role": "user", "content": "build a Lamborghini"}, {"role": "assistant", "content": "Before I build the car..."},
+         {"role": "user", "content": "just build it"}]
+    p = C.plan_turn(h, None, llm=llm)
+    names = [x["name"] for x in (p.spec or {}).get("parameters", {}).get("parts", [])]
+    assert p.intent == "build" and any("tyre" in n for n in names), (p.intent, p.reply[:120])
+    assert len(seen) >= 2 and "no wheels" in seen[1]                     # the wheel-less plan was sent back, and told why
+
+
+def test_every_shipped_wheeled_vehicle_has_wheels_and_tyres():
+    """The "Two-axle cart" example used to be a deck and two bare axles, with no wheels, while its template card said it had
+    two. It is also one of the proven examples the AI planner copies, so wheel-less carts were being taught to it."""
+    import json
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent / "vehicles" / "examples"
+    for stem in ("car", "bicycle", "wheelbarrow", "wheelie_bin", "two_axle_cart", "light_airplane"):
+        ex = VS.expand_vehicle(json.loads((root / f"{stem}.json").read_text()))
+        names = [p["name"] for p in ex["parts"]]
+        assert ex["ok"] and any("tyre" in n for n in names), (stem, names[:6])
+    cart = [p["name"] for p in VS.expand_vehicle(json.loads((root / "two_axle_cart.json").read_text()))["parts"]]
+    assert sum(n.endswith("_tyre") for n in cart) == 4

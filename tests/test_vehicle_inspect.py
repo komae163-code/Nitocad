@@ -96,9 +96,10 @@ WING = box("rear_wing", (3900, -800, 1500), (4300, 800, 1540))
 def run(revise, vision=None, max_passes=2):
     calls = []
 
+    ATTACHED = box("rear_wing", (3900, -800, 1090), (4300, 800, 1130))          # moved down onto the body: touching, not deleted
+
     def expand(v):
-        parts = car(**({"rear_wing": WING} if v.get("wing") == "floating" else {}))
-        return parts, []
+        return car(rear_wing=WING if v.get("wing") == "floating" else ATTACHED), []
 
     def rev(v, instr):
         calls.append(instr)
@@ -217,3 +218,22 @@ def test_a_locomotive_with_no_tyres_uses_its_wheel_parts():
              box("wheel_r_1", (300, -440, 0), (700, -400, 400)), box("wheel_r_2", (1200, -440, 0), (1600, -400, 400))]
     f = VI.check_geometry(parts, bbox, kind="locomotive")
     assert any(x["code"] == "wheels" and "wheel_l_2" in x["parts"] for x in f)
+
+
+def test_a_car_with_wheel_parts_and_no_tyres_is_reported_and_a_complete_one_is_not():
+    no_tyres = [box("body", (0, -900, 300), (4000, 900, 1100)), box("wheel_front_left_hub", (600, 750, 100), (1200, 950, 500)),
+                box("front_axle", (600, -950, 100), (1200, 950, 500))]
+    assert "tyres" in codes(VI.check_geometry(no_tyres, bbox, kind="car"))
+    assert "tyres" not in codes(VI.check_geometry(real_car(), bbox, kind="car"))
+    assert "tyres" in codes(VI.check_geometry(no_tyres, bbox, kind=None))              # any wheeled vehicle, whatever it is called
+    assert "tyres" not in codes(VI.check_geometry(no_tyres, bbox, kind="locomotive"))   # steel rail wheels have no tyre
+
+
+def test_a_fix_that_deletes_a_part_is_never_accepted_even_if_the_checklist_looks_better():
+    def expand(v):
+        base = car()                                   # the sound car plus a floating wing
+        wing = box("rear_wing", (3900, -800, 1500), (4300, 800, 1540))
+        return ((base + [wing]) if v.get("wing") else base), []
+    rep = VI.inspect_vehicle({"name": "car", "wing": True}, expand=expand, bbox_fn=bbox, kind="car",
+                             revise_fn=lambda v, instr: {**v, "wing": False})    # "fixes" the floating wing by deleting it
+    assert not rep["changed"] and rep["vspec"]["wing"] is True and any(f["code"] == "floating" for f in rep["findings"])

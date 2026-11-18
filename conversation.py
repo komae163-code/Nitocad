@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import copy
 import json
+import job_progress as JP
 import re
+import symbols
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -91,6 +93,7 @@ Rules:
 - IMPORTED PART: the person attached a file and is editing it. part_type is "imported", and the current spec holds import_id, kind and filename. Copy import_id, kind and filename UNCHANGED, never invent them. Return {"import_id", "kind", "filename", "thickness_mm" (only when kind is dxf, svg, kicad or gerber), "edits": [ ... ]} where edits is the COMPLETE ordered list. An edit is one of: {"op":"scale","factor":2}, {"op":"scale_to","axis":"largest|x|y|z","mm":150}, {"op":"hole","diameter_mm":6,"x":10,"y":20,"depth_mm":null,"face":"top|bottom"}, {"op":"fillet","radius_mm":2,"edges":"all|vertical|top|bottom"}, {"op":"chamfer","size_mm":1,"edges":"all|vertical|top|bottom"}, {"op":"translate","x":0,"y":0,"z":0}, {"op":"rotate","axis":"x|y|z","degrees":90}, {"op":"mirror","plane":"xy|yz|xz"}. A mesh (kind stl or obj) only takes scale, scale_to, translate, rotate, mirror, {"op":"ground"} and {"op":"center"}: tell them holes and fillets are not possible on a mesh. x and y in a hole are millimetres from the middle of the part. The current spec's bbox_mm is the part's size. If they ask for something else entirely, build that as a new part.
 - ASSEMBLY: when they ask for several parts together, use part_type "assembly" with parameters {"parts": [ {"part_type": "flat_plate", "parameters": { ... }, "name": "base_plate", "count": 1}, ... ], "layout": "row"}. Each part uses a part_type and parameters from the catalogue. "count" repeats a part. Parts are placed side by side automatically, so leave out positions when the parts only sit next to each other. When parts fit on or in each other (a gear, pulley, sprocket, bearing or spacer on a shaft), plan the assembly as a tree of named parts with positions: set "layout" to "custom", give every part a unique snake_case "name" and a "position": [x, y, z] in millimetres. Use the positions the person gives. Shafts, gears, pulleys, sprockets, bearings, spacers and washers are built along +Z from their position, so a part on a shaft that stands on the origin axis has position [0, 0, z], where z is where it starts along the shaft and z plus its thickness stays inside the shaft length. A bore is the shaft diameter plus 0.2 mm. Every plan is checked before it is built: parts that overlap, or that sit past the end of their shaft, are sent back to you with the reason, and you return the full JSON again with only that fixed. Never put an assembly inside an assembly. When they change an assembly, return the COMPLETE parts list.
 - MATED ASSEMBLY: when the person wants parts that connect (bolted, seated, mounted, fitted to each other) AND every part you need appears in the INTERFACE CATALOGUE at the end, use "layout": "mated" with parameters {"layout": "mated", "root": "<part id>", "parts": [ {"id": "snake_case_id", "part_type": "...", "parameters": { ... }} ], "mates": [ {"a": "part_id.interface", "b": "part_id.interface"} ]}. Every part needs a unique id and no count (list each copy as its own part). Use only interface names listed for that part type and only kinds that can mate. A dimension that must agree across a mate (bolt count and circle diameter, bore against pilot) is stated on BOTH parts. Exactly one root; every other part must be reachable from it by mates. If a part you need has no interfaces, use a normal row assembly instead and say so. Never invent interface names. When they change a mated assembly, return the COMPLETE parts and mates.
+- PART NAMES: in an assembly, name each part for what it is, in lowercase snake_case. Name parts in full words: side as _left or _right (never _l or _r), corners as front_left (never fl, fr, rl, rr), a number before the side (side_glazing_1_left), and no prefix repeated on every part of a group.
 - MEASURED FACTS: when the prompt ends with them, they describe the version now built, read from the real solid: overall size, mass, overlapping parts, and whether each requirement passes. Use them. If an edit would break a requirement or add an overlap, still make the change the person asked for and say so in one sentence in "reply". Do not change values they did not ask about to repair it, unless they ask you to.
 - FITTED PARTS: in an assembly with one shaft, the bore of a gear, pulley, sprocket, bearing or spacer fitted to it, and the position of the parts along it, follow the shaft's diameter and length automatically after your reply. When they change the shaft, change only the shaft. Do not rewrite those bores or positions unless they ask for a different fit or place.
 
@@ -749,6 +752,7 @@ def _pcb_turn(last_user: str, current_spec: dict | None, llm: "LLM | None") -> "
     result, errors, from_llm = None, [], False
     if llm is not None:
         try:
+            JP.step("Asking the AI for the circuit blocks")
             result = pp.llm_plan(description, llm)
             from_llm = True
         except pp.PlanError as exc:
@@ -865,6 +869,7 @@ def plan_turn(
     sees it; the rules planner does not need it."""
     # A build in steps keeps its finished design inside the spec. Changes are planned against that design and the
     # step that is showing is cut again afterwards (build_steps.py).
+    history = symbols.normalize_history(history)      # alpha, Ω, µ, Ø, ° and so on become plain words
     cur = _finished_design(current_spec)
     plan = _plan_core(history, current_spec, llm=llm, regex_parse=regex_parse, catalogue=catalogue,
                       attempts=attempts, facts=facts)
@@ -996,8 +1001,9 @@ def _plan_body(
                     "part_type " + std["part_type"] + " with EXACTLY these parameters: " + json.dumps(std["parameters"], sort_keys=True) + ".")
         msgs = build_messages(history, current_spec, catalogue, hint, facts)
         rejected: tuple[Plan, assembly_gate.Report] | None = None
-        for _ in range(max(1, attempts)):
+        for _try in range(max(1, attempts)):
             raw = ""
+            JP.step("Asking the AI for the design" if _try == 0 else "Asking the AI to fix its plan", None if _try == 0 else f"try {_try + 1} of {max(1, attempts)}")
             try:
                 raw = llm(msgs)
                 plan = _carry_through(coerce_plan(_extract_json(raw), current_spec), current_spec)

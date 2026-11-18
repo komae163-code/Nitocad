@@ -484,3 +484,14 @@ html[data-theme="dark"] .bubble{background:#161624;}
 .working.job .job-time{font-size:.8rem;color:var(--muted,#8a8f98);}
 .working.job .work-row small{opacity:.65;margin-left:4px;}
 .working.job .job-cancel{padding:5px 12px;}
+
+.sym-row{display:flex;flex-wrap:wrap;gap:6px;width:min(780px,100%);margin:0 auto 8px;}
+.sym-row[hidden]{display:none;}
+.sym-row button{min-width:38px;height:36px;padding:0 8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;font-size:1.05rem;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;}
+.sym-row button:hover{border-color:var(--orange);}
+.cv-tools .txt-btn{font:600 .62rem 'IBM Plex Mono',monospace;padding:0;line-height:1;}
+.p3d-btn{position:absolute;top:8px;z-index:3;font:600 .66rem 'IBM Plex Mono',monospace;color:#1C1C1E;background:rgba(255,255,255,.9);border:1px solid #DEDEDE;border-radius:999px;padding:4px 10px;cursor:pointer;}
+.p3d-axes{right:10px;}
+.p3d-up{right:62px;}
+.p3d-btn[aria-pressed="true"]{border-color:var(--orange);color:var(--orange-deep);}
+.part-3d:not(.ready) .p3d-btn,.part-3d.failed .p3d-btn{display:none;}

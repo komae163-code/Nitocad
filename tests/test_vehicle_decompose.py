@@ -98,3 +98,19 @@ def test_default_directions_send_wheels_out_roof_up_exhaust_down():
     assert VV.default_direction("roof", (0, 0, 1400), ref) == (0.0, 0.0, 1.0)
     assert VV.default_direction("exhaust", (-500, 300, 100), ref) == (0.0, 0.0, -1.0)
     assert VV.default_direction("mystery", (0, 0, 500), ref) is None
+
+
+def test_a_wheeled_road_vehicle_with_wheels_and_no_tyres_is_sent_back_but_rail_and_tracks_are_not():
+    import json
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent / "vehicles" / "examples"
+    d = json.loads((root / "car.json").read_text())
+    ex = VS.expand_vehicle(d)
+    assert not [i for i in VD.coarse_issues(d, ex, "a car") if "no tyres" in i]          # the shipped car has its tyres
+    ex["parts"] = [p for p in ex["parts"] if "tyre" not in p["name"]]
+    assert [i for i in VD.coarse_issues(d, ex, "a car") if "no tyres" in i]              # the same car without them is rejected
+    assert not [i for i in VD.coarse_issues(d, ex, "a steel wheeled locomotive") if "no tyres" in i]
+    assert not [i for i in VD.coarse_issues(d, ex, "a tracked tank") if "no tyres" in i]
+    for stem, req in (("bicycle", "a bicycle"), ("wheelbarrow", "a wheelbarrow"), ("wheelie_bin", "a wheelie bin")):
+        s = json.loads((root / f"{stem}.json").read_text())
+        assert not [i for i in VD.coarse_issues(s, VS.expand_vehicle(s), req) if "no tyres" in i], stem

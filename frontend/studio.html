@@ -127,8 +127,10 @@
         </div>
         <button class="chip" id="tplBtn" type="button">Templates</button>
         <button class="chip" id="asmChip" type="button">Assembly</button>
+        <button class="chip" id="symBtn" type="button" aria-expanded="false" aria-controls="symRow" title="Insert Greek letters and engineering symbols">α Ω °</button>
         <span class="ai-note" id="aiNote"></span>
       </div>
+      <div class="sym-row" id="symRow" hidden aria-label="Symbols"></div>
       <div class="composer" id="composer">
         <button type="button" class="attach" id="attach" aria-label="Attach a file" title="Attach a STEP, IGES, DXF, SVG, KiCad, Gerber, PDF, image or mesh file">
           <svg class="icon" viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>
@@ -229,15 +231,19 @@
         <button type="button" class="icon-btn" id="tGrid" aria-label="Grid" aria-pressed="true" title="Grid">
           <svg class="icon" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM4 12h16M12 4v16"/></svg>
         </button>
+        <button type="button" class="icon-btn txt-btn" id="tUp" aria-label="Which axis points up" title="Up axis">Z up</button>
+        <button type="button" class="icon-btn" id="tAxes" aria-label="X, Y and Z axes" aria-pressed="true" title="X, Y, Z axes">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 13V4M12 13l7 4M12 13l-7 4"/></svg>
+        </button>
       </div>
       <div class="cv-dim mono" id="cvDim" hidden></div>
       <div class="cv-sheet" id="cvSheet" hidden>
         <div class="sh-row" data-row="section" hidden>
           <b>Section</b>
           <span class="sh-axes" role="group" aria-label="Cut direction">
-            <button type="button" data-axis="x" aria-pressed="false">Width</button>
-            <button type="button" data-axis="y" aria-pressed="true">Height</button>
-            <button type="button" data-axis="z" aria-pressed="false">Depth</button>
+            <button type="button" data-axis="x" aria-pressed="false">Width (X)</button>
+            <button type="button" data-axis="y" aria-pressed="true">Height (Z)</button>
+            <button type="button" data-axis="z" aria-pressed="false">Depth (Y)</button>
           </span>
           <input type="range" id="secT" min="0" max="100" value="50" aria-label="Cut position">
           <button type="button" id="secFlip">Flip</button>

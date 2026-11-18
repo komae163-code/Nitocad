@@ -33,7 +33,7 @@
   }
  },
  "derived": {
-  "tyre_r": "=tyre_dia/2",
+  "tyre_r": "=max(tyre_dia/2, rim_dia/2 + 2)",
   "rim_r": "=rim_dia/2",
   "hub_half": "=tyre_w/2 - bearing_w/2"
  },
