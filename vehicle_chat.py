@@ -82,6 +82,23 @@ _EDIT_VERB = re.compile(r"\b(make|change|set|add|remove|delete|use|increase|redu
 _QUESTION = re.compile(r"\?\s*$|^\s*(what|why|how|which|who|where|when|is|are|does|do|will|would|should|can|could)\b", re.I)
 _FORCED = re.compile(r"^\s*(?:vehicle|machine)\s*:\s*(\S.*)$", re.I | re.S)
 _NEW = re.compile(r"\b(new|another|different|start over|from scratch|instead)\b", re.I)
+_ASK_WORD = re.compile(r"^\W*(what|why|how|which|who|where|when|is|are|does|do|did|will|would|should|can|could)\b", re.I)
+_SUGGEST = re.compile(r"^\W*(?:how about|what about|what if|why not)\b|^\W*(?:can|could|would|will)\s+you\b", re.I)
+_ASK_STOP = frozenset((
+    "why what how which who where when does did the and not have has with without missing there any are for you show showing "
+    "still yet this that dont isnt part parts step steps car vehicle truck bike its it my your our can cant could would "
+    "should will was were been being model design build built come comes coming only just").split())
+
+
+def is_question(text: str) -> bool:
+    """True when the message asks something and does not ask for a change. A question that happens to contain an edit
+    word (\"why is my car without a tire\") is still a question. \"Can you make it bigger\" and \"why not add a wheel\"
+    are requests."""
+    if _SUGGEST.search(text):
+        return False
+    if _ASK_WORD.search(text):
+        return True
+    return bool(re.search(r"\?\s*$", text)) and not _EDIT_VERB.search(text)
 _NUMBER = re.compile(r"(\d+(?:\.\d+)?)\s*(mm|millimet\w*|cm|centimet\w*|m|metres?|meters?|in|inch\w*|\"|kg|g|deg\w*|°|%)?", re.I)
 
 # ------------------------------------------------------------------ test and deployment hooks
@@ -744,7 +761,51 @@ def _summary_for_model(vspec: dict[str, Any], expanded: dict[str, Any]) -> str:
                        "parts": len(expanded.get("parts") or []), "checks": checks[:30]}, separators=(",", ":"))[:6000]
 
 
-def _answer_question(text: str, vspec: dict[str, Any], llm: LLM | None):
+def _pending_steps(vspec: dict[str, Any], shown: int | None):
+    """(step plan, steps showing) while a build in steps still has steps left, otherwise None."""
+    if shown is None:
+        return None
+    ex = VS.expand_vehicle(vspec, None, None, _module_dir)
+    if not ex["ok"]:
+        return None
+    splan = stage_plan(vspec, ex)
+    return (splan, shown) if splan and shown < len(splan) else None
+
+
+def _norm_word(w: str) -> str:
+    w = {"tire": "wheel", "tyre": "wheel"}.get(w.rstrip("s") if w not in ("tires", "tyres") else w[:-1], w)
+    return w[:-1] if w.endswith("s") and len(w) > 3 else w
+
+
+def missing_part_answer(text: str, pending) -> str | None:
+    """\"Why does my car have no wheel\" while the wheels are a later build step: say which step, change nothing."""
+    if not pending:
+        return None
+    splan, shown = pending
+    words = {_norm_word(w) for w in re.findall(r"[a-z]+", text.lower()) if len(w) >= 3 and w not in _ASK_STOP}
+    for j in range(shown, len(splan)):
+        title, members = splan[j]
+        hay = {_norm_word(w) for w in re.findall(r"[a-z]+", (title + " " + " ".join(members)).lower().replace("_", " "))}
+        hit = sorted(words & hay)
+        if hit:
+            showing = "Only step 1 is showing" if shown == 1 else f"Only steps 1 to {shown} are showing"
+            return (f"It is not missing, it just has not been added yet. The {hit[0]} comes in step {j + 1} of {len(splan)}, "
+                    f"{title}. {showing}. Say next to add the next step, or finish to add everything. Nothing was changed.")
+    return None
+
+
+def _pending_note(pending) -> str:
+    if not pending:
+        return ""
+    splan, shown = pending
+    later = "; ".join(f"step {j + 1} {t}" for j, (t, _) in enumerate(splan) if j >= shown)
+    return f"\nBUILD IN STEPS: steps 1 to {shown} of {len(splan)} are showing. Not added yet: {later}."
+
+
+def _answer_question(text: str, vspec: dict[str, Any], llm: LLM | None, pending=None):
+    early = missing_part_answer(text, pending)
+    if early:
+        return _answer(early)
     ex = VS.expand_vehicle(vspec, None, None, _module_dir)
     if llm is not None and ex["ok"]:
         try:
@@ -752,7 +813,7 @@ def _answer_question(text: str, vspec: dict[str, Any], llm: LLM | None):
                 {"role": "system", "content": "You answer questions about one vehicle design in plain words, in at most "
                  "four sentences. Use only the facts given. Say when something is a simplification. Never call it safe, "
                  "load-rated or flight-worthy. Do not return JSON."},
-                {"role": "user", "content": "DESIGN: " + _summary_for_model(vspec, ex) + "\n\nQUESTION: " + text}])
+                {"role": "user", "content": "DESIGN: " + _summary_for_model(vspec, ex) + _pending_note(pending) + "\n\nQUESTION: " + text}])
             reply = " ".join(str(reply).split())
             if reply and not reply.startswith("{"):
                 return _answer(reply[:900], "llm")
@@ -830,8 +891,8 @@ def _turn(text: str, current_spec: dict | None, llm: LLM | None, library: SL.Spe
             return _advance(current, shown, finish, lid, llm, lib)
     elif _NEXT.match(text):                                        # nothing left to add
         return _answer("Every part is already showing. Tell me what to change, or press Generate to make the files.")
-    if _QUESTION.search(text) and not _EDIT_VERB.search(text):
-        return _answer_question(text, current, llm)
+    if is_question(text):
+        return _answer_question(text, current, llm, _pending_steps(current, shown))
     return _edit(text, current, llm, lib, lid, shown)
 
 
