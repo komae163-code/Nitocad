@@ -181,6 +181,19 @@ def test_a_question_without_an_ai_is_answered_from_the_plan():
     assert plan.intent == "answer" and plan.source == "rules" and "15 parts" in plan.reply
 
 
+def test_a_question_with_an_edit_word_in_it_is_still_a_question():
+    assert VC.is_question("Why is my car without a tire")
+    assert not VC.is_question("why not add a second axle")
+    assert not VC.is_question("make the wheel bigger?")
+
+
+def test_a_missing_part_that_is_a_later_step_is_explained_not_edited():
+    splan = [("the body", ["body_shell", "arch_fl"]), ("the wheels", ["wheel_front_axle", "tyre_front"])]
+    reply = VC.missing_part_answer("Why is my car without a tire", (splan, 1))
+    assert reply and "step 2 of 2" in reply and "Nothing was changed" in reply
+    assert VC.missing_part_answer("why is there no spoiler?", (splan, 1)) is None
+
+
 def test_a_new_vehicle_replaces_the_current_one():
     plan = VC.plan_vehicle_turn("now build a bicycle instead", current_barrow(), llm=None, library=lib())
     assert plan.intent == "build" and plan.spec["parameters"]["vehicle"]["name"] == "bicycle"
