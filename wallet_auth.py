@@ -117,8 +117,9 @@ def verify_google_and_create_session(id_token: str) -> dict:
     a display convenience on top, nothing downstream keys on it."""
     claims = google_auth.verify_google_id_token(id_token)
     account_id, is_new = db.get_or_create_email_account(claims["sub"], claims["email"])
+    granted = False
     if is_new:
-        db.grant_signup_bonus(account_id)
+        granted = bool(db.grant_signup_bonus(account_id))
 
     session_id, expires_at = db.create_session(account_id, ttl_seconds=settings.WALLET_SESSION_TTL_SECONDS)
     return {
@@ -126,6 +127,9 @@ def verify_google_and_create_session(id_token: str) -> dict:
         "wallet_address": account_id,
         "expires_at": expires_at,
         "email": claims["email"],
+        # Lets the frontend show a one-time welcome banner. welcome_bonus is 0 for returning accounts.
+        "is_new": is_new,
+        "welcome_bonus": int(settings.EMAIL_SIGNUP_BONUS_CREDITS) if granted else 0,
     }
 
 
