@@ -5,6 +5,7 @@ Owner-only usage metrics. Included from web_app.py with
 
   GET /admin/stats?days=30   JSON: signups, generations, AI usage, daily series
   GET /admin/dashboard       a small page that asks for the token and shows the JSON
+  POST /admin/grant-credits  gift credits to one Google email or wallet (never expire)
 
 Both stay off until ADMIN_TOKEN is set. With no token configured every route
 answers 404, so a fresh deploy never exposes numbers by accident. Send the
@@ -35,6 +36,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 from fastapi.responses import HTMLResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -52,6 +54,41 @@ _REAL_USER = "user_id NOT IN ('anonymous', 'default')"
 
 
 _MIN_TOKEN_LEN = 24
+MAX_GIFT = 10000
+
+
+class GiftBody(BaseModel):
+    who: str = Field(..., min_length=3, max_length=200, description="Google email or 0x wallet address")
+    amount: int = Field(..., ge=1, le=MAX_GIFT)
+    ref: str | None = Field(None, max_length=100, description="Repeat the same ref and nothing is granted twice")
+
+
+def _resolve_account(who: str) -> str:
+    who = who.strip()
+    if "@" in who:
+        conn = db.get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT account_id FROM email_accounts WHERE lower(email) = ?", (who.lower(),)
+            ).fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            raise HTTPException(status_code=404, detail="No account for that email. It must sign in once first.")
+        if len(rows) > 1:
+            raise HTTPException(status_code=409, detail="More than one account has that email. Check email_accounts.")
+        return str(rows[0][0]).lower()
+    if who.lower().startswith("0x") and len(who) == 42:
+        return who.lower()
+    raise HTTPException(status_code=422, detail="Give a Google email or a 42 character 0x wallet address.")
+
+
+def gift_credits(who: str, amount: int, ref: str | None = None) -> dict[str, Any]:
+    account = _resolve_account(who)
+    before = db.get_credit_balance(account)
+    granted, after = db.gift_credits(account, amount, ref)
+    logger.info("admin gift: %s credits to %s (granted=%s, ref=%s)", amount, account, granted, ref)
+    return {"account": account, "granted": granted, "amount": amount if granted else 0, "balance_before": before, "balance_after": after}
 
 
 def _admin_token() -> str | None:
@@ -344,6 +381,10 @@ input,button,select{font:inherit;padding:6px 8px}
 <div id="login"><input id="tok" type="password" placeholder="Admin token" autocomplete="off">
 <select id="days"><option>7</option><option selected>30</option><option>90</option></select>
 <button id="go">Load</button> <span id="err"></span></div>
+<h2>Gift credits</h2>
+<div id="gift"><input id="who" type="email" placeholder="Email or 0x wallet" autocomplete="off">
+<input id="amt" type="number" min="1" max="10000" placeholder="Credits" style="width:90px">
+<button id="give">Gift</button> <span id="gmsg"></span></div>
 <div id="out"></div>
 <script>
 const $=id=>document.getElementById(id);
@@ -365,6 +406,23 @@ async function load(){
    table(d.daily.slice().reverse(),['date','signups','builds','paid_generations']),
    el('h2','Top part types'),table(d.generations.top_part_types_in_window,['part_type','count']));
 }
+let giftRef=null;
+async function gift(){
+  const m=$('gmsg');m.style.color='';m.textContent='';
+  const who=$('who').value.trim(),amount=parseInt($('amt').value,10);
+  if(!who||!(amount>0)){m.style.color='#c33';m.textContent='Enter an email and an amount';return}
+  if(!giftRef)giftRef=crypto.randomUUID();   // a double tap reuses it, so credits are granted once
+  $('give').disabled=true;
+  try{
+    const r=await fetch('/admin/grant-credits',{method:'POST',headers:{'X-Admin-Token':$('tok').value,'Content-Type':'application/json'},body:JSON.stringify({who:who,amount:amount,ref:giftRef})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){m.style.color='#c33';m.textContent=r.status===401?'Wrong token':(typeof d.detail==='string'?d.detail:'Error '+r.status);return}
+    giftRef=null;
+    m.textContent=(d.granted?'Gifted '+d.amount:'Already gifted')+'. Balance '+d.balance_before+' to '+d.balance_after;
+  }catch(e){m.style.color='#c33';m.textContent='Network error, tap Gift again to retry safely'}
+  finally{$('give').disabled=false}
+}
+$('give').onclick=gift;
 $('go').onclick=load;$('tok').addEventListener('keydown',e=>{if(e.key==='Enter')load()});
 </script></body></html>"""
 
@@ -380,6 +438,12 @@ def build_router(*, limiter: Any = None) -> APIRouter:
     async def admin_stats(request: Request, days: int = 30):
         _check_token(request)
         return await run_in_threadpool(compute_stats, days)
+
+    @router.post("/admin/grant-credits")
+    @_limit
+    async def admin_grant_credits(request: Request, body: GiftBody):
+        _check_token(request)
+        return await run_in_threadpool(gift_credits, body.who, body.amount, body.ref)
 
     @router.get("/admin/dashboard", response_class=HTMLResponse)
     @_limit
