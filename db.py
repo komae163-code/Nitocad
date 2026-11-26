@@ -1174,6 +1174,17 @@ def add_credits(wallet_address: str, amount: int) -> int:
     return get_credit_balance(wallet_address)
 
 
+def gift_credits(wallet_address: str, amount: int, ref: str | None = None) -> tuple[bool, int]:
+    """Owner gift into the purchased pool (never expires). With a `ref`, repeating
+    the same ref grants nothing, so a double tap or a retried request cannot gift
+    twice. Returns (granted, purchased balance now)."""
+    if amount <= 0:
+        raise ValueError("gift amount must be positive")
+    key = f"gift:{ref}" if ref else str(uuid.uuid4())
+    granted = _ledger.grant(wallet_address.lower(), "topup", amount, key)
+    return granted, get_credit_balance(wallet_address)
+
+
 def consume_credit(wallet_address: str, amount: int = 1) -> bool:
     """Spends `amount` purchased credits atomically. True if the wallet could
     pay. Subscription credits are not touched, use consume_credit_waterfall
