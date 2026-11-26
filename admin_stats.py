@@ -66,13 +66,10 @@ class GiftBody(BaseModel):
 def _resolve_account(who: str) -> str:
     who = who.strip()
     if "@" in who:
-        conn = db.get_conn()
-        try:
+        with db.get_conn() as conn:
             rows = conn.execute(
                 "SELECT account_id FROM email_accounts WHERE lower(email) = ?", (who.lower(),)
             ).fetchall()
-        finally:
-            conn.close()
         if not rows:
             raise HTTPException(status_code=404, detail="No account for that email. It must sign in once first.")
         if len(rows) > 1:
