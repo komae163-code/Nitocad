@@ -416,7 +416,7 @@ async function gift(){
   try{
     const r=await fetch('/admin/grant-credits',{method:'POST',headers:{'X-Admin-Token':$('tok').value,'Content-Type':'application/json'},body:JSON.stringify({who:who,amount:amount,ref:giftRef})});
     const d=await r.json().catch(()=>({}));
-    if(!r.ok){m.style.color='#c33';m.textContent=r.status===401?'Wrong token':(typeof d.detail==='string'?d.detail:'Error '+r.status);return}
+    if(!r.ok){m.style.color='#c33';m.textContent=r.status===401?'Wrong token':(typeof d.detail==='string'?d.detail:'Error '+r.status+' '+JSON.stringify(d.detail||'').slice(0,160));return}
     giftRef=null;
     m.textContent=(d.granted?'Gifted '+d.amount:'Already gifted')+'. Balance '+d.balance_before+' to '+d.balance_after;
   }catch(e){m.style.color='#c33';m.textContent='Network error, tap Gift again to retry safely'}
@@ -441,8 +441,18 @@ def build_router(*, limiter: Any = None) -> APIRouter:
 
     @router.post("/admin/grant-credits")
     @_limit
-    async def admin_grant_credits(request: Request, body: GiftBody):
+    async def admin_grant_credits(request: Request):
         _check_token(request)
+        # Read the body by hand. Declaring it as a typed parameter can fail to resolve once the
+        # rate limiter wraps this function, and FastAPI then answers 422 to every request.
+        try:
+            body = GiftBody(**(await request.json()))
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail='Send JSON like {"who": "name@gmail.com", "amount": 1000}. Amount is 1 to %d. (%s)'
+                % (MAX_GIFT, str(exc).splitlines()[0][:80]),
+            )
         return await run_in_threadpool(gift_credits, body.who, body.amount, body.ref)
 
     @router.get("/admin/dashboard", response_class=HTMLResponse)
